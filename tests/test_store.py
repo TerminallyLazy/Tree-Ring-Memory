@@ -290,3 +290,29 @@ def test_facade_redact_clears_secret_metadata_from_storage_and_recall(tmp_path):
     assert secret not in json.dumps(redacted.to_dict(), sort_keys=True)
     assert memory.recall(secret, include_sensitive=True) == []
     assert memory.store.search_text(secret, include_superseded=True) == []
+
+
+def test_facade_redact_clears_secret_superseded_by_from_storage(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+    old = MemoryEvent.new(summary="Legacy superseded memory.", event_type="lesson")
+    memory.store.put(old)
+    memory.store.supersede(old.id, secret)
+
+    legacy = memory.store.get(old.id)
+    assert legacy is not None
+    assert legacy.superseded_by == secret
+
+    memory.forget(old.id, mode="redact", reason="remove legacy secret superseded metadata")
+
+    redacted = memory.store.get(old.id)
+    assert redacted is not None
+    assert redacted.superseded_by is None
+    assert secret not in json.dumps(redacted.to_dict(), sort_keys=True)
+
+    row = memory.store.connection.execute(
+        "SELECT superseded_by, raw_json FROM memories WHERE id = ?",
+        (old.id,),
+    ).fetchone()
+    assert row["superseded_by"] is None
+    assert secret not in row["raw_json"]

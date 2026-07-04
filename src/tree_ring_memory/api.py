@@ -142,6 +142,7 @@ class TreeRingMemory:
             event.tags = []
             event.source = MemorySource()
             event.supersedes = []
+            event.superseded_by = None
             event.links = []
             event.review = MemoryReview()
             event.sensitivity = "private"
