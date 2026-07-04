@@ -1,5 +1,7 @@
 # Tree Ring Memory
 
+![Tree Ring Memory retro roller-rink banner](assets/tree-ring-memory-banner.png)
+
 Tree Ring Memory is a framework-agnostic memory lifecycle layer for AI agents.
 
 It helps agents remember useful decisions, warnings, preferences, and lessons without turning memory into a transcript dump. Fresh memory stays detailed, older memory compresses into rings, important scars remain visible, and durable truths become heartwood.
@@ -42,6 +44,11 @@ The CLI stores memory in `.tree-ring/` by default.
 
 - `docs/superpowers/specs/2026-07-04-tree-ring-memory-framework-design.md`
 - `docs/feature/tree-ring-memory-framework/diverge/options-raw.md`
+
+## Brand Assets
+
+- `assets/tree-ring-memory-logo.png`
+- `assets/tree-ring-memory-banner.png`
 
 ## Principles
 
