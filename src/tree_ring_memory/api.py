@@ -45,16 +45,28 @@ class TreeRingMemory:
     ) -> MemoryEvent:
         source = source or MemorySource()
         tags = tags or []
+        supersedes = supersedes or []
+        links = links or []
+        review = review or MemoryReview()
         sensitivity_results = self._check_public_text_fields(
             summary,
             details,
             event_type,
+            scope,
+            ring,
             project,
             agent_profile,
             source.type,
             source.ref,
             source.quote,
+            sensitivity,
+            retention,
             *tags,
+            *supersedes,
+            *[value for link in links for value in (link.type, link.target)],
+            review.review_reason,
+            review.reviewed_at,
+            review.reviewed_by,
         )
         if sensitivity == "normal":
             sensitivity = _detected_sensitivity(*sensitivity_results)
@@ -79,6 +91,8 @@ class TreeRingMemory:
             review=review,
         )
         self.store.put(event)
+        for superseded_id in event.supersedes:
+            self.store.supersede(superseded_id, event.id)
         return event
 
     def recall(
@@ -122,9 +136,14 @@ class TreeRingMemory:
                 return
             event.summary = "[REDACTED]"
             event.details = ""
+            event.project = None
+            event.agent_profile = None
+            event.event_type = "redacted"
             event.tags = []
-            event.source.ref = ""
-            event.source.quote = ""
+            event.source = MemorySource()
+            event.supersedes = []
+            event.links = []
+            event.review = MemoryReview()
             event.sensitivity = "private"
             event.updated_at = now_utc()
             self.store.put(event)

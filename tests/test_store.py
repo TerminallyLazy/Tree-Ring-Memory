@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from tree_ring_memory.models import MemoryEvent, MemorySource
+from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource
 from tree_ring_memory.store import SQLiteMemoryStore
 
 
@@ -164,6 +166,61 @@ def test_facade_blocks_secret_source_ref_by_default(tmp_path):
         )
 
 
+def test_facade_blocks_secret_link_target_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(ValueError, match="blocked"):
+        memory.remember(
+            summary="Facade should guard link targets.",
+            event_type="lesson",
+            links=[MemoryLink(type="url", target="sk-proj-abcdefghijklmnopqrstuvwxyz1234567890")],
+        )
+
+
+def test_facade_blocks_secret_supersedes_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(ValueError, match="blocked"):
+        memory.remember(
+            summary="Facade should guard supersession ids.",
+            event_type="lesson",
+            supersedes=["sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"],
+        )
+
+
+@pytest.mark.parametrize(
+    "review",
+    [
+        MemoryReview(review_reason="sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+        MemoryReview(reviewed_at="sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+        MemoryReview(reviewed_by="sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+    ],
+)
+def test_facade_blocks_secret_review_fields_by_default(tmp_path, review):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(ValueError, match="blocked"):
+        memory.remember(
+            summary="Facade should guard review metadata.",
+            event_type="lesson",
+            review=review,
+        )
+
+
+def test_facade_supersedes_hides_old_memory_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    old = memory.remember(summary="Use polling invalidation.", event_type="decision")
+    new = memory.remember(
+        summary="Use snapshot invalidation.",
+        event_type="decision",
+        supersedes=[old.id],
+    )
+
+    assert memory.store.get(old.id).superseded_by == new.id
+    assert memory.recall("polling") == []
+    assert [result.memory.id for result in memory.recall("polling", include_superseded=True)] == [old.id]
+
+
 def test_facade_redact_clears_secret_source_ref_from_storage_and_recall(tmp_path):
     memory = TreeRingMemory.open(tmp_path / ".tree-ring")
     secret_ref = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
@@ -190,3 +247,46 @@ def test_facade_redact_clears_secret_source_ref_from_storage_and_recall(tmp_path
     assert secret_ref not in str(redacted.to_dict())
     assert memory.recall(secret_ref, include_sensitive=True) == []
     assert memory.store.search_text(secret_ref, include_superseded=True) == []
+
+
+def test_facade_redact_clears_secret_metadata_from_storage_and_recall(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+    event = MemoryEvent.new(
+        summary="Legacy memory with secret metadata.",
+        event_type=secret,
+        project=secret,
+        agent_profile=secret,
+        details="details should be cleared",
+        source=MemorySource(type=secret, ref=secret, quote=secret),
+        tags=[secret],
+        sensitivity="secret",
+        supersedes=[secret],
+        links=[MemoryLink(type="url", target=secret)],
+        review=MemoryReview(
+            needs_review=True,
+            review_reason=secret,
+            reviewed_at=secret,
+            reviewed_by=secret,
+        ),
+    )
+    memory.store.put(event)
+
+    memory.forget(event.id, mode="redact", reason="remove legacy secret metadata")
+
+    redacted = memory.store.get(event.id)
+    assert redacted is not None
+    assert redacted.summary == "[REDACTED]"
+    assert redacted.details == ""
+    assert redacted.project is None
+    assert redacted.agent_profile is None
+    assert redacted.event_type == "redacted"
+    assert redacted.source == MemorySource()
+    assert redacted.tags == []
+    assert redacted.supersedes == []
+    assert redacted.links == []
+    assert redacted.review == MemoryReview()
+    assert redacted.sensitivity == "private"
+    assert secret not in json.dumps(redacted.to_dict(), sort_keys=True)
+    assert memory.recall(secret, include_sensitive=True) == []
+    assert memory.store.search_text(secret, include_superseded=True) == []
