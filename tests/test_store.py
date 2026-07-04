@@ -115,3 +115,28 @@ def test_search_text_does_not_treat_or_as_boolean_operator(tmp_path):
     store.put(MemoryEvent.new(summary="Use local SQLite for v0.1.", event_type="decision", ring="heartwood"))
 
     assert store.search_text("cache OR SQLite") == []
+
+
+from tree_ring_memory import TreeRingMemory
+
+
+def test_facade_remember_recall_and_forget(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    event = memory.remember(summary="Facade stores memory.", event_type="lesson", tags=["facade"])
+
+    results = memory.recall("facade")
+    assert results[0].memory.id == event.id
+
+    memory.forget(event.id, mode="delete", reason="test cleanup")
+    assert memory.recall("facade") == []
+
+
+def test_facade_blocks_secret_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    try:
+        memory.remember(summary="token = sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", event_type="lesson")
+    except ValueError as exc:
+        assert "blocked" in str(exc)
+    else:
+        raise AssertionError("secret-like memory should be blocked")
