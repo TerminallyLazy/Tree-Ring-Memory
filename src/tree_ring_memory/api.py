@@ -43,10 +43,21 @@ class TreeRingMemory:
         links: list[MemoryLink] | None = None,
         review: MemoryReview | None = None,
     ) -> MemoryEvent:
-        summary_result = self._sensitivity_guard.check_or_raise(summary)
-        details_result = self._sensitivity_guard.check_or_raise(details)
+        source = source or MemorySource()
+        tags = tags or []
+        sensitivity_results = self._check_public_text_fields(
+            summary,
+            details,
+            event_type,
+            project,
+            agent_profile,
+            source.type,
+            source.ref,
+            source.quote,
+            *tags,
+        )
         if sensitivity == "normal":
-            sensitivity = _detected_sensitivity(summary_result, details_result)
+            sensitivity = _detected_sensitivity(*sensitivity_results)
 
         event = MemoryEvent.new(
             summary=summary,
@@ -112,13 +123,17 @@ class TreeRingMemory:
             event.summary = "[REDACTED]"
             event.details = ""
             event.tags = []
+            event.source.ref = ""
             event.source.quote = ""
-            event.sensitivity = "normal"
+            event.sensitivity = "private"
             event.updated_at = now_utc()
             self.store.put(event)
             return
 
         raise ValueError(f"unsupported forget mode: {mode}")
+
+    def _check_public_text_fields(self, *values: str | None) -> list[SensitivityResult]:
+        return [self._sensitivity_guard.check_or_raise(value or "") for value in values]
 
 
 def _detected_sensitivity(*results: SensitivityResult) -> str:

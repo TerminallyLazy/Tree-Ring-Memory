@@ -140,3 +140,53 @@ def test_facade_blocks_secret_by_default(tmp_path):
         assert "blocked" in str(exc)
     else:
         raise AssertionError("secret-like memory should be blocked")
+
+
+def test_facade_blocks_secret_tag_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(ValueError, match="blocked"):
+        memory.remember(
+            summary="Facade should guard indexed tags.",
+            event_type="lesson",
+            tags=["sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"],
+        )
+
+
+def test_facade_blocks_secret_source_ref_by_default(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(ValueError, match="blocked"):
+        memory.remember(
+            summary="Facade should guard indexed source refs.",
+            event_type="lesson",
+            source=MemorySource(type="manual", ref="sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+        )
+
+
+def test_facade_redact_clears_secret_source_ref_from_storage_and_recall(tmp_path):
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    secret_ref = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+    event = MemoryEvent.new(
+        summary="Legacy memory with source ref.",
+        event_type="lesson",
+        details="details should be cleared",
+        source=MemorySource(type="manual", ref=secret_ref, quote="quoted secret context"),
+        tags=["secret-tag"],
+        sensitivity="secret",
+    )
+    memory.store.put(event)
+
+    memory.forget(event.id, mode="redact", reason="remove legacy secret source ref")
+
+    redacted = memory.store.get(event.id)
+    assert redacted is not None
+    assert redacted.summary == "[REDACTED]"
+    assert redacted.details == ""
+    assert redacted.source.ref == ""
+    assert redacted.source.quote == ""
+    assert redacted.tags == []
+    assert redacted.sensitivity == "private"
+    assert secret_ref not in str(redacted.to_dict())
+    assert memory.recall(secret_ref, include_sensitive=True) == []
+    assert memory.store.search_text(secret_ref, include_superseded=True) == []
