@@ -27,6 +27,17 @@ for result in results:
     print(result.memory.summary, result.score)
 ```
 
+## CLI Preview
+
+```bash
+tree-ring init
+tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
+tree-ring recall "protocol design"
+tree-ring forget mem_example --mode delete --reason "example cleanup"
+```
+
+The CLI stores memory in `.tree-ring/` by default.
+
 ## Design Docs
 
 - `docs/superpowers/specs/2026-07-04-tree-ring-memory-framework-design.md`
