@@ -4,34 +4,43 @@ import importlib
 import json
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
-from tree_ring_memory.models import MemoryEvent
+from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource
 from tree_ring_memory.recall import RecallResult
+
+
+class NativeBindingNotInstalled(ImportError):
+    """Raised when the optional Rust native module is absent."""
 
 
 class NativeTreeRingMemory:
     """Python facade for the optional PyO3 native module.
 
-    This v0.3 preview wrapper is intentionally explicit. The default
-    `TreeRingMemory` facade remains Python-backed until native parity is broader.
+    The public `TreeRingMemory` facade uses this Rust-native backend by default
+    when the extension is installed.
     """
 
-    def __init__(self, native: Any) -> None:
+    backend_name = "rust-native"
+
+    def __init__(self, native: Any, root: Path) -> None:
         self._native = native
+        self.root = root
 
     @classmethod
     def open(cls, root: str | Path) -> NativeTreeRingMemory:
+        root = Path(root)
         module_name = "tree_ring_memory._tree_ring_memory_native"
         try:
             native_module = importlib.import_module(module_name)
         except ModuleNotFoundError as exc:
             if exc.name != module_name:
                 raise
-            raise ImportError(
+            raise NativeBindingNotInstalled(
                 "Tree Ring Memory native bindings are not installed. "
                 "Build them with `cd bindings/python && maturin develop`."
             ) from exc
-        return cls(native_module.TreeRingMemoryNative.open(str(root)))
+        return cls(native_module.TreeRingMemoryNative.open(str(root)), root)
 
     def remember(
         self,
@@ -41,9 +50,39 @@ class NativeTreeRingMemory:
         scope: str = "global",
         ring: str = "cambium",
         project: str | None = None,
+        agent_profile: str | None = None,
+        details: str = "",
+        source: MemorySource | None = None,
         tags: list[str] | None = None,
+        salience: float = 0.5,
+        confidence: float = 0.5,
+        sensitivity: str = "normal",
+        retention: str = "normal",
+        expires_at=None,
+        supersedes: list[str] | None = None,
+        links: list[MemoryLink] | None = None,
+        review: MemoryReview | None = None,
     ) -> MemoryEvent:
-        payload = self._native.remember_json(summary, event_type, ring, scope, project, tags or [])
+        request = {
+            "summary": summary,
+            "event_type": event_type,
+            "scope": scope,
+            "ring": ring,
+            "project": project,
+            "agent_profile": agent_profile,
+            "details": details,
+            "source": (source or MemorySource()).to_dict(),
+            "tags": tags or [],
+            "salience": salience,
+            "confidence": confidence,
+            "sensitivity": sensitivity,
+            "retention": retention,
+            "expires_at": _iso_or_none(expires_at),
+            "supersedes": supersedes or [],
+            "links": [link.to_dict() for link in links or []],
+            "review": (review or MemoryReview()).to_dict(),
+        }
+        payload = self._native.remember_event_json(json.dumps(request, sort_keys=True))
         return MemoryEvent.from_dict(json.loads(payload))
 
     def recall(
@@ -51,10 +90,28 @@ class NativeTreeRingMemory:
         query: str,
         *,
         project: str | None = None,
+        agent_profile: str | None = None,
+        scope: str | None = None,
+        rings: list[str] | None = None,
+        event_types: list[str] | None = None,
         include_sensitive: bool = False,
+        include_superseded: bool = False,
         limit: int = 8,
+        explain_ranking: bool = False,
     ) -> list[RecallResult]:
-        payload = json.loads(self._native.recall_json(query, project, limit, include_sensitive))
+        request = {
+            "query": query,
+            "project": project,
+            "agent_profile": agent_profile,
+            "scope": scope,
+            "rings": rings,
+            "event_types": event_types,
+            "include_sensitive": include_sensitive,
+            "include_superseded": include_superseded,
+            "limit": limit,
+            "explain_ranking": explain_ranking,
+        }
+        payload = json.loads(self._native.recall_query_json(json.dumps(request, sort_keys=True)))
         return [
             RecallResult(
                 memory=MemoryEvent.from_dict(item["memory"]),
@@ -66,3 +123,11 @@ class NativeTreeRingMemory:
 
     def forget(self, memory_id: str, *, mode: str, reason: str) -> None:
         self._native.forget(memory_id, mode, reason)
+
+
+def _iso_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)

@@ -1,8 +1,9 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use serde::Deserialize;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
-use tree_ring_memory_core::MemoryEvent;
+use tree_ring_memory_core::{MemoryEvent, MemoryLink, MemoryReview, MemorySource};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 #[pyclass(name = "TreeRingMemoryNative", unsendable)]
@@ -61,22 +62,43 @@ impl PyTreeRingMemoryNative {
         if detected_sensitivity != "normal" {
             event.sensitivity = detected_sensitivity;
         }
-        event.validate().map_err(to_py_value_error)?;
-        self.store.put(&event).map_err(to_py_runtime_error)?;
-        serde_json::to_string(&event).map_err(to_py_runtime_error)
+        self.put_event(event)
+    }
+
+    pub fn remember_event_json(&mut self, request_json: &str) -> PyResult<String> {
+        let request: RememberRequest =
+            serde_json::from_str(request_json).map_err(to_py_value_error)?;
+        let mut event =
+            MemoryEvent::new(request.summary, request.event_type).map_err(to_py_value_error)?;
+        event.scope = request.scope.unwrap_or_else(|| "global".to_string());
+        event.ring = request.ring.unwrap_or_else(|| "cambium".to_string());
+        event.project = request.project;
+        event.agent_profile = request.agent_profile;
+        event.details = request.details.unwrap_or_default();
+        event.source = request.source.unwrap_or_default();
+        event.tags = request.tags.unwrap_or_default();
+        if let Some(salience) = request.salience {
+            event.salience = salience;
+        }
+        if let Some(confidence) = request.confidence {
+            event.confidence = confidence;
+        }
+        if let Some(sensitivity) = request.sensitivity {
+            event.sensitivity = sensitivity;
+        }
+        if let Some(retention) = request.retention {
+            event.retention = retention;
+        }
+        event.expires_at = request.expires_at;
+        event.supersedes = request.supersedes.unwrap_or_default();
+        event.links = request.links.unwrap_or_default();
+        event.review = request.review.unwrap_or_default();
+        self.put_event(event)
     }
 
     pub fn put_event_json(&mut self, event_json: &str) -> PyResult<String> {
-        let mut event: MemoryEvent = serde_json::from_str(event_json).map_err(to_py_value_error)?;
-        let detected_sensitivity = SensitivityGuard::default()
-            .detect_memory_event_sensitivity(&event)
-            .map_err(to_py_value_error)?;
-        if event.sensitivity == "normal" && detected_sensitivity != "normal" {
-            event.sensitivity = detected_sensitivity;
-        }
-        event.validate().map_err(to_py_value_error)?;
-        self.store.put(&event).map_err(to_py_runtime_error)?;
-        serde_json::to_string(&event).map_err(to_py_runtime_error)
+        let event: MemoryEvent = serde_json::from_str(event_json).map_err(to_py_value_error)?;
+        self.put_event(event)
     }
 
     #[pyo3(signature = (query, project=None, limit=8, include_sensitive=false))]
@@ -114,6 +136,36 @@ impl PyTreeRingMemoryNative {
         serde_json::to_string(&payload).map_err(to_py_runtime_error)
     }
 
+    pub fn recall_query_json(&self, request_json: &str) -> PyResult<String> {
+        let request: RecallRequest =
+            serde_json::from_str(request_json).map_err(to_py_value_error)?;
+        let results = MemoryRetriever::new(&self.store)
+            .recall(
+                &request.query,
+                request.project.as_deref(),
+                request.agent_profile.as_deref(),
+                request.scope.as_deref(),
+                request.rings.as_deref(),
+                request.event_types.as_deref(),
+                request.include_sensitive.unwrap_or(false),
+                request.include_superseded.unwrap_or(false),
+                request.limit.unwrap_or(8),
+                request.explain_ranking.unwrap_or(false),
+            )
+            .map_err(to_py_runtime_error)?;
+        let payload: Vec<_> = results
+            .into_iter()
+            .map(|result| {
+                serde_json::json!({
+                    "memory": result.memory,
+                    "score": result.score,
+                    "ranking": result.ranking,
+                })
+            })
+            .collect();
+        serde_json::to_string(&payload).map_err(to_py_runtime_error)
+    }
+
     pub fn forget(&mut self, memory_id: String, mode: String, reason: String) -> PyResult<()> {
         if reason.trim().is_empty() {
             return Err(PyValueError::new_err("forget reason is required"));
@@ -126,6 +178,84 @@ impl PyTreeRingMemoryNative {
             ))),
         }
     }
+}
+
+impl PyTreeRingMemoryNative {
+    fn put_event(&mut self, mut event: MemoryEvent) -> PyResult<String> {
+        let detected_sensitivity = SensitivityGuard::default()
+            .detect_memory_event_sensitivity(&event)
+            .map_err(to_py_value_error)?;
+        if event.sensitivity == "normal" && detected_sensitivity != "normal" {
+            event.sensitivity = detected_sensitivity;
+        }
+        event.validate().map_err(to_py_value_error)?;
+        self.store.put(&event).map_err(to_py_runtime_error)?;
+        for superseded_id in &event.supersedes {
+            self.store
+                .supersede(superseded_id, &event.id)
+                .map_err(to_py_runtime_error)?;
+        }
+        serde_json::to_string(&event).map_err(to_py_runtime_error)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RememberRequest {
+    summary: String,
+    event_type: String,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    ring: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    agent_profile: Option<String>,
+    #[serde(default)]
+    details: Option<String>,
+    #[serde(default)]
+    source: Option<MemorySource>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    #[serde(default)]
+    salience: Option<f64>,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    sensitivity: Option<String>,
+    #[serde(default)]
+    retention: Option<String>,
+    #[serde(default)]
+    expires_at: Option<String>,
+    #[serde(default)]
+    supersedes: Option<Vec<String>>,
+    #[serde(default)]
+    links: Option<Vec<MemoryLink>>,
+    #[serde(default)]
+    review: Option<MemoryReview>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RecallRequest {
+    query: String,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    agent_profile: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    rings: Option<Vec<String>>,
+    #[serde(default)]
+    event_types: Option<Vec<String>>,
+    #[serde(default)]
+    include_sensitive: Option<bool>,
+    #[serde(default)]
+    include_superseded: Option<bool>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    explain_ranking: Option<bool>,
 }
 
 #[pyfunction]
@@ -203,6 +333,161 @@ mod tests {
 
         assert!(event.id.starts_with("mem_"));
         assert!(recalled_json.contains(&event.id));
+    }
+
+    #[test]
+    fn native_binding_remember_event_json_preserves_full_facade_contract() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let request = serde_json::json!({
+            "summary": "Rust owns the full remember contract.",
+            "details": "Details should be stored natively.",
+            "event_type": "decision",
+            "scope": "project",
+            "ring": "heartwood",
+            "project": "migration",
+            "agent_profile": "default",
+            "source": {"type": "file", "ref": "README.md", "quote": ""},
+            "tags": ["rust", "native"],
+            "salience": 0.8,
+            "confidence": 0.9,
+            "retention": "durable",
+            "links": [{"type": "file", "target": "README.md"}],
+            "review": {"needs_review": true, "review_reason": "native parity"}
+        });
+
+        let event_json = memory
+            .remember_event_json(&serde_json::to_string(&request).unwrap())
+            .unwrap();
+        let event: MemoryEvent = serde_json::from_str(&event_json).unwrap();
+
+        assert_eq!(event.summary, "Rust owns the full remember contract.");
+        assert_eq!(event.details, "Details should be stored natively.");
+        assert_eq!(event.scope, "project");
+        assert_eq!(event.ring, "heartwood");
+        assert_eq!(event.project.as_deref(), Some("migration"));
+        assert_eq!(event.agent_profile.as_deref(), Some("default"));
+        assert_eq!(event.source.ref_, "README.md");
+        assert_eq!(event.tags, vec!["rust".to_string(), "native".to_string()]);
+        assert_eq!(event.salience, 0.8);
+        assert_eq!(event.confidence, 0.9);
+        assert_eq!(event.retention, "durable");
+        assert_eq!(event.links[0].target, "README.md");
+        assert!(event.review.needs_review);
+    }
+
+    #[test]
+    fn native_binding_remember_event_json_supersedes_prior_memory() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let old_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Old migration decision.",
+                    "event_type": "decision",
+                    "project": "migration"
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let old: MemoryEvent = serde_json::from_str(&old_json).unwrap();
+        let new_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "New migration decision.",
+                    "event_type": "decision",
+                    "project": "migration",
+                    "supersedes": [old.id]
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let new_event: MemoryEvent = serde_json::from_str(&new_json).unwrap();
+        let old_after = memory.store.get(&old.id).unwrap().unwrap();
+
+        assert_eq!(
+            old_after.superseded_by.as_deref(),
+            Some(new_event.id.as_str())
+        );
+        assert!(memory
+            .recall_query_json(
+                &serde_json::json!({
+                    "query": "migration decision",
+                    "project": "migration",
+                    "include_superseded": false
+                })
+                .to_string()
+            )
+            .unwrap()
+            .contains(&new_event.id));
+    }
+
+    #[test]
+    fn native_binding_recall_query_json_applies_filters_and_ranking() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let target_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Filtered native recall keeps durable Rust migration decisions.",
+                    "event_type": "decision",
+                    "scope": "project",
+                    "ring": "heartwood",
+                    "project": "migration",
+                    "agent_profile": "default",
+                    "tags": ["rust"]
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let target: MemoryEvent = serde_json::from_str(&target_json).unwrap();
+        memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Filtered native recall should skip other projects.",
+                    "event_type": "lesson",
+                    "scope": "project",
+                    "ring": "outer",
+                    "project": "other",
+                    "agent_profile": "default",
+                    "tags": ["rust"]
+                })
+                .to_string(),
+            )
+            .unwrap();
+
+        let payload: serde_json::Value = serde_json::from_str(
+            &memory
+                .recall_query_json(
+                    &serde_json::json!({
+                        "query": "durable Rust migration decision",
+                        "project": "migration",
+                        "agent_profile": "default",
+                        "scope": "project",
+                        "rings": ["heartwood"],
+                        "event_types": ["decision"],
+                        "limit": 8,
+                        "explain_ranking": true
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+
+        let results = payload.as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["memory"]["id"], target.id);
+        assert!(results[0]["ranking"]["source_authority"].is_number());
     }
 
     #[test]

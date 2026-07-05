@@ -49,10 +49,17 @@ def main() -> int:
                 str(python),
                 "-c",
                 (
+                    "import tempfile; "
+                    "from pathlib import Path; "
                     "from tree_ring_memory import TreeRingMemory, NativeTreeRingMemory; "
                     "import tree_ring_memory._tree_ring_memory_native as native; "
                     "assert TreeRingMemory.__module__ == 'tree_ring_memory.api'; "
                     "assert NativeTreeRingMemory.__module__ == 'tree_ring_memory.native_backend'; "
+                    "memory = TreeRingMemory.open(Path(tempfile.mkdtemp()) / '.tree-ring'); "
+                    "assert memory.backend_name == 'rust-native'; "
+                    "event = memory.remember(summary='Native default facade works.', event_type='lesson'); "
+                    "results = memory.recall('native facade'); "
+                    "assert results and results[0].memory.id == event.id; "
                     "print(native.native_version())"
                 ),
             ]
