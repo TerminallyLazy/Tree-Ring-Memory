@@ -8,7 +8,7 @@ Tree Ring Memory ships two integration aids for agent workflows:
 ## Skill Usage
 
 Use the skill in agent runtimes that support local skills or instruction packs.
-The skill is framework-agnostic and does not assume Agent Zero, Claude, Codex, or another single host.
+The skill is framework-agnostic and does not assume any single host runtime, model provider, CLI, or orchestration framework.
 
 Recommended activation moments:
 

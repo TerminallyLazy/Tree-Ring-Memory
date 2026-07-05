@@ -17,14 +17,14 @@ from tree_ring_memory import TreeRingMemory
 
 memory = TreeRingMemory.open(".tree-ring")
 event = memory.remember(
-    summary="Use Store Gate before reading Agent Zero frontend stores.",
+    summary="Use project-scoped recall before changing release behavior.",
     event_type="lesson",
     scope="project",
-    project="agent-zero",
-    tags=["frontend", "agent-zero"],
+    project="example-service",
+    tags=["release", "workflow"],
 )
 
-results = memory.recall("frontend store initialization", project="agent-zero")
+results = memory.recall("release behavior", project="example-service")
 for result in results:
     print(result.memory.summary, result.score)
 ```
@@ -44,6 +44,7 @@ The CLI stores memory in `.tree-ring/` by default.
 
 - `docs/superpowers/specs/2026-07-04-tree-ring-memory-framework-design.md`
 - `docs/feature/tree-ring-memory-framework/diverge/options-raw.md`
+- `docs/architecture/rust-core-roadmap.md`
 
 ## Agent Workflow Integration
 

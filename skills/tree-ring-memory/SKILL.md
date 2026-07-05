@@ -109,7 +109,7 @@ Set project and scope deliberately:
 - use global scope only for durable user preferences or cross-project guidance
 - include source references such as file paths, issue ids, PR ids, run ids, or docs paths
 
-Memory does not replace source documents. If a repo has `AGENTS.md`, `CLAUDE.md`, DOX docs, tests, or architectural records, read those sources directly and treat them as authoritative.
+Memory does not replace source documents. If a repo has `AGENTS.md`, project docs, tests, architectural records, or host-specific instruction files, read those sources directly and treat them as authoritative.
 
 ## Forgetting And Correction
 
