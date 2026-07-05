@@ -24,6 +24,16 @@ def test_store_inserts_and_gets_memory(tmp_path):
     assert loaded.source.ref == "test"
 
 
+def test_store_enables_wal_and_busy_timeout(tmp_path):
+    store = SQLiteMemoryStore.open(tmp_path / "memory.sqlite")
+
+    journal_mode = store.connection.execute("PRAGMA journal_mode").fetchone()[0]
+    busy_timeout = store.connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert journal_mode.lower() == "wal"
+    assert busy_timeout >= 30000
+
+
 def test_store_searches_fts(tmp_path):
     store = SQLiteMemoryStore.open(tmp_path / "memory.sqlite")
     store.put(MemoryEvent.new(summary="Avoid stale cache without invalidation.", event_type="warning", ring="scar"))

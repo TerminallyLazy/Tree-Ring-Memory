@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from itertools import count
 from math import isfinite
 from typing import Any
+from uuid import uuid4
 
 
 RINGS = {"cambium", "outer", "inner", "heartwood", "scar", "seed"}
 SCOPES = {"global", "project", "agent", "session", "workflow", "tool", "eval", "manual"}
 SENSITIVITY = {"normal", "private", "secret", "health", "financial", "legal", "personal_identifier"}
 RETENTION = {"ephemeral", "normal", "durable", "user_pinned", "forget_after_date"}
-
-_ID_COUNTER = count(1)
 
 
 class ValidationError(ValueError):
@@ -33,7 +31,10 @@ def parse_datetime(value: str | None, field_name: str) -> datetime | None:
 
 
 def _validate_score(name: str, value: float) -> float:
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{name} must be a finite number between 0 and 1") from exc
     if not isfinite(number) or number < 0 or number > 1:
         raise ValidationError(f"{name} must be a finite number between 0 and 1")
     return number
@@ -145,7 +146,7 @@ class MemoryEvent:
     ) -> MemoryEvent:
         timestamp = now_utc()
         event = cls(
-            id=f"mem_{timestamp.strftime('%Y%m%d_%H%M%S')}_{next(_ID_COUNTER):06d}",
+            id=f"mem_{timestamp.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:12]}",
             created_at=timestamp,
             updated_at=timestamp,
             project=project,

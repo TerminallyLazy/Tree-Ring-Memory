@@ -38,7 +38,9 @@ class SQLiteMemoryStore:
     def open(cls, path: str | Path) -> SQLiteMemoryStore:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(path)
+        connection = sqlite3.connect(path, timeout=30.0)
+        connection.execute("PRAGMA journal_mode=WAL;")
+        connection.execute("PRAGMA busy_timeout=30000;")
         return cls(connection)
 
     def migrate(self) -> None:

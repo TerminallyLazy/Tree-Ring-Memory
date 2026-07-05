@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from math import nan
 
@@ -28,6 +29,14 @@ def test_valid_memory_event_round_trips_to_dict():
     assert payload["tags"] == ["sqlite", "v0.1"]
 
 
+def test_generated_memory_id_uses_random_hex_suffix():
+    event = MemoryEvent.new(summary="Use collision-resistant ids.", event_type="decision")
+    suffix = event.id.rsplit("_", 1)[1]
+
+    assert re.fullmatch(r"[0-9a-f]{12}", suffix)
+    assert suffix != "000001"
+
+
 def test_missing_summary_is_rejected():
     with pytest.raises(ValidationError, match="summary is required"):
         MemoryEvent.new(summary="", event_type="decision")
@@ -46,6 +55,18 @@ def test_invalid_score_is_rejected():
 def test_invalid_confidence_score_is_rejected():
     with pytest.raises(ValidationError, match="confidence"):
         MemoryEvent.new(summary="Bad score.", event_type="decision", confidence=2.0)
+
+
+@pytest.mark.parametrize(
+    ("score_name", "score_value"),
+    [
+        ("salience", None),
+        ("confidence", "not-a-number"),
+    ],
+)
+def test_invalid_score_type_is_validation_error(score_name, score_value):
+    with pytest.raises(ValidationError, match=score_name):
+        MemoryEvent.new(summary="Bad score.", event_type="decision", **{score_name: score_value})
 
 
 @pytest.mark.parametrize("score_name", ["salience", "confidence"])
