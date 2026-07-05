@@ -43,6 +43,12 @@ Remember only meaningful information:
 
 Do not store full transcripts, scratchpad notes, raw chain-of-thought, secrets, credentials, or sensitive personal details.
 
+Use `tree-ring evidence` for evaluated outcomes from runs, checkpoints,
+experiments, incidents, PRs, issues, or reviewed artifacts. Promotions should
+become heartwood only when the evidence supports durable reuse. Rejections with
+reusable warning value should become scars. Deferred possibilities should become
+seeds.
+
 ## Ring Mapping
 
 - Use `cambium` for active task context.

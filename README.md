@@ -58,6 +58,19 @@ The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
 a short terminal onboarding screen with ASCII rings and the next useful
 commands. It does not initialize memory unless `--init` is passed.
 
+Initialization creates the SQLite store and non-destructive agent-awareness
+files in the memory root:
+
+- `.tree-ring/AGENTS.md`: DOX-style Tree Ring Memory guidance and root
+  `AGENTS.md` merge notes.
+- `.tree-ring/SKILL.md`: portable skill instructions for agent runtimes.
+- `.tree-ring/CLI.md`: quick command reference for recall, remember, forget,
+  maintain, and TUI usage.
+
+Existing awareness files are left untouched. Tree Ring Memory does not modify a
+project's root `AGENTS.md`; merge the generated guidance manually when you want
+DOX-aware agents to see it before entering `.tree-ring/`.
+
 Useful installer options:
 
 ```bash
@@ -106,6 +119,7 @@ The `tree-ring` command is the Rust CLI.
 ```bash
 tree-ring init
 tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
+tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
 tree-ring recall "protocol design"
 tree-ring forget mem_example --mode delete --reason "example cleanup"
 tree-ring export --output memories.jsonl
@@ -118,6 +132,35 @@ tree-ring maintain --apply-expired --repair-fts
 ```
 
 The CLI stores memory in `.tree-ring/` by default.
+
+## Evidence Loop
+
+The Revolve-inspired loop is exposed through `tree-ring evidence`. It records
+evaluated outcomes as memory with an evidence reference instead of treating
+claims as durable truth without support.
+
+```bash
+tree-ring evidence "Snapshot invalidation fixed stale unread chat state." \
+  --outcome promoted \
+  --evidence-ref evals/chat-state/run-042 \
+  --project agent-ui \
+  --score 0.91
+
+tree-ring evidence "Aggressive caching caused stale multi-chat state." \
+  --outcome rejected \
+  --evidence-ref evals/cache-branch/run-013 \
+  --project agent-ui
+```
+
+Outcome mapping:
+
+- `promoted` -> `heartwood`, durable `evaluation_promotion`
+- `rejected` -> `scar`, durable `evaluation_rejection`
+- `deferred` -> `seed`, `evaluation_hypothesis`
+- `observed` -> `outer`, `evaluation_result`
+
+This is not a replacement for Revolve records. Use source refs that point back
+to real evaluations, checkpoints, PRs, issues, logs, or run artifacts.
 
 `tree-ring export` writes newline-delimited JSON. The first line is a
 `tree_ring_memory_export` header with schema and plugin version metadata; each
@@ -252,6 +295,11 @@ for the synthetic workload.
 - `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, remember, redact, forget, or avoid memory capture.
 - `templates/dox/AGENTS.md` is a DOX-style project contract template for repos that want Tree Ring Memory rules alongside source code.
 - `docs/integrations/agent-skill.md` explains how to use both without making memory more authoritative than local project docs.
+- `tree-ring init` and `tree-ring welcome --init` copy local guidance into `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+
+For DOX-style project awareness, merge the relevant generated `.tree-ring/AGENTS.md`
+sections into the project root `AGENTS.md`. The CLI intentionally does not
+rewrite root project contracts automatically.
 
 ## Brand Assets
 
