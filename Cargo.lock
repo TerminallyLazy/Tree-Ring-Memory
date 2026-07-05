@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "serde_json",
@@ -693,7 +693,7 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "once_cell",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-python"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-sqlite"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rusqlite",
  "serde_json",

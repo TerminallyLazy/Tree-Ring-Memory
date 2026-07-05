@@ -78,10 +78,10 @@ clear `ImportError` with that build hint.
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,428.0 ms.
-- Insert throughput: 2,258.3 inserts/sec.
-- Recall average latency: 6.296 ms.
-- Recall max latency: 9.904 ms.
+- Inserted 10,000 memories in 4,595.5 ms.
+- Insert throughput: 2,176.0 inserts/sec.
+- Recall average latency: 8.706 ms.
+- Recall max latency: 17.211 ms.
 
 ## Compatibility Rule
 

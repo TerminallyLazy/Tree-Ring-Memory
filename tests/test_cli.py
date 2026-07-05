@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tree_ring_memory import TreeRingMemory
+import tree_ring_memory.native_backend as native_backend
 from tree_ring_memory.native_backend import NativeTreeRingMemory
 from tree_ring_memory.models import MemorySource
 from tree_ring_memory.store import SQLiteMemoryStore
@@ -221,3 +222,21 @@ def test_rust_cli_backend_rejects_unsupported_python_facade_fields(tmp_path):
 def test_native_backend_reports_missing_extension_cleanly(tmp_path):
     with pytest.raises(ImportError, match="native bindings are not installed"):
         NativeTreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_native_backend_preserves_broken_extension_import_error(tmp_path, monkeypatch):
+    def broken_import(name):
+        assert name == "tree_ring_memory._tree_ring_memory_native"
+        raise ImportError("dlopen failed")
+
+    monkeypatch.setattr(native_backend.importlib, "import_module", broken_import)
+
+    with pytest.raises(ImportError, match="dlopen failed"):
+        NativeTreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_rust_cli_backend_prefers_configured_binary(tmp_path, monkeypatch):
+    monkeypatch.setenv("TREE_RING_MEMORY_CLI", "/tmp/tree-ring --flag")
+    memory = RustCliTreeRingMemory.__new__(RustCliTreeRingMemory)
+
+    assert memory._cli_prefix() == ["/tmp/tree-ring", "--flag"]

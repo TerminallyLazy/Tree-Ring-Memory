@@ -41,7 +41,7 @@ impl PyTreeRingMemoryNative {
         project: Option<String>,
         tags: Option<Vec<String>>,
     ) -> PyResult<String> {
-        check_memory_inputs(
+        let detected_sensitivity = detect_memory_input_sensitivity(
             &summary,
             &event_type,
             ring.as_deref(),
@@ -49,7 +49,6 @@ impl PyTreeRingMemoryNative {
             project.as_deref(),
             tags.as_deref(),
         )?;
-        let detected_sensitivity = SensitivityGuard::default().inspect(&summary).sensitivity;
         let mut event = MemoryEvent::new(summary, event_type).map_err(to_py_value_error)?;
         if let Some(ring) = ring {
             event.ring = ring;
@@ -69,7 +68,12 @@ impl PyTreeRingMemoryNative {
 
     pub fn put_event_json(&mut self, event_json: &str) -> PyResult<String> {
         let mut event: MemoryEvent = serde_json::from_str(event_json).map_err(to_py_value_error)?;
-        check_event_inputs(&event)?;
+        let detected_sensitivity = SensitivityGuard::default()
+            .detect_memory_event_sensitivity(&event)
+            .map_err(to_py_value_error)?;
+        if event.sensitivity == "normal" && detected_sensitivity != "normal" {
+            event.sensitivity = detected_sensitivity;
+        }
         event.validate().map_err(to_py_value_error)?;
         self.store.put(&event).map_err(to_py_runtime_error)?;
         serde_json::to_string(&event).map_err(to_py_runtime_error)
@@ -136,52 +140,24 @@ fn _tree_ring_memory_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-fn check_memory_inputs(
+fn detect_memory_input_sensitivity(
     summary: &str,
     event_type: &str,
     ring: Option<&str>,
     scope: Option<&str>,
     project: Option<&str>,
     tags: Option<&[String]>,
-) -> PyResult<()> {
+) -> PyResult<String> {
     let guard = SensitivityGuard::default();
-    for value in [summary, event_type]
+    let values = [summary, event_type]
         .into_iter()
         .chain(ring)
         .chain(scope)
         .chain(project)
-        .chain(tags.into_iter().flatten().map(String::as_str))
-    {
-        guard.check_or_raise(value).map_err(to_py_value_error)?;
-    }
-    Ok(())
-}
-
-fn check_event_inputs(event: &MemoryEvent) -> PyResult<()> {
-    let guard = SensitivityGuard::default();
-    for value in [
-        event.summary.as_str(),
-        event.details.as_str(),
-        event.event_type.as_str(),
-        event.scope.as_str(),
-        event.ring.as_str(),
-        event.source.source_type.as_str(),
-        event.source.ref_.as_str(),
-        event.source.quote.as_str(),
-    ]
-    .into_iter()
-    .chain(event.project.as_deref())
-    .chain(event.agent_profile.as_deref())
-    .chain(event.tags.iter().map(String::as_str))
-    {
-        guard.check_or_raise(value).map_err(to_py_value_error)?;
-    }
-    for link in &event.links {
-        guard
-            .check_or_raise(&link.target)
-            .map_err(to_py_value_error)?;
-    }
-    Ok(())
+        .chain(tags.into_iter().flatten().map(String::as_str));
+    guard
+        .detect_text_sensitivity(values)
+        .map_err(to_py_value_error)
 }
 
 fn to_py_value_error(error: impl ToString) -> PyErr {
@@ -262,5 +238,46 @@ mod tests {
         let error = memory.put_event_json(&payload).unwrap_err();
 
         assert!(error.to_string().contains("secret-like memory is blocked"));
+    }
+
+    #[test]
+    fn native_binding_blocks_secret_in_full_event_review_metadata() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let mut event = MemoryEvent::new("Store via full JSON.", "lesson").unwrap();
+        event.review.review_reason = Some("PASSWORD=do-not-store-this".to_string());
+        let payload = serde_json::to_string(&event).unwrap();
+
+        let error = memory.put_event_json(&payload).unwrap_err();
+
+        assert!(error.to_string().contains("secret-like memory is blocked"));
+    }
+
+    #[test]
+    fn native_binding_classifies_sensitive_full_event_metadata() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let mut event = MemoryEvent::new("Store sensitive metadata.", "lesson").unwrap();
+        event.details = "private diagnosis in details".to_string();
+        let payload = serde_json::to_string(&event).unwrap();
+
+        let stored_json = memory.put_event_json(&payload).unwrap();
+        let stored: MemoryEvent = serde_json::from_str(&stored_json).unwrap();
+        let hidden = memory
+            .recall_json("sensitive metadata".to_string(), None, 8, false)
+            .unwrap();
+        let visible = memory
+            .recall_json("sensitive metadata".to_string(), None, 8, true)
+            .unwrap();
+
+        assert_eq!(stored.sensitivity, "health");
+        assert_eq!(hidden, "[]");
+        assert!(visible.contains(&stored.id));
     }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 from typing import Any
@@ -20,14 +21,17 @@ class NativeTreeRingMemory:
 
     @classmethod
     def open(cls, root: str | Path) -> NativeTreeRingMemory:
+        module_name = "tree_ring_memory._tree_ring_memory_native"
         try:
-            from tree_ring_memory._tree_ring_memory_native import TreeRingMemoryNative
-        except ImportError as exc:
+            native_module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name != module_name:
+                raise
             raise ImportError(
                 "Tree Ring Memory native bindings are not installed. "
                 "Build them with `cd bindings/python && maturin develop`."
             ) from exc
-        return cls(TreeRingMemoryNative.open(str(root)))
+        return cls(native_module.TreeRingMemoryNative.open(str(root)))
 
     def remember(
         self,

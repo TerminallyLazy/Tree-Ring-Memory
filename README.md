@@ -6,6 +6,12 @@ Tree Ring Memory is a framework-agnostic memory lifecycle layer for AI agents.
 
 It helps agents remember useful decisions, warnings, preferences, and lessons without turning memory into a transcript dump. Fresh memory stays detailed, older memory compresses into rings, important scars remain visible, and durable truths become heartwood.
 
+Tree Ring Memory is inspired by the spatial project-memory patterns in
+[DOX](https://github.com/agent0ai/dox) and the evidence-driven improvement loop
+in [Revolve](https://github.com/agent0ai/revolve), with a deliberate nod to
+their original creator, [frdel](https://github.com/frdel). This project is
+framework-agnostic and does not replace either protocol.
+
 ## Status
 
 Tree Ring Memory is in protocol-preview status.
@@ -53,6 +59,10 @@ maturin develop
 The native binding package is extension-only. It does not package or own the
 public `tree_ring_memory` Python package; install the main package separately in
 the same environment.
+
+For the CLI bridge, set `TREE_RING_MEMORY_CLI=/path/to/tree-ring` to use a
+prebuilt binary. If unset, the bridge looks for `tree-ring` on `PATH` and falls
+back to `cargo run` for development checkouts.
 
 ```python
 from tree_ring_memory import RustCliTreeRingMemory
