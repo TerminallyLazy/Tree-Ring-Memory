@@ -22,6 +22,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.4 adds Rust-owned JSONL import/export with privacy-preserving defaults across the CLI, native Python backend, and Python reference backend.
 - v0.5 adds Rust-owned audit checks for stale, sensitive, low-confidence, supersession, and contradiction candidates.
 - v0.6 adds Rust-owned deterministic consolidation with idempotent summary records and cautious sensitive-memory handling.
+- v0.7 makes the public facade Rust-native only and adds Rust-owned maintenance for expiry, secret redaction, and FTS repair.
 - The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
@@ -30,11 +31,12 @@ The Rust workspace currently includes:
 - `crates/tree-ring-memory-sqlite`: schema-compatible SQLite/FTS storage and recall filtering.
 - `crates/tree-ring-memory-cli`: native `tree-ring` CLI.
 
-Python remains the stable public API surface, but Rust is the authoritative
-engine when the native module is installed. Source checkouts without the native
-extension fall back to the explicit `PythonTreeRingMemory` reference backend
-unless `TREE_RING_MEMORY_REQUIRE_NATIVE=1` or `TREE_RING_MEMORY_BACKEND=native`
-is set.
+The public runtime is Rust-native. The Rust CLI and optional PyO3
+`NativeTreeRingMemory` binding own storage, recall, import/export, audit,
+consolidation, and maintenance behavior. The Python reference backend remains
+available only through the explicit `PythonTreeRingMemory` class for
+compatibility and schema comparison; `TreeRingMemory.open()` no longer silently
+falls back to it.
 
 Python can also exercise the Rust-backed path explicitly through
 `RustCliTreeRingMemory`. This bridge uses the native Rust CLI and returns the
@@ -44,7 +46,8 @@ supports query, project, limit, and sensitive-memory inclusion. Unsupported
 Python facade fields fail explicitly instead of being silently ignored.
 
 `NativeTreeRingMemory` is the explicit Rust-native backend. `TreeRingMemory`
-uses the same backend automatically when the optional PyO3 module is installed:
+uses the same backend and fails with a clear install/build error when the PyO3
+module is absent:
 
 ```python
 from tree_ring_memory import TreeRingMemory
@@ -52,6 +55,7 @@ from tree_ring_memory import TreeRingMemory
 memory = TreeRingMemory.open(".tree-ring")
 event = memory.remember(summary="Native Rust path works.", event_type="lesson")
 results = memory.recall("Rust path")
+maintenance = memory.maintain()
 ```
 
 Build the optional native module with maturin:
@@ -74,6 +78,7 @@ preview = memory.import_jsonl(jsonl, dry_run=True)
 report = memory.import_jsonl(jsonl)
 audit = memory.audit()
 consolidation = memory.consolidate(period_type="manual", dry_run=True)
+maintenance = memory.maintain()
 ```
 
 Exports exclude sensitive and superseded memories by default. Pass
@@ -82,12 +87,10 @@ explicitly needs those rows.
 
 Backend selection:
 
-- `TREE_RING_MEMORY_BACKEND=auto` uses native Rust when available and otherwise
-  falls back to the Python reference backend.
-- `TREE_RING_MEMORY_BACKEND=native` or `TREE_RING_MEMORY_REQUIRE_NATIVE=1`
-  requires Rust native bindings and fails if they are missing.
-- `TREE_RING_MEMORY_BACKEND=python` forces the reference backend for parity
-  testing or troubleshooting.
+- `TREE_RING_MEMORY_BACKEND=auto`, `native`, `rust`, and `rust-native` all use
+  the native Rust binding and fail if it is missing.
+- `TREE_RING_MEMORY_BACKEND=python` is rejected by `TreeRingMemory.open()`; use
+  `PythonTreeRingMemory.open()` explicitly for reference-backend parity work.
 
 For the CLI bridge, set `TREE_RING_MEMORY_CLI=/path/to/tree-ring` to use a
 prebuilt binary. If unset, the bridge looks for `tree-ring` on `PATH` and falls
@@ -122,6 +125,9 @@ for result in results:
 
 ## CLI Preview
 
+The `tree-ring` command is the Rust CLI. The Python package no longer installs
+a Python console script with that name.
+
 ```bash
 tree-ring init
 tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
@@ -132,6 +138,8 @@ tree-ring import memories.jsonl --dry-run
 tree-ring import memories.jsonl
 tree-ring audit --audit-type sensitive
 tree-ring consolidate --period-type manual --dry-run
+tree-ring maintain
+tree-ring maintain --apply-expired --repair-fts
 ```
 
 The CLI stores memory in `.tree-ring/` by default.
@@ -152,6 +160,11 @@ LLM. Dry-run mode writes nothing. Persisted consolidation is idempotent for the
 same period and source-memory set unless `--force` is provided. Sensitive
 non-secret memories are summarized without copying raw payload text and require
 review; secret-like memories are excluded from consolidation.
+
+`tree-ring maintain` is safe by default. Without apply flags it is a dry-run
+report, including on a missing root. It can apply eligible temporary-memory
+expiry, redact secret-like memories, and rebuild SQLite FTS only when explicitly
+asked through `--apply-expired`, `--apply-secret-redactions`, or `--repair-fts`.
 
 ## Terminal Console Preview
 
@@ -199,6 +212,7 @@ cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
+cargo run -p tree-ring-memory-cli -- maintain --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -227,6 +241,8 @@ latency of 250 ms for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-audit-v0-5-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-consolidation-v0-6-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-consolidation-v0-6-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-maintenance-v0-7-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-maintenance-v0-7-implementation-plan.md`
 
 ## Agent Workflow Integration
 

@@ -2,11 +2,13 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
+use tree_ring_memory_core::plan_maintenance;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
 use tree_ring_memory_core::{
     audit_memories, consolidate_memories, decode_jsonl, normalize_import_events, AuditReport,
-    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest,
+    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, MaintenanceReport,
+    MaintenanceRequest,
 };
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
@@ -107,6 +109,19 @@ enum Command {
             help = "create a new consolidation and supersede prior summaries"
         )]
         force: bool,
+    },
+    #[command(about = "plan or apply Rust-owned memory maintenance")]
+    Maintain {
+        #[arg(long, help = "optional project filter")]
+        project: Option<String>,
+        #[arg(long, help = "include superseded memories in maintenance planning")]
+        include_superseded: bool,
+        #[arg(long, help = "delete expired temporary memories")]
+        apply_expired: bool,
+        #[arg(long, help = "redact memories with secret-like content")]
+        apply_secret_redactions: bool,
+        #[arg(long, help = "rebuild the SQLite FTS index")]
+        repair_fts: bool,
     },
     #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
     Tui {
@@ -219,6 +234,34 @@ fn run(cli: Cli) -> Result<(), String> {
         };
         print_consolidation_report(&report, cli.json)?;
         return Ok(());
+    }
+
+    if let Command::Maintain {
+        project,
+        include_superseded,
+        apply_expired,
+        apply_secret_redactions,
+        repair_fts,
+    } = &cli.command
+    {
+        let request = maintenance_request(
+            project.clone(),
+            *include_superseded,
+            *apply_expired,
+            *apply_secret_redactions,
+            *repair_fts,
+        );
+        if request.dry_run {
+            let report = if db_path.exists() {
+                let mut store =
+                    SQLiteMemoryStore::open_read_only(&db_path).map_err(|err| err.to_string())?;
+                store.maintain(&request).map_err(|err| err.to_string())?
+            } else {
+                plan_maintenance(&[], &request)
+            };
+            print_maintenance_report(&report, cli.json)?;
+            return Ok(());
+        }
     }
 
     let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
@@ -420,9 +463,43 @@ fn run(cli: Cli) -> Result<(), String> {
             let report = store.consolidate(&request).map_err(|err| err.to_string())?;
             print_consolidation_report(&report, cli.json)?;
         }
+        Command::Maintain {
+            project,
+            include_superseded,
+            apply_expired,
+            apply_secret_redactions,
+            repair_fts,
+        } => {
+            let request = maintenance_request(
+                project,
+                include_superseded,
+                apply_expired,
+                apply_secret_redactions,
+                repair_fts,
+            );
+            let report = store.maintain(&request).map_err(|err| err.to_string())?;
+            print_maintenance_report(&report, cli.json)?;
+        }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
     }
     Ok(())
+}
+
+fn maintenance_request(
+    project: Option<String>,
+    include_superseded: bool,
+    apply_expired: bool,
+    apply_secret_redactions: bool,
+    repair_fts: bool,
+) -> MaintenanceRequest {
+    MaintenanceRequest {
+        dry_run: !(apply_expired || apply_secret_redactions || repair_fts),
+        apply_expired,
+        apply_secret_redactions,
+        repair_fts,
+        include_superseded,
+        project,
+    }
 }
 
 fn consolidation_request(
@@ -489,6 +566,48 @@ fn print_consolidation_report(
         );
         if !report.notes.is_empty() {
             println!("{}", report.notes);
+        }
+    }
+    Ok(())
+}
+
+fn print_maintenance_report(report: &MaintenanceReport, json_output: bool) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(report).map_err(|err| err.to_string())?
+        );
+    } else {
+        println!(
+            "Tree Ring Memory maintenance: memories={} planned={} applied={} dry_run={} status={}",
+            report.memory_count,
+            report.planned_action_count,
+            report.applied_action_count,
+            report.dry_run,
+            report.status
+        );
+        println!(
+            "FTS: memories={} index={} missing={} orphan={} repaired={}",
+            report.fts.memory_rows,
+            report.fts.fts_rows,
+            report.fts.missing_fts_rows,
+            report.fts.orphan_fts_rows,
+            report.fts.repaired
+        );
+        for action in &report.actions {
+            println!(
+                "{} [{}] memory={} applied={} {}",
+                action.action_type,
+                action.severity,
+                action.memory_id,
+                action.applied,
+                action.reason
+            );
+        }
+        if report.dry_run {
+            println!(
+                "Report-only: use --apply-expired, --apply-secret-redactions, or --repair-fts to apply eligible maintenance."
+            );
         }
     }
     Ok(())
@@ -816,6 +935,56 @@ mod tests {
 
         assert_eq!(second.status, "unchanged");
         assert_eq!(second.output_memory_ids.len(), 1);
+    }
+
+    #[test]
+    fn maintain_default_missing_root_does_not_create_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Maintain {
+                project: None,
+                include_superseded: false,
+                apply_expired: false,
+                apply_secret_redactions: false,
+                repair_fts: false,
+            },
+        })
+        .unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn maintain_apply_expired_deletes_temporary_memory() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let mut store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Delete expired CLI memory.", "lesson").unwrap();
+        event.retention = "ephemeral".to_string();
+        event.expires_at = Some("2000-01-01T00:00:00Z".to_string());
+        let memory_id = event.id.clone();
+        store.put(&event).unwrap();
+        drop(store);
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Maintain {
+                project: None,
+                include_superseded: false,
+                apply_expired: true,
+                apply_secret_redactions: false,
+                repair_fts: false,
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        assert!(store.get(&memory_id).unwrap().is_none());
     }
 
     #[test]

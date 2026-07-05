@@ -64,8 +64,14 @@ and automatic repair remain future extension points.
 
 v0.6 implements deterministic consolidation in Rust. It creates source-linked
 summary memories without LLMs, persists idempotent consolidation records, and
-keeps sensitive payloads out of generated summaries. Automatic deletion,
-expiry, repair, and adapter-specific sync remain future extension points.
+keeps sensitive payloads out of generated summaries.
+
+v0.7 implements Rust-owned maintenance. It plans expired-memory deletion,
+secret-like redaction, protected-memory review, invalid-expiry review, and
+SQLite FTS drift repair. Apply/repair behavior is explicit and Rust-owned; the
+public `TreeRingMemory.open()` facade requires the native Rust binding instead
+of silently falling back to Python. Adapter-specific sync remains a future
+extension point.
 
 ## Non-Goals
 
@@ -79,5 +85,6 @@ The Rust rewrite should not:
 
 ## Decision
 
-The framework direction is Rust-first core, adapter-friendly edges.
-The current Python package remains useful as a protocol reference and compatibility layer during migration.
+The framework direction is Rust-native runtime, adapter-friendly edges.
+The current Python reference backend remains useful as a protocol reference and
+compatibility layer during migration, but it is not the public runtime owner.

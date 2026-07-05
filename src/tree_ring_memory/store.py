@@ -16,7 +16,7 @@ from tree_ring_memory.sensitivity import SensitivityGuard
 EXPORT_RECORD_TYPE = "tree_ring_memory_export"
 MEMORY_EVENT_RECORD_TYPE = "memory_event"
 EXPORT_SCHEMA_VERSION = 1
-PLUGIN_VERSION = "0.6.0"
+PLUGIN_VERSION = "0.7.0"
 _PLAIN_TEXT_TERM_RE = re.compile(r"\w+")
 _SEARCH_FILLER_TERMS = {
     "a",

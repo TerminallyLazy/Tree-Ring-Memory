@@ -173,6 +173,24 @@ class NativeTreeRingMemory:
         )
         return dict(json.loads(payload))
 
+    def maintain(
+        self,
+        *,
+        project: str | None = None,
+        include_superseded: bool = False,
+        apply_expired: bool = False,
+        apply_secret_redactions: bool = False,
+        repair_fts: bool = False,
+    ) -> dict[str, Any]:
+        payload = self._native.maintain_json(
+            project,
+            include_superseded,
+            apply_expired,
+            apply_secret_redactions,
+            repair_fts,
+        )
+        return dict(json.loads(payload))
+
 
 def _iso_or_none(value: Any) -> str | None:
     if value is None:

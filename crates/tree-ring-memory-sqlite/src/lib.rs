@@ -10,7 +10,8 @@ use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, Tr
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
 use tree_ring_memory_core::{
     audit_memories, consolidate_memories, decode_jsonl, encode_jsonl, normalize_import_events,
-    AuditReport, ConsolidationReport, ConsolidationRequest,
+    plan_maintenance, AuditReport, ConsolidationReport, ConsolidationRequest,
+    MaintenanceActionType, MaintenanceFtsReport, MaintenanceReport, MaintenanceRequest,
 };
 
 const WRITE_RETRY_ATTEMPTS: usize = 8;
@@ -521,6 +522,71 @@ impl SQLiteMemoryStore {
         Ok(report)
     }
 
+    pub fn maintain(&mut self, request: &MaintenanceRequest) -> TreeRingResult<MaintenanceReport> {
+        let events = self.list_all(true)?;
+        let mut report = plan_maintenance(&events, request);
+        report.fts = self.fts_report(false)?;
+
+        let apply_expired = !request.dry_run && request.apply_expired;
+        let apply_secret_redactions = !request.dry_run && request.apply_secret_redactions;
+        let repair_fts = !request.dry_run && request.repair_fts;
+        let needs_transaction = repair_fts
+            || report.actions.iter().any(|action| {
+                matches!(action.action_type, MaintenanceActionType::DeleteExpired) && apply_expired
+                    || matches!(action.action_type, MaintenanceActionType::RedactSecret)
+                        && apply_secret_redactions
+            });
+        if needs_transaction {
+            let (applied_indexes, fts_repaired) = retry_locked(|| {
+                let transaction = self
+                    .connection
+                    .transaction()
+                    .map_err(sqlite_error_from_rusqlite)?;
+                let mut transaction_applied = Vec::new();
+
+                for (index, action) in report.actions.iter().enumerate() {
+                    if action.action_type == MaintenanceActionType::RedactSecret
+                        && apply_secret_redactions
+                        && redact_in_transaction(&transaction, &action.memory_id)?
+                    {
+                        transaction_applied.push(index);
+                    }
+                }
+
+                for (index, action) in report.actions.iter().enumerate() {
+                    if action.action_type == MaintenanceActionType::DeleteExpired
+                        && apply_expired
+                        && delete_in_transaction(&transaction, &action.memory_id)?
+                    {
+                        transaction_applied.push(index);
+                    }
+                }
+
+                if repair_fts {
+                    rebuild_fts_in_transaction(&transaction)?;
+                }
+
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                Ok((transaction_applied, repair_fts))
+            })?;
+
+            for index in applied_indexes {
+                if let Some(action) = report.actions.get_mut(index) {
+                    action.applied = true;
+                }
+            }
+            report.applied_action_count = report
+                .actions
+                .iter()
+                .filter(|action| action.applied)
+                .count();
+            report.fts = self.fts_report(fts_repaired)?;
+        }
+
+        report.status = maintenance_status(&report);
+        Ok(report)
+    }
+
     fn find_consolidation(
         &self,
         period_type: &str,
@@ -645,6 +711,32 @@ impl SQLiteMemoryStore {
             self.supersede(old_id, &event.id)?;
         }
         Ok(())
+    }
+
+    fn fts_report(&self, repaired: bool) -> TreeRingResult<MaintenanceFtsReport> {
+        Ok(MaintenanceFtsReport {
+            memory_rows: count_query(&self.connection, "SELECT count(*) FROM memories")?,
+            fts_rows: count_query(&self.connection, "SELECT count(*) FROM memory_fts")?,
+            missing_fts_rows: count_query(
+                &self.connection,
+                r#"
+                SELECT count(*)
+                FROM memories
+                LEFT JOIN memory_fts ON memories.id = memory_fts.id
+                WHERE memory_fts.id IS NULL
+                "#,
+            )?,
+            orphan_fts_rows: count_query(
+                &self.connection,
+                r#"
+                SELECT count(*)
+                FROM memory_fts
+                LEFT JOIN memories ON memories.id = memory_fts.id
+                WHERE memories.id IS NULL
+                "#,
+            )?,
+            repaired,
+        })
     }
 }
 
@@ -810,6 +902,85 @@ fn memory_link_targets(event: &MemoryEvent) -> HashSet<String> {
         .filter(|link| link.link_type == "memory")
         .map(|link| link.target.clone())
         .collect()
+}
+
+fn maintenance_status(report: &MaintenanceReport) -> String {
+    let has_fts_drift = report.fts.missing_fts_rows > 0 || report.fts.orphan_fts_rows > 0;
+    let has_unapplied_actions = report.actions.iter().any(|action| !action.applied);
+    if !has_fts_drift && !has_unapplied_actions {
+        if report.applied_action_count > 0 || report.fts.repaired {
+            "applied".to_string()
+        } else {
+            "clean".to_string()
+        }
+    } else {
+        "planned".to_string()
+    }
+}
+
+fn count_query(connection: &Connection, sql: &str) -> TreeRingResult<usize> {
+    let count: i64 = connection
+        .query_row(sql, [], |row| row.get(0))
+        .map_err(sqlite_error_from_rusqlite)?;
+    Ok(count as usize)
+}
+
+fn delete_in_transaction(transaction: &Transaction<'_>, memory_id: &str) -> TreeRingResult<bool> {
+    let deleted = transaction
+        .execute("DELETE FROM memories WHERE id = ?", params![memory_id])
+        .map_err(sqlite_error_from_rusqlite)?;
+    transaction
+        .execute("DELETE FROM memory_fts WHERE id = ?", params![memory_id])
+        .map_err(sqlite_error_from_rusqlite)?;
+    Ok(deleted > 0)
+}
+
+fn redact_in_transaction(transaction: &Transaction<'_>, memory_id: &str) -> TreeRingResult<bool> {
+    let Some(mut event) = transaction
+        .query_row(
+            "SELECT raw_json FROM memories WHERE id = ?",
+            params![memory_id],
+            event_from_row,
+        )
+        .optional()
+        .map_err(sqlite_error_from_rusqlite)?
+        .transpose()?
+    else {
+        return Ok(false);
+    };
+    event.redact();
+    put_in_transaction(transaction, &event)?;
+    Ok(true)
+}
+
+fn rebuild_fts_in_transaction(transaction: &Transaction<'_>) -> TreeRingResult<()> {
+    let events = {
+        let mut statement = transaction
+            .prepare("SELECT raw_json FROM memories ORDER BY created_at DESC")
+            .map_err(sqlite_error_from_rusqlite)?;
+        let rows = statement
+            .query_map([], event_from_row)
+            .map_err(sqlite_error_from_rusqlite)?;
+        collect_rows(rows)?
+    };
+    transaction
+        .execute("DELETE FROM memory_fts", [])
+        .map_err(sqlite_error_from_rusqlite)?;
+    let mut insert_fts = transaction
+        .prepare("INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)")
+        .map_err(sqlite_error_from_rusqlite)?;
+    for event in events {
+        insert_fts
+            .execute(params![
+                &event.id,
+                &event.summary,
+                &event.details,
+                event.tags.join(" "),
+                &event.source.ref_,
+            ])
+            .map_err(sqlite_error_from_rusqlite)?;
+    }
+    Ok(())
 }
 
 fn stored_consolidation_from_row(
@@ -1653,6 +1824,154 @@ mod tests {
     }
 
     #[test]
+    fn maintenance_dry_run_reports_expired_and_secret_without_mutating() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let expired = expired_maintenance_memory("Temporary cache", "ephemeral", "cambium");
+        let mut secret = MemoryEvent::new("Secret-like memory", "lesson").unwrap();
+        secret.details = "Use sk-proj-abcdefghijklmnopqrstuvwxyz1234567890".to_string();
+        store.put(&expired).unwrap();
+        store.put(&secret).unwrap();
+
+        let report = store.maintain(&MaintenanceRequest::default()).unwrap();
+
+        assert_eq!(report.status, "planned");
+        assert_eq!(report.planned_action_count, 2);
+        assert_eq!(report.applied_action_count, 0);
+        assert_action_type(&report, &expired.id, MaintenanceActionType::DeleteExpired);
+        assert_action_type(&report, &secret.id, MaintenanceActionType::RedactSecret);
+        assert!(store.get(&expired.id).unwrap().is_some());
+        assert_eq!(
+            store.get(&secret.id).unwrap().unwrap().summary,
+            "Secret-like memory"
+        );
+    }
+
+    #[test]
+    fn maintenance_apply_expired_deletes_eligible_and_preserves_protected() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let expired = expired_maintenance_memory("Temporary cache", "ephemeral", "cambium");
+        let protected = expired_maintenance_memory("Protected scar", "ephemeral", "scar");
+        store.put(&expired).unwrap();
+        store.put(&protected).unwrap();
+
+        let report = store
+            .maintain(&MaintenanceRequest {
+                dry_run: false,
+                apply_expired: true,
+                ..MaintenanceRequest::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "planned");
+        assert_eq!(report.applied_action_count, 1);
+        assert!(store.get(&expired.id).unwrap().is_none());
+        assert!(store.get(&protected.id).unwrap().is_some());
+        let protected_action = report
+            .actions
+            .iter()
+            .find(|action| action.memory_id == protected.id)
+            .unwrap();
+        assert_eq!(
+            protected_action.action_type,
+            MaintenanceActionType::ReviewExpiredProtected
+        );
+        assert!(!protected_action.applied);
+    }
+
+    #[test]
+    fn maintenance_apply_secret_redactions_redacts_secret_like_memory() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let raw_secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
+        let mut event = MemoryEvent::new("Secret-like memory", "lesson").unwrap();
+        event.details = format!("Use {raw_secret}");
+        store.put(&event).unwrap();
+
+        let report = store
+            .maintain(&MaintenanceRequest {
+                dry_run: false,
+                apply_secret_redactions: true,
+                ..MaintenanceRequest::default()
+            })
+            .unwrap();
+
+        let redacted = store.get(&event.id).unwrap().unwrap();
+        assert_eq!(report.status, "applied");
+        assert_eq!(report.applied_action_count, 1);
+        assert_eq!(redacted.summary, "[REDACTED]");
+        assert!(!serde_json::to_string(&redacted)
+            .unwrap()
+            .contains(raw_secret));
+        assert!(store.search_text(raw_secret, true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn maintenance_detects_and_repairs_fts_drift() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let event = MemoryEvent::new("Repair missing FTS row.", "lesson").unwrap();
+        store.put(&event).unwrap();
+        store
+            .connection()
+            .execute("DELETE FROM memory_fts WHERE id = ?", params![&event.id])
+            .unwrap();
+        store
+            .connection()
+            .execute(
+                "INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)",
+                params!["mem_orphan", "orphan", "", "", ""],
+            )
+            .unwrap();
+
+        let dry_run = store.maintain(&MaintenanceRequest::default()).unwrap();
+        assert_eq!(dry_run.status, "planned");
+        assert_eq!(dry_run.fts.missing_fts_rows, 1);
+        assert_eq!(dry_run.fts.orphan_fts_rows, 1);
+
+        let repaired = store
+            .maintain(&MaintenanceRequest {
+                dry_run: false,
+                repair_fts: true,
+                ..MaintenanceRequest::default()
+            })
+            .unwrap();
+
+        assert_eq!(repaired.status, "applied");
+        assert!(repaired.fts.repaired);
+        assert_eq!(repaired.fts.missing_fts_rows, 0);
+        assert_eq!(repaired.fts.orphan_fts_rows, 0);
+        assert_eq!(
+            store.search_text("Repair missing", false).unwrap()[0].id,
+            event.id
+        );
+    }
+
+    #[test]
+    fn maintenance_project_filter_limits_planned_actions() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut included = expired_maintenance_memory("UI cache", "ephemeral", "cambium");
+        included.project = Some("ui".to_string());
+        let mut excluded = expired_maintenance_memory("CLI cache", "ephemeral", "cambium");
+        excluded.project = Some("cli".to_string());
+        store.put(&included).unwrap();
+        store.put(&excluded).unwrap();
+
+        let report = store
+            .maintain(&MaintenanceRequest {
+                project: Some("ui".to_string()),
+                ..MaintenanceRequest::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.memory_count, 1);
+        assert_eq!(report.planned_action_count, 1);
+        assert_eq!(report.actions[0].memory_id, included.id);
+    }
+
+    #[test]
     fn fts_rows_match_memory_rows_after_mutations() {
         let dir = tempdir().unwrap();
         let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
@@ -1722,5 +2041,24 @@ mod tests {
 
         assert_eq!(memory_count, 80);
         assert_eq!(fts_count, 80);
+    }
+
+    fn expired_maintenance_memory(summary: &str, retention: &str, ring: &str) -> MemoryEvent {
+        let mut event = MemoryEvent::new(summary, "lesson").unwrap();
+        event.retention = retention.to_string();
+        event.ring = ring.to_string();
+        event.expires_at = Some("2000-01-01T00:00:00Z".to_string());
+        event
+    }
+
+    fn assert_action_type(
+        report: &MaintenanceReport,
+        memory_id: &str,
+        action_type: MaintenanceActionType,
+    ) {
+        assert!(report
+            .actions
+            .iter()
+            .any(|action| action.memory_id == memory_id && action.action_type == action_type));
     }
 }

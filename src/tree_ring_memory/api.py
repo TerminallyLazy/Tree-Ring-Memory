@@ -204,32 +204,27 @@ class PythonTreeRingMemory:
 
 
 class TreeRingMemory:
-    """Rust-first public facade.
+    """Rust-native public facade.
 
-    Python remains available as a source-checkout fallback when the optional
-    native extension is not installed. Set `TREE_RING_MEMORY_BACKEND=python` to
-    force the reference path, or `TREE_RING_MEMORY_REQUIRE_NATIVE=1` to fail
-    instead of falling back.
+    The Python reference backend remains available only through the explicit
+    `PythonTreeRingMemory` class. The public facade no longer silently falls
+    back when the native extension is absent.
     """
 
     @classmethod
     def open(cls, root: str | Path):
-        backend = os.environ.get("TREE_RING_MEMORY_BACKEND", "auto").casefold()
+        backend = os.environ.get("TREE_RING_MEMORY_BACKEND", "native").casefold()
         if backend == "python":
-            return PythonTreeRingMemory.open(root)
+            raise ValueError(
+                "TREE_RING_MEMORY_BACKEND=python is no longer supported by "
+                "TreeRingMemory.open(); use PythonTreeRingMemory.open() explicitly"
+            )
         if backend not in {"auto", "native", "rust", "rust-native"}:
             raise ValueError(f"unsupported Tree Ring Memory backend: {backend}")
 
-        try:
-            from tree_ring_memory.native_backend import NativeBindingNotInstalled, NativeTreeRingMemory
+        from tree_ring_memory.native_backend import NativeTreeRingMemory
 
-            return NativeTreeRingMemory.open(root)
-        except NativeBindingNotInstalled:
-            if backend in {"native", "rust", "rust-native"} or os.environ.get(
-                "TREE_RING_MEMORY_REQUIRE_NATIVE"
-            ) == "1":
-                raise
-            return PythonTreeRingMemory.open(root)
+        return NativeTreeRingMemory.open(root)
 
 
 def _detected_sensitivity(*results: SensitivityResult) -> str:

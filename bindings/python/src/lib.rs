@@ -4,7 +4,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
-    ConsolidationPeriod, ConsolidationRequest, MemoryEvent, MemoryLink, MemoryReview, MemorySource,
+    ConsolidationPeriod, ConsolidationRequest, MaintenanceRequest, MemoryEvent, MemoryLink,
+    MemoryReview, MemorySource,
 };
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
@@ -241,6 +242,27 @@ impl PyTreeRingMemoryNative {
             .store
             .consolidate(&request)
             .map_err(to_py_runtime_error)?;
+        serde_json::to_string(&report).map_err(to_py_runtime_error)
+    }
+
+    #[pyo3(signature = (project=None, include_superseded=false, apply_expired=false, apply_secret_redactions=false, repair_fts=false))]
+    pub fn maintain_json(
+        &mut self,
+        project: Option<String>,
+        include_superseded: bool,
+        apply_expired: bool,
+        apply_secret_redactions: bool,
+        repair_fts: bool,
+    ) -> PyResult<String> {
+        let request = MaintenanceRequest {
+            dry_run: !(apply_expired || apply_secret_redactions || repair_fts),
+            apply_expired,
+            apply_secret_redactions,
+            repair_fts,
+            include_superseded,
+            project,
+        };
+        let report = self.store.maintain(&request).map_err(to_py_runtime_error)?;
         serde_json::to_string(&report).map_err(to_py_runtime_error)
     }
 }
@@ -588,6 +610,49 @@ mod tests {
         let error = memory.put_event_json(&payload).unwrap_err();
 
         assert!(error.to_string().contains("secret-like memory is blocked"));
+    }
+
+    #[test]
+    fn native_binding_maintain_json_plans_and_applies_expired_memory() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let event_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Temporary native maintenance memory.",
+                    "event_type": "lesson",
+                    "retention": "ephemeral",
+                    "expires_at": "2000-01-01T00:00:00Z"
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let event: MemoryEvent = serde_json::from_str(&event_json).unwrap();
+
+        let dry_run: serde_json::Value = serde_json::from_str(
+            &memory
+                .maintain_json(None, false, false, false, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dry_run["status"], "planned");
+        assert_eq!(dry_run["planned_action_count"], 1);
+        assert_eq!(dry_run["dry_run"], true);
+        assert!(memory.store.get(&event.id).unwrap().is_some());
+
+        let applied: serde_json::Value = serde_json::from_str(
+            &memory
+                .maintain_json(None, false, true, false, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(applied["status"], "applied");
+        assert_eq!(applied["applied_action_count"], 1);
+        assert_eq!(applied["dry_run"], false);
+        assert!(memory.store.get(&event.id).unwrap().is_none());
     }
 
     #[test]
