@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::plan_maintenance;
@@ -248,13 +249,49 @@ enum ForgetMode {
 }
 
 fn main() -> std::process::ExitCode {
-    match run(Cli::parse()) {
+    let args = std::env::args_os().collect::<Vec<_>>();
+    if let Some((root, json_output)) = global_welcome_request(&args) {
+        return exit_from_result(welcome::run(&root, false, false, json_output));
+    }
+    exit_from_result(run(Cli::parse_from(args)))
+}
+
+fn exit_from_result(result: Result<(), String>) -> std::process::ExitCode {
+    match result {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
             std::process::ExitCode::from(2)
         }
     }
+}
+
+fn global_welcome_request(args: &[OsString]) -> Option<(PathBuf, bool)> {
+    let mut index = 1usize;
+    let mut root = PathBuf::from(".tree-ring");
+    let mut json_output = false;
+    while index < args.len() {
+        let arg = args[index].to_str()?;
+        match arg {
+            "--json" => {
+                json_output = true;
+                index += 1;
+            }
+            "--root" => {
+                let value = args.get(index + 1)?;
+                root = PathBuf::from(value);
+                index += 2;
+            }
+            "-h" | "--help" | "-V" | "--version" => return None,
+            value if value.starts_with("--root=") => {
+                root = PathBuf::from(value.trim_start_matches("--root="));
+                index += 1;
+            }
+            value if value.starts_with('-') => return None,
+            _command => return None,
+        }
+    }
+    Some((root, json_output))
 }
 
 fn run(cli: Cli) -> Result<(), String> {
@@ -1702,6 +1739,37 @@ mod tests {
             }
             _ => panic!("expected welcome command"),
         }
+    }
+
+    #[test]
+    fn bare_command_routes_to_welcome() {
+        let (root, json_output) =
+            global_welcome_request(&[OsString::from("tree-ring")]).expect("welcome request");
+
+        assert_eq!(root, PathBuf::from(".tree-ring"));
+        assert!(!json_output);
+    }
+
+    #[test]
+    fn global_flags_without_subcommand_route_to_welcome() {
+        let (root, json_output) = global_welcome_request(&[
+            OsString::from("tree-ring"),
+            OsString::from("--json"),
+            OsString::from("--root"),
+            OsString::from(".memory"),
+        ])
+        .expect("welcome request");
+
+        assert_eq!(root, PathBuf::from(".memory"));
+        assert!(json_output);
+    }
+
+    #[test]
+    fn subcommands_do_not_route_to_global_welcome() {
+        assert!(
+            global_welcome_request(&[OsString::from("tree-ring"), OsString::from("tui"),])
+                .is_none()
+        );
     }
 
     #[test]

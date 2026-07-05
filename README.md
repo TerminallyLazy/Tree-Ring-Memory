@@ -45,18 +45,23 @@ suite, Python smoke script, PyO3 crate, or CPython extension.
 Global user install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp"
 ```
 
 Project-local install with first-run initialization:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
+tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp" --project --init
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
 a short terminal onboarding screen with ASCII rings and the next useful
 commands. It does not initialize memory unless `--init` is passed.
+
+The installer command intentionally downloads the script to a temporary file
+before running it. Avoid `curl ... | sh` here: if the download fails before
+producing script content, the shell can still exit successfully after running
+empty input, which looks like a silent no-op.
 
 Initialization creates the SQLite store and non-destructive agent-awareness
 files in the memory root:
@@ -86,6 +91,7 @@ After install, rerun onboarding anytime:
 ```bash
 tree-ring welcome
 tree-ring welcome --init
+tree-ring
 ```
 
 By default, the installer uses `cargo install` from the Git repository or a
@@ -96,6 +102,14 @@ Open the terminal console after a global install:
 
 ```bash
 tree-ring tui
+```
+
+If your shell cannot find `tree-ring` after a global install, run it directly or
+add the install bin directory to `PATH`:
+
+```bash
+$HOME/.local/bin/tree-ring tui
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Open the terminal console after a project-local install:
