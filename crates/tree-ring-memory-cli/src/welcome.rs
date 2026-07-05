@@ -118,23 +118,90 @@ fn shell_path(path: &Path) -> String {
 fn ring_frame(color: bool) -> Vec<String> {
     vec![
         paint(
-            "          .------------------------.          ",
+            "                    .----------------------.                    ",
             BLUE,
             color,
         ),
-        paint("       .-'  cambium  fresh detail  /'-.      ", TEAL, color),
-        paint("     .'  .---------------------. /   '.     ", PINK, color),
         paint(
-            "    /  .' outer detailed ring  / '.   \\    ",
+            "                .-'  .----------------.  /'-.                  ",
+            TEAL,
+            color,
+        ),
+        paint(
+            "             .-'  .-'  .------------.  /  . '-.                ",
+            PINK,
+            color,
+        ),
+        paint(
+            "           .'  .-'  .-'   .------.   /  .' '.  '.              ",
             ORANGE,
             color,
         ),
-        paint("   |  /  .-----------------. /  |    |   ", YELLOW, color),
-        paint("   | |  | heartwood core | |   |    |   ", BLUE, color),
-        paint("   |  \\  ' scars + seeds ' /   |    |   ", PINK, color),
-        paint("    \\  '. inner compressed .'  /   ", ORANGE, color),
-        paint("      '-. '==============='  .-'       ", TEAL, color),
-        paint("          '-----------------'          ", BLUE, color),
+        paint(
+            "          /  .'   .'    .' .----. '. / .'    '.  \\             ",
+            YELLOW,
+            color,
+        ),
+        paint(
+            "         |  /    /     /  / OO \\  V /       |  |            ",
+            ORANGE,
+            color,
+        ),
+        paint(
+            "         | |    |     |  |  oo  |  |        |  |            ",
+            BLUE,
+            color,
+        ),
+        paint(
+            "         |  \\    \\     \\  \\____/  /\\        |  |            ",
+            ORANGE,
+            color,
+        ),
+        paint(
+            "          \\  '.   '.    '.______.'  '.      /  /             ",
+            YELLOW,
+            color,
+        ),
+        paint(
+            "           '.  '-.  '-.              .'-.__.' .'              ",
+            ORANGE,
+            color,
+        ),
+        paint(
+            "             '-.  '-.  '------------'  .-'.-'                ",
+            PINK,
+            color,
+        ),
+        paint(
+            "                '-.  '----------------' .-'                  ",
+            TEAL,
+            color,
+        ),
+        paint(
+            "                   '--------------------'                    ",
+            BLUE,
+            color,
+        ),
+        paint(
+            "        /|                                            |\\       ",
+            TEAL,
+            color,
+        ),
+        paint(
+            "       / |              TREE RING MEMORY              | \\      ",
+            PINK,
+            color,
+        ),
+        paint(
+            "      /__|____________________________________________|__\\     ",
+            ORANGE,
+            color,
+        ),
+        paint(
+            "             fresh rings -> scars -> heartwood                 ",
+            YELLOW,
+            color,
+        ),
     ]
 }
 
