@@ -1,8 +1,9 @@
 # Rust Core Status
 
 Tree Ring Memory has moved from a Python-owned reference implementation toward
-a Rust-first core with Python compatibility. This page tracks the v0.2 Rust core
-and v0.3 native Python binding work.
+a Rust-first core with Python compatibility. This page tracks the v0.2 Rust
+core, v0.3 native Python binding work, and the Rust-native Ratatui terminal
+console now being added to the CLI.
 
 ## Current Status
 
@@ -26,6 +27,10 @@ and v0.3 native Python binding work.
   contracts, including details, source metadata, agent profile, scores,
   retention, expiry, links, review metadata, supersession, recall filters,
   superseded-memory inclusion, and ranking explanations.
+- The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
+  always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
+  optional JSONL event-stream pulses, search/detail panes, and confirmation
+  gates for destructive or authority-changing actions.
 
 ## Build Commands
 
@@ -33,6 +38,7 @@ and v0.3 native Python binding work.
 cargo test
 python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
+cargo run -p tree-ring-memory-cli -- tui --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -83,6 +89,9 @@ Backend controls:
   SQLite/FTS storage, transactional row/FTS consistency, redaction, and basic
   concurrent writes. Rust binding tests cover native JSON remember/recall
   round-trip and forget validation.
+- Rust CLI tests cover the scriptable init/remember/recall/forget commands and
+  the Ratatui TUI model, stream reader, slash-command parser, store-watch
+  refresh, confirmation-gated actions, CLI parsing, and render-buffer smoke.
 - Python tests cover the existing reference backend, Rust CLI database
   compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
   native selection, full native wrapper argument marshalling, and clean

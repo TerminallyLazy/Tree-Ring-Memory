@@ -27,3 +27,4 @@ thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
 pyo3 = { version = "0.22", features = ["abi3-py311"] }
 pyo3-build-config = { version = "0.22" }
+ratatui = "0.30.2"

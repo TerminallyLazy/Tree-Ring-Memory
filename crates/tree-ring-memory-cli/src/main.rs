@@ -5,6 +5,8 @@ use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
+mod tui;
+
 #[derive(Debug, Parser)]
 #[command(name = "tree-ring", about = "Local tree-ring memory for AI agents.")]
 struct Cli {
@@ -52,6 +54,17 @@ enum Command {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
+    Tui {
+        #[arg(long, help = "optional JSONL event stream to light rings in real time")]
+        event_stream: Option<PathBuf>,
+        #[arg(
+            long,
+            default_value_t = 250,
+            help = "animation and refresh cadence in milliseconds"
+        )]
+        tick_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -72,6 +85,18 @@ fn main() -> std::process::ExitCode {
 
 fn run(cli: Cli) -> Result<(), String> {
     let db_path = cli.root.join("memory.sqlite");
+
+    if let Command::Tui {
+        event_stream,
+        tick_ms,
+    } = cli.command
+    {
+        if cli.json {
+            return Err("--json is not supported with the interactive TUI".to_string());
+        }
+        return tui::run(cli.root, event_stream, tick_ms);
+    }
+
     let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
 
     match cli.command {
@@ -189,6 +214,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("Tree Ring Memory forget complete: {memory_id}");
             }
         }
+        Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
     }
     Ok(())
 }
@@ -325,5 +351,48 @@ mod tests {
 
         assert!(hidden.is_empty());
         assert_eq!(visible[0].memory.sensitivity, "health");
+    }
+
+    #[test]
+    fn parses_tui_command() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "--root",
+            ".memory",
+            "tui",
+            "--event-stream",
+            "events.jsonl",
+            "--tick-ms",
+            "125",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::Tui {
+                event_stream,
+                tick_ms,
+            } => {
+                assert_eq!(event_stream.unwrap(), PathBuf::from("events.jsonl"));
+                assert_eq!(tick_ms, 125);
+            }
+            _ => panic!("expected tui command"),
+        }
+    }
+
+    #[test]
+    fn tui_rejects_json_mode_before_terminal_start() {
+        let dir = tempdir().unwrap();
+
+        let err = run(Cli {
+            root: dir.path().join(".tree-ring"),
+            json: true,
+            command: Command::Tui {
+                event_stream: None,
+                tick_ms: 250,
+            },
+        })
+        .unwrap_err();
+
+        assert!(err.contains("--json is not supported"));
     }
 }

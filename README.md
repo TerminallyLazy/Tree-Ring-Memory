@@ -19,6 +19,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.1 provides a local Python reference library with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core while preserving Python compatibility.
 - v0.3 makes the public Python facade Rust-first when the optional PyO3 native module is installed.
+- The current Rust branch adds a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
 
@@ -113,6 +114,42 @@ tree-ring forget mem_example --mode delete --reason "example cleanup"
 
 The CLI stores memory in `.tree-ring/` by default.
 
+## Terminal Console Preview
+
+The Rust CLI includes a framework-agnostic Ratatui console for humans and agent
+operators working from a terminal:
+
+```bash
+tree-ring tui
+tree-ring --root .tree-ring tui --event-stream ./tree-ring-events.jsonl --tick-ms 150
+```
+
+The console keeps an animated ASCII tree-ring cross-section visible at all
+times. Store-watch polling updates persisted counts from SQLite, while the
+optional event stream lights rings in real time without treating stream events
+as durable truth.
+
+Useful keys and commands:
+
+- `s` focuses search, `/` opens the slash command palette, `r` opens exploded
+  ring view, `q` quits.
+- `i` toggles sensitive-memory visibility, `u` toggles superseded-memory
+  visibility.
+- Slash commands include `/rings`, `/search <query>`, `/remember <summary>`,
+  `/forget`, `/redact`, `/promote`, `/scar`, `/seed`, `/supersede <old_id>`,
+  `/consolidate`, `/export`, `/sync`, `/stream`, and `/watch`.
+
+Destructive or authority-changing operations are confirmation-gated. Sensitive
+details stay hidden by default, and secret-like memory is blocked before
+storage.
+
+Event stream lines are local JSONL objects. They are display signals only:
+
+```json
+{"event":"remembered","ring":"cambium","label":"Stored project lesson"}
+{"event":"policy_blocked","ring":"scar","label":"Secret-like memory blocked"}
+```
+
 ## Development Checks
 
 ```bash
@@ -139,6 +176,8 @@ latency of 250 ms for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-core-v0-2-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-python-bindings-v0-3-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-python-bindings-v0-3-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-ratatui-tui-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-ratatui-tui-implementation-plan.md`
 
 ## Agent Workflow Integration
 
