@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use crate::models::{TreeRingError, TreeRingResult};
+use crate::models::{MemoryEvent, TreeRingError, TreeRingResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SensitivityResult {
@@ -76,6 +76,74 @@ impl SensitivityGuard {
             return Err(TreeRingError::SensitiveMemoryBlocked);
         }
         Ok(result)
+    }
+
+    pub fn detect_text_sensitivity<'a, I>(&self, values: I) -> TreeRingResult<String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut detected = "normal".to_string();
+        for value in values {
+            let result = self.check_or_raise(value)?;
+            if detected == "normal" && result.sensitivity != "normal" {
+                detected = result.sensitivity;
+            }
+        }
+        Ok(detected)
+    }
+
+    pub fn detect_memory_event_sensitivity(&self, event: &MemoryEvent) -> TreeRingResult<String> {
+        let mut detected = "normal".to_string();
+        self.accumulate(&mut detected, &event.id)?;
+        self.accumulate(&mut detected, &event.created_at)?;
+        self.accumulate(&mut detected, &event.updated_at)?;
+        self.accumulate_optional(&mut detected, event.project.as_deref())?;
+        self.accumulate_optional(&mut detected, event.agent_profile.as_deref())?;
+        self.accumulate(&mut detected, &event.scope)?;
+        self.accumulate(&mut detected, &event.ring)?;
+        self.accumulate(&mut detected, &event.event_type)?;
+        self.accumulate(&mut detected, &event.summary)?;
+        self.accumulate(&mut detected, &event.details)?;
+        self.accumulate(&mut detected, &event.source.source_type)?;
+        self.accumulate(&mut detected, &event.source.ref_)?;
+        self.accumulate(&mut detected, &event.source.quote)?;
+        for tag in &event.tags {
+            self.accumulate(&mut detected, tag)?;
+        }
+        self.accumulate(&mut detected, &event.sensitivity)?;
+        self.accumulate(&mut detected, &event.retention)?;
+        self.accumulate_optional(&mut detected, event.expires_at.as_deref())?;
+        for superseded_id in &event.supersedes {
+            self.accumulate(&mut detected, superseded_id)?;
+        }
+        self.accumulate_optional(&mut detected, event.superseded_by.as_deref())?;
+        for link in &event.links {
+            self.accumulate(&mut detected, &link.link_type)?;
+            self.accumulate(&mut detected, &link.target)?;
+        }
+        self.accumulate_optional(&mut detected, event.review.review_reason.as_deref())?;
+        self.accumulate_optional(&mut detected, event.review.reviewed_at.as_deref())?;
+        self.accumulate_optional(&mut detected, event.review.reviewed_by.as_deref())?;
+        Ok(detected)
+    }
+
+    fn accumulate(&self, detected: &mut String, value: &str) -> TreeRingResult<()> {
+        let result = self.check_or_raise(value)?;
+        if *detected == "normal" && result.sensitivity != "normal" {
+            *detected = result.sensitivity;
+        }
+        Ok(())
+    }
+
+    fn accumulate_optional(
+        &self,
+        detected: &mut String,
+        value: Option<&str>,
+    ) -> TreeRingResult<()> {
+        if let Some(value) = value {
+            self.accumulate(detected, value)?;
+        }
+        Ok(())
     }
 }
 
@@ -165,5 +233,47 @@ mod tests {
 
         assert_eq!(result.sensitivity, "health");
         assert!(result.requires_explicit_approval);
+    }
+
+    #[test]
+    fn detects_category_after_checking_all_fields() {
+        let guard = SensitivityGuard::default();
+        let detected = guard
+            .detect_text_sensitivity([
+                "normal summary",
+                "private diagnosis in source metadata",
+                "ordinary tag",
+            ])
+            .unwrap();
+
+        assert_eq!(detected, "health");
+    }
+
+    #[test]
+    fn memory_event_detection_checks_full_public_schema_surface() {
+        let guard = SensitivityGuard::default();
+        let mut event = MemoryEvent::new("Full event policy.", "lesson").unwrap();
+        event.details = "private diagnosis belongs in sensitive recall".to_string();
+        event.superseded_by = Some("mem_replacement".to_string());
+        event.links.push(crate::models::MemoryLink {
+            link_type: "evidence".to_string(),
+            target: "local".to_string(),
+        });
+        event.review.review_reason = Some("reviewed by maintainer".to_string());
+
+        let detected = guard.detect_memory_event_sensitivity(&event).unwrap();
+
+        assert_eq!(detected, "health");
+    }
+
+    #[test]
+    fn memory_event_detection_blocks_secret_in_review_metadata() {
+        let guard = SensitivityGuard::default();
+        let mut event = MemoryEvent::new("Full event policy.", "lesson").unwrap();
+        event.review.reviewed_by = Some("TOKEN=abcdefghijklmnopqrstuvwxyz123456".to_string());
+
+        let error = guard.detect_memory_event_sensitivity(&event).unwrap_err();
+
+        assert!(error.to_string().contains("blocked"));
     }
 }
