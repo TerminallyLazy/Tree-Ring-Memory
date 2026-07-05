@@ -193,7 +193,7 @@ can_animate() {
   [ -t 1 ] || return 1
   [ "${TERM:-}" != "dumb" ] || return 1
   cols=$(term_cols)
-  [ "$cols" -ge 66 ] || return 1
+  [ "$cols" -ge 72 ] || return 1
   sleep 0.001 2>/dev/null || return 1
   return 0
 }
@@ -209,31 +209,33 @@ clear_ring_frame() {
 ring_frame() {
   phase=${1:-0}
   case "$phase" in
-    0) core="oo"; scar=" /" ;;
-    1) core="OO"; scar="//" ;;
-    2) core="@@"; scar="\\ " ;;
-    *) core="OO"; scar=" /" ;;
+    0) core="oo"; glow="." ;;
+    1) core="OO"; glow="*" ;;
+    2) core="@@"; glow="o" ;;
+    *) core="OO"; glow="*" ;;
   esac
 
-  paint_line "1;38;5;24"  "              .================================.              "
-  paint_line "1;38;5;37"  "          .--'  .------------------------.    /'--.          "
-  paint_line "1;38;5;204" "       .-'   .-'  .================.    /  .-'    '-.        "
-  paint_line "1;38;5;208" "     .'    .'   .-'  .----------.  /  .' .'          '.      "
-  paint_line "1;38;5;220" "    /     /   .'   .'  .----.   \/  /  /              \\    "
-  paint_line "1;38;5;208" "   |     |   /    /   / .--. \\   ${scar} |  |                |   "
-  paint_line "1;38;5;94"  "   |     |  |    |   | / ${core} \\ |     |  |                |   "
-  paint_line "1;38;5;208" "   |     |   \\    \\   \\ '--' /   / |  |                |   "
-  paint_line "1;38;5;220" "    \\     \\   '.   '.  '----'  .'  \\  \\              /    "
-  paint_line "1;38;5;208" "     '.    '.   '-.  '--------'  .-' '. '.          .'      "
-  paint_line "1;38;5;204" "       '-.   '-.   '============'   .-'   '-.___.-'        "
-  paint_line "1;38;5;37"  "          '--.  '------------------'   .--'              "
-  paint_line "1;38;5;24"  "              '========================'                  "
-  paint_line "1;38;5;24"  "                    Tree Ring Memory                       "
-  paint_line "38;5;244"   "              fresh rings -> scars -> heartwood             "
+  paint_line "1;38;5;24"  "                    .----------------------.                    "
+  paint_line "1;38;5;37"  "                .-'  .----------------.  /'-.                  "
+  paint_line "1;38;5;204" "             .-'  .-'  .------------.  /  . '-.                "
+  paint_line "1;38;5;208" "           .'  .-'  .-'   .------.   /  .' '.  '.              "
+  paint_line "1;38;5;220" "          /  .'   .'    .' .----. '. / .'    '.  \\             "
+  paint_line "1;38;5;208" "         |  /    /     /  / ${core} \\  V /       |  |            "
+  paint_line "1;38;5;94"  "         | |    |     |  |  ${glow}${glow}  |  |        |  |            "
+  paint_line "1;38;5;208" "         |  \\    \\     \\  \\____/  /\\        |  |            "
+  paint_line "1;38;5;220" "          \\  '.   '.    '.______.'  '.      /  /             "
+  paint_line "1;38;5;208" "           '.  '-.  '-.              .'-.__.' .'              "
+  paint_line "1;38;5;204" "             '-.  '-.  '------------'  .-'.-'                "
+  paint_line "1;38;5;37"  "                '-.  '----------------' .-'                  "
+  paint_line "1;38;5;24"  "                   '--------------------'                    "
+  paint_line "1;38;5;37"  "        /|                                            |\\       "
+  paint_line "1;38;5;204" "       / |              TREE RING MEMORY              | \\      "
+  paint_line "1;38;5;208" "      /__|____________________________________________|__\\     "
+  paint_line "38;5;244"   "             fresh rings -> scars -> heartwood                 "
 }
 
 tree_ring_animation() {
-  frame_lines=15
+  frame_lines=17
   printed=0
 
   # Hide the cursor during the short installer splash. The trap restores it if
@@ -257,10 +259,12 @@ tree_ring_animation() {
 }
 
 intro() {
-  if can_animate; then
-    tree_ring_animation
-  else
-    ring_frame 3
+  if [ "$RUN_ONBOARDING" != "1" ]; then
+    if can_animate; then
+      tree_ring_animation
+    else
+      ring_frame 3
+    fi
     line ""
   fi
 
