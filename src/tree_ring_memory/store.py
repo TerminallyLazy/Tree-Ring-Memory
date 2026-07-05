@@ -220,17 +220,20 @@ class SQLiteMemoryStore:
         if dry_run:
             return report
 
+        imported_events = []
         for event in events:
             if self.get(event.id) is None:
                 self.put(event)
-                self._apply_supersedes(event)
+                imported_events.append(event)
                 report["inserted_count"] += 1
             elif replace_existing:
                 self.put(event)
-                self._apply_supersedes(event)
+                imported_events.append(event)
                 report["replaced_count"] += 1
             else:
                 report["skipped_duplicate_count"] += 1
+        for event in imported_events:
+            self._apply_supersedes(event)
         return report
 
     def _apply_supersedes(self, event: MemoryEvent) -> None:

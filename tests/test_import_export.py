@@ -119,6 +119,38 @@ def test_python_reference_import_applies_supersedes_to_existing_target(tmp_path)
     assert [event.id for event in target.store.list_all()] == [new.id]
 
 
+def test_python_reference_import_applies_supersedes_after_all_rows_are_written(tmp_path):
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
+    old = MemoryEvent.new(summary="Old decision imported after replacement.", event_type="decision")
+    new = MemoryEvent.new(
+        summary="New decision imported before old.",
+        event_type="decision",
+        supersedes=[old.id],
+    )
+    jsonl = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "tree_ring_memory_export",
+                    "schema_version": 1,
+                    "plugin_version": "0.4.0",
+                    "created_at": "2026-07-05T00:00:00+00:00",
+                    "memory_count": 2,
+                    "sensitive_included": False,
+                }
+            ),
+            json.dumps({"type": "memory_event", "memory": new.to_dict()}),
+            json.dumps({"type": "memory_event", "memory": old.to_dict()}),
+        ]
+    )
+
+    report = memory.import_jsonl(jsonl)
+
+    assert report["inserted_count"] == 2
+    assert memory.store.get(old.id).superseded_by == new.id
+    assert [event.id for event in memory.store.list_all()] == [new.id]
+
+
 def test_python_reference_jsonl_rejects_malformed_export_header(tmp_path):
     memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     malformed = json.dumps({"type": "tree_ring_memory_export", "schema_version": 1}) + "\n"

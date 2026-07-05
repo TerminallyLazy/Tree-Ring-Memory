@@ -404,20 +404,24 @@ impl SQLiteMemoryStore {
             return Ok(report);
         }
 
+        let mut imported_events = Vec::new();
         for event in events {
             if self.get(&event.id)?.is_some() {
                 if replace_existing {
                     self.put(&event)?;
-                    self.apply_supersedes(&event)?;
+                    imported_events.push(event);
                     report.replaced_count += 1;
                 } else {
                     report.skipped_duplicate_count += 1;
                 }
             } else {
                 self.put(&event)?;
-                self.apply_supersedes(&event)?;
+                imported_events.push(event);
                 report.inserted_count += 1;
             }
+        }
+        for event in imported_events {
+            self.apply_supersedes(&event)?;
         }
         Ok(report)
     }
@@ -1018,6 +1022,33 @@ mod tests {
             Some(new.id.clone())
         );
         let active_ids: Vec<_> = target
+            .list_all(false)
+            .unwrap()
+            .into_iter()
+            .map(|event| event.id)
+            .collect();
+        assert_eq!(active_ids, vec![new.id]);
+    }
+
+    #[test]
+    fn import_jsonl_applies_supersedes_after_all_imported_rows_are_written() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let old = MemoryEvent::new("Old decision imported after replacement.", "decision").unwrap();
+        let mut new = MemoryEvent::new("New decision imported before old.", "decision").unwrap();
+        new.supersedes = vec![old.id.clone()];
+        let out_of_order_jsonl = encode_jsonl(&[new.clone(), old.clone()], false).unwrap();
+
+        let report = store
+            .import_jsonl(&out_of_order_jsonl, false, false)
+            .unwrap();
+
+        assert_eq!(report.inserted_count, 2);
+        assert_eq!(
+            store.get(&old.id).unwrap().unwrap().superseded_by,
+            Some(new.id.clone())
+        );
+        let active_ids: Vec<_> = store
             .list_all(false)
             .unwrap()
             .into_iter()
