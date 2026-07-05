@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tree-ring-memory.dev/schemas/recall-result.schema.json",
+  "title": "Tree Ring Recall Result",
+  "type": "object",
+  "required": ["memory", "score"],
+  "properties": {
+    "memory": { "$ref": "memory-event.schema.json" },
+    "score": { "type": "number" },
+    "ranking": {
+      "type": "object",
+      "properties": {
+        "textual_match": { "type": "number" },
+        "salience": { "type": "number" },
+        "confidence": { "type": "number" },
+        "recency": { "type": "number" },
+        "source_authority": { "type": "number" },
+        "ring_boost": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
