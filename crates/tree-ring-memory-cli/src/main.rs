@@ -5,14 +5,16 @@ use std::path::PathBuf;
 use tree_ring_memory_core::plan_maintenance;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
-    audit_memories, consolidate_memories, decode_jsonl, normalize_import_events, AuditReport,
-    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, MaintenanceReport,
-    MaintenanceRequest,
+    audit_memories, collect_dox_memories, collect_revolve_memories, consolidate_memories,
+    decode_jsonl, normalize_import_events, AuditReport, ConsolidationPeriod, ConsolidationReport,
+    ConsolidationRequest, DoxSyncReport, DoxSyncRequest, MaintenanceReport, MaintenanceRequest,
+    RevolveSyncReport, RevolveSyncRequest,
 };
 use tree_ring_memory_core::{MemoryEvent, MemoryLink};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod agent_awareness;
+mod integrations;
 mod tui;
 mod welcome;
 
@@ -179,6 +181,64 @@ enum Command {
         #[arg(long, help = "print a stable onboarding screen without animation")]
         no_animation: bool,
     },
+    #[command(about = "summarize DOX-style AGENTS.md guidance into memory")]
+    Dox {
+        #[command(subcommand)]
+        command: DoxCommand,
+    },
+    #[command(about = "import Revolve-style evidence records into memory")]
+    Revolve {
+        #[command(subcommand)]
+        command: RevolveCommand,
+    },
+    #[command(about = "discover local agent-framework integration markers")]
+    Integrations {
+        #[command(subcommand)]
+        command: IntegrationCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DoxCommand {
+    #[command(about = "scan AGENTS.md files and store concise source-linked memories")]
+    Sync {
+        #[arg(
+            long,
+            default_value = ".",
+            help = "project root or AGENTS.md file to scan"
+        )]
+        source_root: PathBuf,
+        #[arg(long, help = "optional project scope for imported memories")]
+        project: Option<String>,
+        #[arg(long, help = "preview generated memories without writing them")]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RevolveCommand {
+    #[command(about = "scan Revolve records and store evidence-linked memories")]
+    Sync {
+        #[arg(
+            long,
+            default_value = "revolve",
+            help = "Revolve root or evidence file to scan"
+        )]
+        source_root: PathBuf,
+        #[arg(long, help = "optional project scope for imported memories")]
+        project: Option<String>,
+        #[arg(long, help = "preview generated memories without writing them")]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum IntegrationCommand {
+    #[command(about = "scan a project root for known agent-framework markers")]
+    Scan {
+        #[arg(long, default_value = ".", help = "project root to scan")]
+        source_root: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -202,6 +262,15 @@ fn run(cli: Cli) -> Result<(), String> {
 
     if let Command::Welcome { init, no_animation } = &cli.command {
         return welcome::run(&cli.root, *init, *no_animation, cli.json);
+    }
+
+    if let Command::Integrations {
+        command: IntegrationCommand::Scan { source_root },
+    } = &cli.command
+    {
+        let report = integrations::scan_integrations(source_root);
+        print_integration_report(&report, cli.json)?;
+        return Ok(());
     }
 
     if let Command::Tui {
@@ -311,6 +380,37 @@ fn run(cli: Cli) -> Result<(), String> {
             print_maintenance_report(&report, cli.json)?;
             return Ok(());
         }
+    }
+
+    if let Command::Dox {
+        command:
+            DoxCommand::Sync {
+                source_root,
+                project,
+                dry_run: true,
+            },
+    } = &cli.command
+    {
+        let report = collect_dox_memories(&dox_request(source_root.clone(), project.clone()))
+            .map_err(|err| err.to_string())?;
+        print_dox_report(&report, cli.json, true)?;
+        return Ok(());
+    }
+
+    if let Command::Revolve {
+        command:
+            RevolveCommand::Sync {
+                source_root,
+                project,
+                dry_run: true,
+            },
+    } = &cli.command
+    {
+        let report =
+            collect_revolve_memories(&revolve_request(source_root.clone(), project.clone()))
+                .map_err(|err| err.to_string())?;
+        print_revolve_report(&report, cli.json, true)?;
+        return Ok(());
     }
 
     let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
@@ -568,8 +668,57 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Welcome { .. } => {
             unreachable!("welcome returns before opening the scriptable store")
         }
+        Command::Integrations { .. } => {
+            unreachable!("integrations scan returns before opening the scriptable store")
+        }
+        Command::Dox {
+            command:
+                DoxCommand::Sync {
+                    source_root,
+                    project,
+                    dry_run,
+                },
+        } => {
+            let report = collect_dox_memories(&dox_request(source_root, project))
+                .map_err(|err| err.to_string())?;
+            if !dry_run {
+                store
+                    .put_many(&report.events)
+                    .map_err(|err| err.to_string())?;
+            }
+            print_dox_report(&report, cli.json, dry_run)?;
+        }
+        Command::Revolve {
+            command:
+                RevolveCommand::Sync {
+                    source_root,
+                    project,
+                    dry_run,
+                },
+        } => {
+            let report = collect_revolve_memories(&revolve_request(source_root, project))
+                .map_err(|err| err.to_string())?;
+            if !dry_run {
+                store
+                    .put_many(&report.events)
+                    .map_err(|err| err.to_string())?;
+            }
+            print_revolve_report(&report, cli.json, dry_run)?;
+        }
     }
     Ok(())
+}
+
+fn dox_request(source_root: PathBuf, project: Option<String>) -> DoxSyncRequest {
+    let mut request = DoxSyncRequest::new(source_root);
+    request.project = project;
+    request
+}
+
+fn revolve_request(source_root: PathBuf, project: Option<String>) -> RevolveSyncRequest {
+    let mut request = RevolveSyncRequest::new(source_root);
+    request.project = project;
+    request
 }
 
 fn maintenance_request(
@@ -814,6 +963,108 @@ fn print_maintenance_report(report: &MaintenanceReport, json_output: bool) -> Re
     Ok(())
 }
 
+fn print_dox_report(
+    report: &DoxSyncReport,
+    json_output: bool,
+    dry_run: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            json!({
+                "ok": true,
+                "dry_run": dry_run,
+                "report": report,
+            })
+        );
+    } else {
+        println!(
+            "Tree Ring Memory DOX sync: sources={} memories={} skipped_secret={} dry_run={}",
+            report.source_count, report.memory_count, report.skipped_secret_count, dry_run
+        );
+        for warning in &report.warnings {
+            println!("warning: {warning}");
+        }
+        for event in &report.events {
+            println!(
+                "{} [{}] {} <- {}",
+                event.id, event.ring, event.summary, event.source.ref_
+            );
+        }
+        println!("Source AGENTS.md files remain authoritative; re-read them before acting.");
+    }
+    Ok(())
+}
+
+fn print_revolve_report(
+    report: &RevolveSyncReport,
+    json_output: bool,
+    dry_run: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            json!({
+                "ok": true,
+                "dry_run": dry_run,
+                "report": report,
+            })
+        );
+    } else {
+        println!(
+            "Tree Ring Memory Revolve sync: sources={} memories={} skipped_large={} skipped_secret={} dry_run={}",
+            report.source_count,
+            report.memory_count,
+            report.skipped_large_count,
+            report.skipped_secret_count,
+            dry_run
+        );
+        for warning in &report.warnings {
+            println!("warning: {warning}");
+        }
+        for event in &report.events {
+            println!(
+                "{} [{}] {} <- {}",
+                event.id, event.ring, event.summary, event.source.ref_
+            );
+        }
+        println!("Revolve records remain authoritative; re-read evaluations before treating memory as current truth.");
+    }
+    Ok(())
+}
+
+fn print_integration_report(
+    report: &integrations::IntegrationScanReport,
+    json_output: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            json!({
+                "ok": true,
+                "report": report,
+            })
+        );
+    } else {
+        println!(
+            "Tree Ring Memory integrations: root={} detected={}",
+            report.root.display(),
+            report.detected_count
+        );
+        for integration in &report.integrations {
+            println!(
+                "{} [{:?}] confidence={:.2}",
+                integration.name, integration.status, integration.confidence
+            );
+            if !integration.markers.is_empty() {
+                println!("  markers: {}", integration.markers.join(", "));
+            }
+            println!("  next: {}", integration.next_step);
+        }
+    }
+    Ok(())
+}
+
 fn print_agent_awareness_summary(report: &agent_awareness::AgentAwarenessReport) {
     if !report.created.is_empty() {
         println!("Agent awareness files created:");
@@ -995,6 +1246,121 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err, "evidence score must be between 0 and 1");
+    }
+
+    #[test]
+    fn dox_sync_dry_run_does_not_create_store() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\nYou must run focused tests before full cargo test.",
+        )
+        .unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Dox {
+                command: DoxCommand::Sync {
+                    source_root: dir.path().to_path_buf(),
+                    project: Some("tree-ring".to_string()),
+                    dry_run: true,
+                },
+            },
+        })
+        .unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn dox_sync_persists_source_linked_contract_memory() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Contract\nYou must keep memory source documents authoritative.",
+        )
+        .unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Dox {
+                command: DoxCommand::Sync {
+                    source_root: dir.path().to_path_buf(),
+                    project: Some("tree-ring".to_string()),
+                    dry_run: false,
+                },
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories = store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].scope, "dox");
+        assert_eq!(memories[0].ring, "heartwood");
+        assert_eq!(memories[0].source.source_type, "dox");
+        assert_eq!(memories[0].source.ref_, "AGENTS.md#contract-2");
+    }
+
+    #[test]
+    fn integrations_scan_is_read_only_and_detects_project_markers() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "# Rules").unwrap();
+        fs::create_dir_all(dir.path().join("revolve")).unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Integrations {
+                command: IntegrationCommand::Scan {
+                    source_root: dir.path().to_path_buf(),
+                },
+            },
+        })
+        .unwrap();
+
+        assert!(!root.exists());
+        let report = integrations::scan_integrations(dir.path());
+        assert!(report.detected_count >= 2);
+    }
+
+    #[test]
+    fn revolve_sync_persists_rejection_as_scar() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("revolve/projects/ui/branches/cache")).unwrap();
+        fs::write(
+            dir.path()
+                .join("revolve/projects/ui/branches/cache/AGENTS.md"),
+            "# Rejected\nRejected aggressive caching after stale state regression.",
+        )
+        .unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Revolve {
+                command: RevolveCommand::Sync {
+                    source_root: dir.path().join("revolve"),
+                    project: Some("ui".to_string()),
+                    dry_run: false,
+                },
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories = store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].scope, "revolve");
+        assert_eq!(memories[0].ring, "scar");
+        assert_eq!(memories[0].event_type, "evaluation_rejection");
+        assert_eq!(memories[0].source.source_type, "revolve");
     }
 
     #[test]

@@ -513,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn contradiction_normalization_preserves_unicode_and_underscores_like_python() {
+    fn contradiction_normalization_preserves_unicode_and_underscores() {
         let mut use_memory = MemoryEvent::new("Use résumé_cache_key", "decision").unwrap();
         let mut avoid_memory = MemoryEvent::new("Avoid résumé_cache_key.", "decision").unwrap();
         use_memory.project = Some("ui".to_string());

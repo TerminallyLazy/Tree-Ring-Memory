@@ -1,8 +1,11 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tree_ring_memory_core::{now_iso, MemoryEvent, SensitivityGuard};
+use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent, SensitivityGuard};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
+
+use crate::integrations::{scan_integrations, IntegrationScanReport};
 
 use super::actions::{ActionKind, PendingAction};
 use super::input::{parse_slash_command, SlashCommand};
@@ -18,9 +21,11 @@ pub enum AppMode {
     Search,
     Stream,
     Watch,
+    Integrations,
 }
 
 pub struct App {
+    root: PathBuf,
     pub store: SQLiteMemoryStore,
     watcher: StoreWatcher,
     pub dashboard: DashboardStats,
@@ -36,6 +41,7 @@ pub struct App {
     pub pending_action: Option<PendingAction>,
     pub status: String,
     pub live_events: Vec<LiveEvent>,
+    pub integration_report: Option<IntegrationScanReport>,
     event_stream: Option<EventStreamReader>,
     pub tick: u64,
     pub should_quit: bool,
@@ -46,6 +52,7 @@ impl App {
         let db_path = root.join("memory.sqlite");
         let store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
         let mut app = Self {
+            root,
             store,
             watcher: StoreWatcher::new(),
             dashboard: DashboardStats::empty(),
@@ -61,6 +68,7 @@ impl App {
             pending_action: None,
             status: format!("Store {}", db_path.display()),
             live_events: Vec::new(),
+            integration_report: None,
             event_stream: event_stream_path.map(EventStreamReader::new),
             tick: 0,
             should_quit: false,
@@ -233,12 +241,12 @@ impl App {
                 }
             }
             SlashCommand::Consolidate => {
-                self.pending_action = Some(PendingAction::placeholder("consolidate"))
+                let request = ConsolidationRequest::new("daily").map_err(|err| err.to_string())?;
+                self.pending_action = Some(PendingAction::consolidate(request));
             }
-            SlashCommand::Export => {
-                self.pending_action = Some(PendingAction::placeholder("export"))
-            }
-            SlashCommand::Sync => self.pending_action = Some(PendingAction::placeholder("sync")),
+            SlashCommand::Export(target) => self.pending_export(target),
+            SlashCommand::Sync => self.pending_action = Some(PendingAction::sync_placeholder()),
+            SlashCommand::Integrations => self.show_integrations(),
             SlashCommand::Stream => {
                 self.mode = AppMode::Stream;
                 self.status = "showing recent event-stream signals".to_string();
@@ -343,11 +351,81 @@ impl App {
                     .map_err(|err| err.to_string())?;
                 self.status = format!("superseded {old_id} with {new_id}");
             }
-            ActionKind::Placeholder { command } => {
-                self.status = format!("{command} is confirmation-gated; backend flow pending");
+            ActionKind::Consolidate { request } => {
+                let report = self
+                    .store
+                    .consolidate(&request)
+                    .map_err(|err| err.to_string())?;
+                self.status = format!(
+                    "consolidation {}: candidates={} outputs={}",
+                    report.status,
+                    report.candidate_count,
+                    report.output_memory_ids.len()
+                );
+            }
+            ActionKind::Export {
+                output,
+                include_sensitive,
+                include_superseded,
+            } => {
+                if output.exists() {
+                    self.status = format!("export refused existing file {}", output.display());
+                } else {
+                    let (jsonl, report) = self
+                        .store
+                        .export_jsonl(include_sensitive, include_superseded)
+                        .map_err(|err| err.to_string())?;
+                    if let Some(parent) = output.parent() {
+                        if !parent.as_os_str().is_empty() {
+                            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+                        }
+                    }
+                    fs::write(&output, jsonl).map_err(|err| err.to_string())?;
+                    self.status = format!(
+                        "exported {} memories to {}",
+                        report.memory_count,
+                        output.display()
+                    );
+                }
+            }
+            ActionKind::Sync => {
+                self.status = "sync adapters are available through CLI commands".to_string();
             }
         }
         self.refresh_store()
+    }
+
+    fn pending_export(&mut self, target: String) {
+        if target.trim().is_empty() {
+            self.status = "export requires an output file".to_string();
+            return;
+        }
+        match resolve_export_path(&self.root, target.trim()) {
+            Ok(output) => {
+                if output.exists() {
+                    self.status = format!("export refused existing file {}", output.display());
+                    return;
+                }
+                self.pending_action = Some(PendingAction::export(
+                    output,
+                    self.include_sensitive,
+                    self.include_superseded,
+                ));
+            }
+            Err(error) => self.status = error,
+        }
+    }
+
+    fn show_integrations(&mut self) {
+        let root = project_root_for_memory_root(&self.root);
+        let report = scan_integrations(&root);
+        self.status = format!(
+            "integration scan: {} detected under {}",
+            report.detected_count,
+            report.root.display()
+        );
+        self.integration_report = Some(report);
+        self.mode = AppMode::Integrations;
     }
 
     pub fn run_search(&mut self) -> Result<(), String> {
@@ -441,8 +519,32 @@ fn wrap_index(current: usize, len: usize, delta: isize) -> usize {
     }
 }
 
+fn resolve_export_path(root: &Path, target: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(target);
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        return Err("export paths cannot contain '..'".to_string());
+    }
+    if path.is_absolute() {
+        return Ok(path);
+    }
+    Ok(root.join("exports").join(path))
+}
+
+fn project_root_for_memory_root(root: &Path) -> PathBuf {
+    if root.file_name().and_then(|name| name.to_str()) == Some(".tree-ring") {
+        root.parent().unwrap_or(root).to_path_buf()
+    } else {
+        root.to_path_buf()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use ratatui::crossterm::event::{KeyCode, KeyEvent};
     use tempfile::{tempdir, TempDir};
 
@@ -450,6 +552,14 @@ mod tests {
 
     fn app(dir: &TempDir) -> App {
         App::new(dir.path().join(".tree-ring"), None).unwrap()
+    }
+
+    fn confirm(app: &mut App) {
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('y'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
     }
 
     #[test]
@@ -498,11 +608,7 @@ mod tests {
             .unwrap();
         app.execute_slash_command("/forget").unwrap();
 
-        app.handle_key(KeyEvent::new(
-            KeyCode::Char('y'),
-            ratatui::crossterm::event::KeyModifiers::NONE,
-        ))
-        .unwrap();
+        confirm(&mut app);
 
         assert_eq!(app.dashboard.total, 0);
     }
@@ -528,5 +634,131 @@ mod tests {
 
         assert!(app.results.is_empty());
         assert!(app.selected_memory().is_none());
+    }
+
+    #[test]
+    fn slash_export_requires_target() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/export").unwrap();
+
+        assert!(app.pending_action.is_none());
+        assert_eq!(app.status, "export requires an output file");
+    }
+
+    #[test]
+    fn slash_export_can_be_cancelled_without_writing() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/remember Exportable lesson")
+            .unwrap();
+
+        app.execute_slash_command("/export backup.jsonl").unwrap();
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('n'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
+
+        assert!(!dir
+            .path()
+            .join(".tree-ring")
+            .join("exports")
+            .join("backup.jsonl")
+            .exists());
+        assert_eq!(app.status, "action cancelled");
+    }
+
+    #[test]
+    fn export_path_rejects_parent_dir_in_relative_and_absolute_targets() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        let relative_error = resolve_export_path(&root, "../outside.jsonl").unwrap_err();
+        assert!(relative_error.contains(".."));
+
+        let absolute_with_parent = std::env::current_dir()
+            .unwrap()
+            .join("exports")
+            .join("..")
+            .join("outside.jsonl");
+        assert!(absolute_with_parent.is_absolute());
+        let absolute_error =
+            resolve_export_path(&root, &absolute_with_parent.to_string_lossy()).unwrap_err();
+        assert!(absolute_error.contains(".."));
+    }
+
+    #[test]
+    fn export_path_allows_absolute_target_without_parent_dir() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let absolute = std::env::current_dir()
+            .unwrap()
+            .join("tree-ring-export.jsonl");
+
+        let resolved = resolve_export_path(&root, &absolute.to_string_lossy()).unwrap();
+
+        assert_eq!(resolved, absolute);
+    }
+
+    #[test]
+    fn confirmed_export_writes_jsonl_with_default_privacy_filters() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/remember Public lesson")
+            .unwrap();
+        let mut sensitive = MemoryEvent::new("Private detail", "lesson").unwrap();
+        sensitive.sensitivity = "private".to_string();
+        app.store.put(&sensitive).unwrap();
+
+        app.execute_slash_command("/export backup.jsonl").unwrap();
+        confirm(&mut app);
+
+        let output = dir
+            .path()
+            .join(".tree-ring")
+            .join("exports")
+            .join("backup.jsonl");
+        let jsonl = fs::read_to_string(output).unwrap();
+        assert!(jsonl.contains("Public lesson"));
+        assert!(!jsonl.contains("Private detail"));
+        assert!(app.status.contains("exported 1 memories"));
+    }
+
+    #[test]
+    fn confirmed_consolidation_creates_summary_then_idempotent_status() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/remember First durable lesson")
+            .unwrap();
+        app.execute_slash_command("/remember Second durable lesson")
+            .unwrap();
+
+        app.execute_slash_command("/consolidate").unwrap();
+        confirm(&mut app);
+        let first_status = app.status.clone();
+        assert!(first_status.contains("consolidation created"));
+        assert!(app.dashboard.total > 2);
+
+        app.execute_slash_command("/consolidate").unwrap();
+        confirm(&mut app);
+
+        assert!(app.status.contains("consolidation unchanged"));
+    }
+
+    #[test]
+    fn slash_integrations_scans_project_root_markers() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "# Rules").unwrap();
+        fs::create_dir_all(dir.path().join("revolve")).unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/integrations").unwrap();
+
+        assert_eq!(app.mode, AppMode::Integrations);
+        let report = app.integration_report.as_ref().unwrap();
+        assert!(report.detected_count >= 2);
+        assert!(app.status.contains("integration scan"));
     }
 }

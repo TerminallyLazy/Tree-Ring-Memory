@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 pub const RINGS: &[&str] = &["cambium", "outer", "inner", "heartwood", "scar", "seed"];
 pub const SCOPES: &[&str] = &[
-    "global", "project", "agent", "session", "workflow", "tool", "eval", "manual",
+    "global", "project", "agent", "session", "workflow", "tool", "eval", "manual", "dox", "revolve",
 ];
 pub const SENSITIVITIES: &[&str] = &[
     "normal",
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_valid_sparse_memory_defaults_like_python() {
+    fn schema_valid_sparse_memory_uses_legacy_defaults() {
         let payload = include_str!("../../../fixtures/parity/schema-valid-sparse-memory.json");
         let event: MemoryEvent = serde_json::from_str(payload).unwrap();
         event.validate().unwrap();
