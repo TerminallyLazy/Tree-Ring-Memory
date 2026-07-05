@@ -264,7 +264,7 @@ install_binary() {
     cargo install --path "$SOURCE_DIR/crates/tree-ring-memory-cli" --root "$prefix" --locked --force
   else
     line "Setting things up. This usually takes about 30 seconds after dependencies are cached."
-    cargo install --git "$REPO_URL" --branch "$GIT_REF" --package tree-ring-memory-cli --root "$prefix" --locked --force
+    cargo install --git "$REPO_URL" --branch "$GIT_REF" tree-ring-memory-cli --root "$prefix" --locked --force
   fi
 }
 
