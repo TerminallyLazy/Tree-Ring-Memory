@@ -193,7 +193,7 @@ can_animate() {
   [ -t 1 ] || return 1
   [ "${TERM:-}" != "dumb" ] || return 1
   cols=$(term_cols)
-  [ "$cols" -ge 72 ] || return 1
+  [ "$cols" -ge 40 ] || return 1
   sleep 0.001 2>/dev/null || return 1
   return 0
 }
@@ -208,34 +208,62 @@ clear_ring_frame() {
 
 ring_frame() {
   phase=${1:-0}
-  case "$phase" in
-    0) core="oo"; glow="." ;;
-    1) core="OO"; glow="*" ;;
-    2) core="@@"; glow="o" ;;
-    *) core="OO"; glow="*" ;;
-  esac
 
-  paint_line "1;38;5;24"  "                    .----------------------.                    "
-  paint_line "1;38;5;37"  "                .-'  .----------------.  /'-.                  "
-  paint_line "1;38;5;204" "             .-'  .-'  .------------.  /  . '-.                "
-  paint_line "1;38;5;208" "           .'  .-'  .-'   .------.   /  .' '.  '.              "
-  paint_line "1;38;5;220" "          /  .'   .'    .' .----. '. / .'    '.  \\             "
-  paint_line "1;38;5;208" "         |  /    /     /  / ${core} \\  V /       |  |            "
-  paint_line "1;38;5;94"  "         | |    |     |  |  ${glow}${glow}  |  |        |  |            "
-  paint_line "1;38;5;208" "         |  \\    \\     \\  \\____/  /\\        |  |            "
-  paint_line "1;38;5;220" "          \\  '.   '.    '.______.'  '.      /  /             "
-  paint_line "1;38;5;208" "           '.  '-.  '-.              .'-.__.' .'              "
-  paint_line "1;38;5;204" "             '-.  '-.  '------------'  .-'.-'                "
-  paint_line "1;38;5;37"  "                '-.  '----------------' .-'                  "
-  paint_line "1;38;5;24"  "                   '--------------------'                    "
-  paint_line "1;38;5;37"  "        /|                                            |\\       "
-  paint_line "1;38;5;204" "       / |              TREE RING MEMORY              | \\      "
-  paint_line "1;38;5;208" "      /__|____________________________________________|__\\     "
-  paint_line "38;5;244"   "             fresh rings -> scars -> heartwood                 "
+  ring_row "             " cambium "#########" scar "/" "" "" "" "" "" ""
+  ring_row "          " cambium "###" outer "=======" cambium "###" "" ""
+  ring_row "        " cambium "##" outer "===" inner "-----" outer "===" cambium "##"
+  ring_row "      " cambium "##" outer "==" inner "---" heartwood "ooooo" inner "---" outer "==" cambium "##"
+  ring_row "     " cambium "#" outer "==" inner "--" heartwood "ooooooooo" inner "--" outer "==" cambium "#"
+  ring_row "    " cambium "#" outer "==" inner "--" heartwood "ooooooooooo" inner "--" outer "==" cambium "#"
+  ring_row "     " cambium "#" outer "==" inner "--" heartwood "ooooooooo" inner "--" outer "==" cambium "#"
+  ring_row "      " cambium "##" outer "==" inner "---" heartwood "ooooo" inner "---" outer "==" cambium "##"
+  ring_row "        " cambium "##" outer "===" inner "-----" outer "===" cambium "##"
+  ring_row "          " cambium "###" scar "/" outer "=====" cambium "###" "" ""
+  ring_row "             " cambium "#########" "" "" "" "" "" ""
+  ring_row "" cambium "Tree " outer "Ring " heartwood "Memory" "" ""
+  ring_row "       " cambium "fresh " outer "rings " scar "scar " heartwood "heartwood" "" ""
+}
+
+ring_color_code() {
+  layer=$1
+  phase=$2
+  case "$layer" in
+    cambium) index=0; base="38;2;22;156;166" ;;
+    outer) index=1; base="38;2;239;65;103" ;;
+    inner) index=2; base="38;2;255;125;34" ;;
+    heartwood) index=3; base="38;2;255;194;69" ;;
+    scar) index=4; base="38;2;255;101;83" ;;
+    *) index=9; base="38;5;244" ;;
+  esac
+  if [ "$phase" = "$index" ]; then
+    printf '1;%s' "$base"
+  else
+    printf '%s' "$base"
+  fi
+}
+
+ring_segment() {
+  layer=$1
+  text=$2
+  if [ "$layer" = "" ] || [ "$text" = "" ]; then
+    return 0
+  fi
+  paint "$(ring_color_code "$layer" "$phase")" "$text"
+}
+
+ring_row() {
+  indent=$1
+  shift
+  printf '%s' "$indent"
+  while [ "$#" -ge 2 ]; do
+    ring_segment "$1" "$2"
+    shift 2
+  done
+  line ""
 }
 
 tree_ring_animation() {
-  frame_lines=17
+  frame_lines=13
   printed=0
 
   # Hide the cursor during the short installer splash. The trap restores it if
@@ -244,7 +272,7 @@ tree_ring_animation() {
   trap 'printf "\033[?25h"; exit 1' INT TERM
   trap 'printf "\033[?25h"' EXIT
 
-  for frame in 0 1 2 3 2 1 0; do
+  for frame in 0 1 2 3 4 3 2 1 0; do
     if [ "$printed" = "1" ]; then
       clear_ring_frame "$frame_lines"
     fi

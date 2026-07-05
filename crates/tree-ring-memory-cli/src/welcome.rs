@@ -259,6 +259,25 @@ mod tests {
     }
 
     #[test]
+    fn welcome_logo_frames_pulse_brand_layers() {
+        let cambium_frame = welcome_logo_frame(0, true);
+        let outer_frame = welcome_logo_frame(1, true);
+        let inner_frame = welcome_logo_frame(2, true);
+        let heartwood_frame = welcome_logo_frame(3, true);
+        let scar_frame = welcome_logo_frame(4, true);
+
+        assert_ne!(cambium_frame, outer_frame);
+        assert_ne!(outer_frame, inner_frame);
+        assert_ne!(inner_frame, heartwood_frame);
+        assert_ne!(heartwood_frame, scar_frame);
+        assert!(cambium_frame.contains(&format!("{BOLD}{TEAL}")));
+        assert!(outer_frame.contains(&format!("{BOLD}{PINK}")));
+        assert!(inner_frame.contains(&format!("{BOLD}{ORANGE}")));
+        assert!(heartwood_frame.contains(&format!("{BOLD}{YELLOW}")));
+        assert!(scar_frame.contains(&format!("{BOLD}{CORAL}")));
+    }
+
+    #[test]
     fn no_animation_welcome_can_initialize_store() {
         let dir = tempdir().unwrap();
         let root = dir.path().join(".tree-ring");
