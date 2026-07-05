@@ -1,10 +1,15 @@
+import json
 import re
 from datetime import UTC, datetime
 from math import nan
+from pathlib import Path
 
 import pytest
 
 from tree_ring_memory.models import MemoryEvent, MemorySource, ValidationError
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "parity"
 
 
 def test_valid_memory_event_round_trips_to_dict():
@@ -103,3 +108,16 @@ def test_from_dict_preserves_created_at():
 
     assert event.created_at.isoformat() == created_at
     assert event.source.ref == "README.md"
+
+
+def test_schema_valid_sparse_fixture_defaults_like_rust():
+    payload = json.loads((FIXTURES / "schema-valid-sparse-memory.json").read_text())
+
+    event = MemoryEvent.from_dict(payload)
+
+    assert event.details == ""
+    assert event.source.ref == ""
+    assert event.source.quote == ""
+    assert event.supersedes == []
+    assert event.links == []
+    assert event.review.needs_review is False

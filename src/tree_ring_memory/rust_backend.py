@@ -4,8 +4,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from typing import Sequence
-
 from tree_ring_memory.models import MemoryEvent
 from tree_ring_memory.recall import RecallResult
 
@@ -39,8 +37,9 @@ class RustCliTreeRingMemory:
         ring: str = "cambium",
         project: str | None = None,
         tags: list[str] | None = None,
-        **_: object,
+        **unsupported: object,
     ) -> MemoryEvent:
+        _reject_unsupported("remember", unsupported)
         args = [
             "remember",
             summary,
@@ -65,8 +64,9 @@ class RustCliTreeRingMemory:
         project: str | None = None,
         include_sensitive: bool = False,
         limit: int = 8,
-        **_: object,
+        **unsupported: object,
     ) -> list[RecallResult]:
+        _reject_unsupported("recall", unsupported)
         args = ["recall", query, "--limit", str(limit)]
         if project is not None:
             args.extend(["--project", project])
@@ -102,3 +102,16 @@ class RustCliTreeRingMemory:
         if result.returncode != 0:
             raise ValueError(result.stderr.strip() or result.stdout.strip() or "rust backend command failed")
         return result
+
+
+def _reject_unsupported(operation: str, values: dict[str, object]) -> None:
+    unsupported = {
+        key: value
+        for key, value in values.items()
+        if value not in (None, [], {}, False)
+    }
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise NotImplementedError(
+            f"RustCliTreeRingMemory.{operation} does not support these Python facade fields yet: {names}"
+        )

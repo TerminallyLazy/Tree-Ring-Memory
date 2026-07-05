@@ -26,7 +26,9 @@ impl Default for SensitivityGuard {
 
 impl SensitivityGuard {
     pub fn new(block_secret_storage: bool) -> Self {
-        Self { block_secret_storage }
+        Self {
+            block_secret_storage,
+        }
     }
 
     pub fn inspect(&self, text: &str) -> SensitivityResult {
@@ -35,7 +37,9 @@ impl SensitivityGuard {
         for (name, pattern) in SECRET_PATTERNS.iter() {
             if pattern.is_match(&redacted) {
                 findings.push((*name).to_string());
-                redacted = pattern.replace_all(&redacted, "[REDACTED_SECRET]").to_string();
+                redacted = pattern
+                    .replace_all(&redacted, "[REDACTED_SECRET]")
+                    .to_string();
             }
         }
         if !findings.is_empty() {
@@ -101,10 +105,31 @@ static SECRET_PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
 
 static CATEGORY_PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
     vec![
-        ("health", Regex::new(r"(?i)\b(diagnosis|diagnosed|medical|medication|prescription|therapy|hospital)\b").unwrap()),
-        ("financial", Regex::new(r"(?i)\b(bank account|routing number|credit card|tax return|paystub|salary)\b").unwrap()),
-        ("legal", Regex::new(r"(?i)\b(lawsuit|attorney|legal advice|court order|subpoena|contract dispute)\b").unwrap()),
-        ("personal_identifier", Regex::new(r"(?i)\b(ssn|social security|passport|driver'?s license)\b").unwrap()),
+        (
+            "health",
+            Regex::new(
+                r"(?i)\b(diagnosis|diagnosed|medical|medication|prescription|therapy|hospital)\b",
+            )
+            .unwrap(),
+        ),
+        (
+            "financial",
+            Regex::new(
+                r"(?i)\b(bank account|routing number|credit card|tax return|paystub|salary)\b",
+            )
+            .unwrap(),
+        ),
+        (
+            "legal",
+            Regex::new(
+                r"(?i)\b(lawsuit|attorney|legal advice|court order|subpoena|contract dispute)\b",
+            )
+            .unwrap(),
+        ),
+        (
+            "personal_identifier",
+            Regex::new(r"(?i)\b(ssn|social security|passport|driver'?s license)\b").unwrap(),
+        ),
     ]
 });
 

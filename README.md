@@ -22,8 +22,12 @@ The Rust workspace currently includes:
 Python remains the stable public API while Rust parity expands.
 
 Python can also exercise the Rust-backed path explicitly through
-`RustCliTreeRingMemory`. This bridge uses the native Rust CLI and preserves the
-Python object shapes while PyO3 bindings are still planned.
+`RustCliTreeRingMemory`. This bridge uses the native Rust CLI and returns the
+same Python model object shapes, but it is intentionally limited in v0.2:
+`remember` supports summary, event type, ring, scope, project, and tags; `recall`
+supports query, project, limit, and sensitive-memory inclusion. Unsupported
+Python facade fields fail explicitly instead of being silently ignored. Full
+PyO3 bindings and richer CLI flags remain planned.
 
 ```python
 from tree_ring_memory import RustCliTreeRingMemory
@@ -69,9 +73,13 @@ The CLI stores memory in `.tree-ring/` by default.
 cargo test
 python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
+python3 scripts/rust_performance_smoke.py --count 1000
 ```
 
-The Rust CLI writes the same SQLite/raw JSON shape as the Python reference.
+The Rust CLI writes the same SQLite/raw JSON shape as the Python reference. The
+performance smoke asserts nonempty recalls, emits a `METRICS_JSON=` line, and
+uses conservative local thresholds of at least 500 inserts/sec and max recall
+latency of 250 ms for the synthetic workload.
 
 ## Design Docs
 

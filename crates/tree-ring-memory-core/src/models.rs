@@ -4,9 +4,25 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub const RINGS: &[&str] = &["cambium", "outer", "inner", "heartwood", "scar", "seed"];
-pub const SCOPES: &[&str] = &["global", "project", "agent", "session", "workflow", "tool", "eval", "manual"];
-pub const SENSITIVITIES: &[&str] = &["normal", "private", "secret", "health", "financial", "legal", "personal_identifier"];
-pub const RETENTIONS: &[&str] = &["ephemeral", "normal", "durable", "user_pinned", "forget_after_date"];
+pub const SCOPES: &[&str] = &[
+    "global", "project", "agent", "session", "workflow", "tool", "eval", "manual",
+];
+pub const SENSITIVITIES: &[&str] = &[
+    "normal",
+    "private",
+    "secret",
+    "health",
+    "financial",
+    "legal",
+    "personal_identifier",
+];
+pub const RETENTIONS: &[&str] = &[
+    "ephemeral",
+    "normal",
+    "durable",
+    "user_pinned",
+    "forget_after_date",
+];
 
 pub type TreeRingResult<T> = Result<T, TreeRingError>;
 
@@ -39,9 +55,12 @@ pub fn generated_memory_id() -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemorySource {
     #[serde(rename = "type")]
+    #[serde(default = "default_source_type")]
     pub source_type: String,
     #[serde(rename = "ref")]
+    #[serde(default)]
     pub ref_: String,
+    #[serde(default)]
     pub quote: String,
 }
 
@@ -64,9 +83,13 @@ pub struct MemoryLink {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryReview {
+    #[serde(default)]
     pub needs_review: bool,
+    #[serde(default)]
     pub review_reason: Option<String>,
+    #[serde(default)]
     pub reviewed_at: Option<String>,
+    #[serde(default)]
     pub reviewed_by: Option<String>,
 }
 
@@ -86,23 +109,39 @@ pub struct MemoryEvent {
     pub id: String,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
     pub project: Option<String>,
+    #[serde(default)]
     pub agent_profile: Option<String>,
+    #[serde(default = "default_scope")]
     pub scope: String,
+    #[serde(default = "default_ring")]
     pub ring: String,
     pub event_type: String,
     pub summary: String,
+    #[serde(default)]
     pub details: String,
+    #[serde(default)]
     pub source: MemorySource,
+    #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default = "default_score")]
     pub salience: f64,
+    #[serde(default = "default_score")]
     pub confidence: f64,
+    #[serde(default = "default_sensitivity")]
     pub sensitivity: String,
+    #[serde(default = "default_retention")]
     pub retention: String,
+    #[serde(default)]
     pub expires_at: Option<String>,
+    #[serde(default)]
     pub supersedes: Vec<String>,
+    #[serde(default)]
     pub superseded_by: Option<String>,
+    #[serde(default)]
     pub links: Vec<MemoryLink>,
+    #[serde(default)]
     pub review: MemoryReview,
 }
 
@@ -145,7 +184,9 @@ impl MemoryEvent {
             return Err(TreeRingError::Validation("summary is required".to_string()));
         }
         if self.event_type.trim().is_empty() {
-            return Err(TreeRingError::Validation("event_type is required".to_string()));
+            return Err(TreeRingError::Validation(
+                "event_type is required".to_string(),
+            ));
         }
         validate_member("scope", &self.scope, SCOPES)?;
         validate_member("ring", &self.ring, RINGS)?;
@@ -177,14 +218,42 @@ fn validate_member(field: &str, value: &str, allowed: &[&str]) -> TreeRingResult
     if allowed.contains(&value) {
         return Ok(());
     }
-    Err(TreeRingError::Validation(format!("invalid {field}: {value}")))
+    Err(TreeRingError::Validation(format!(
+        "invalid {field}: {value}"
+    )))
+}
+
+fn default_source_type() -> String {
+    "manual".to_string()
+}
+
+fn default_scope() -> String {
+    "global".to_string()
+}
+
+fn default_ring() -> String {
+    "cambium".to_string()
+}
+
+fn default_score() -> f64 {
+    0.5
+}
+
+fn default_sensitivity() -> String {
+    "normal".to_string()
+}
+
+fn default_retention() -> String {
+    "normal".to_string()
 }
 
 fn validate_score(field: &str, value: f64) -> TreeRingResult<f64> {
     if value.is_finite() && (0.0..=1.0).contains(&value) {
         return Ok(value);
     }
-    Err(TreeRingError::Validation(format!("{field} must be a finite number between 0 and 1")))
+    Err(TreeRingError::Validation(format!(
+        "{field} must be a finite number between 0 and 1"
+    )))
 }
 
 #[cfg(test)]
@@ -217,6 +286,20 @@ mod tests {
 
         assert_eq!(payload["source"]["ref"], "README.md");
         assert!(payload["source"].get("ref_").is_none());
+    }
+
+    #[test]
+    fn schema_valid_sparse_memory_defaults_like_python() {
+        let payload = include_str!("../../../fixtures/parity/schema-valid-sparse-memory.json");
+        let mut event: MemoryEvent = serde_json::from_str(payload).unwrap();
+        event.validate().unwrap();
+
+        assert_eq!(event.details, "");
+        assert_eq!(event.source.ref_, "");
+        assert_eq!(event.source.quote, "");
+        assert_eq!(event.supersedes, Vec::<String>::new());
+        assert_eq!(event.links, Vec::<MemoryLink>::new());
+        assert!(!event.review.needs_review);
     }
 
     #[test]

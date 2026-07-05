@@ -19,7 +19,14 @@ const FAILURE_TERMS: &[&str] = &[
     "mistake",
 ];
 const HEARTWOOD_TERMS: &[&str] = &["preference", "rule", "constraint", "decision", "durable"];
-const SEED_TERMS: &[&str] = &["planning", "roadmap", "future", "alternative", "experiment", "explore"];
+const SEED_TERMS: &[&str] = &[
+    "planning",
+    "roadmap",
+    "future",
+    "alternative",
+    "experiment",
+    "explore",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecallRanking {
@@ -86,7 +93,13 @@ pub fn search_queries(query: &str) -> Vec<String> {
             let remaining: Vec<&str> = query_terms
                 .iter()
                 .enumerate()
-                .filter_map(|(idx, item)| if idx == index { None } else { Some(item.as_str()) })
+                .filter_map(|(idx, item)| {
+                    if idx == index {
+                        None
+                    } else {
+                        Some(item.as_str())
+                    }
+                })
                 .collect();
             if !remaining.is_empty() {
                 queries.push(remaining.join(" "));
@@ -101,8 +114,17 @@ fn textual_match(event: &MemoryEvent, query: &str) -> f64 {
     if query_terms.is_empty() {
         return 0.1;
     }
-    let text = format!("{} {} {}", event.summary, event.details, event.tags.join(" ")).to_ascii_lowercase();
-    let matches = query_terms.iter().filter(|term| text.contains(term.as_str())).count();
+    let text = format!(
+        "{} {} {}",
+        event.summary,
+        event.details,
+        event.tags.join(" ")
+    )
+    .to_ascii_lowercase();
+    let matches = query_terms
+        .iter()
+        .filter(|term| text.contains(term.as_str()))
+        .count();
     matches as f64 / query_terms.len() as f64
 }
 
@@ -140,7 +162,11 @@ fn ring_boost(event: &MemoryEvent, query: &str) -> f64 {
     if event.ring == "scar" && FAILURE_TERMS.iter().any(|term| query_terms.contains(*term)) {
         return 0.2;
     }
-    if event.ring == "heartwood" && HEARTWOOD_TERMS.iter().any(|term| query_terms.contains(*term)) {
+    if event.ring == "heartwood"
+        && HEARTWOOD_TERMS
+            .iter()
+            .any(|term| query_terms.contains(*term))
+    {
         return 0.15;
     }
     if event.ring == "seed" && SEED_TERMS.iter().any(|term| query_terms.contains(*term)) {
@@ -169,6 +195,9 @@ mod tests {
 
     #[test]
     fn search_queries_drop_ring_intent_terms() {
-        assert_eq!(search_queries("failure stale cache"), vec!["failure stale cache", "stale cache", "failure cache"]);
+        assert_eq!(
+            search_queries("failure stale cache"),
+            vec!["failure stale cache", "stale cache", "failure cache"]
+        );
     }
 }

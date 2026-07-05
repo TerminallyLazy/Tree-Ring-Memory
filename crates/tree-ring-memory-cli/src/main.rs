@@ -119,7 +119,10 @@ fn run(cli: Cli) -> Result<(), String> {
             event.validate().map_err(|err| err.to_string())?;
             store.put(&event).map_err(|err| err.to_string())?;
             if cli.json {
-                println!("{}", serde_json::to_string(&event).map_err(|err| err.to_string())?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&event).map_err(|err| err.to_string())?
+                );
             } else {
                 println!("{}", event.id);
             }
@@ -155,7 +158,10 @@ fn run(cli: Cli) -> Result<(), String> {
                         })
                     })
                     .collect();
-                println!("{}", serde_json::to_string(&payload).map_err(|err| err.to_string())?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&payload).map_err(|err| err.to_string())?
+                );
             } else {
                 for result in results {
                     println!(
