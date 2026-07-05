@@ -194,6 +194,7 @@ can_animate() {
   [ "${TERM:-}" != "dumb" ] || return 1
   cols=$(term_cols)
   [ "$cols" -ge 66 ] || return 1
+  sleep 0.001 2>/dev/null || return 1
   return 0
 }
 
@@ -238,7 +239,8 @@ tree_ring_animation() {
   # Hide the cursor during the short installer splash. The trap restores it if
   # the install is interrupted before the final frame is printed.
   printf '\033[?25l'
-  trap 'printf "\033[?25h"' 0 2 15
+  trap 'printf "\033[?25h"; exit 1' INT TERM
+  trap 'printf "\033[?25h"' EXIT
 
   for frame in 0 1 2 3 2 1 0; do
     if [ "$printed" = "1" ]; then
@@ -250,7 +252,7 @@ tree_ring_animation() {
   done
 
   printf '\033[?25h'
-  trap - 0 2 15
+  trap - INT TERM EXIT
   line ""
 }
 
