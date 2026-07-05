@@ -1,6 +1,6 @@
 use rusqlite::{
-    params, params_from_iter, types::Value, Connection, ErrorCode, OptionalExtension, Row,
-    Transaction,
+    params, params_from_iter, types::Value, Connection, ErrorCode, OpenFlags, OptionalExtension,
+    Row, Transaction,
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
-use tree_ring_memory_core::{decode_jsonl, encode_jsonl, normalize_import_events};
+use tree_ring_memory_core::{
+    audit_memories, decode_jsonl, encode_jsonl, normalize_import_events, AuditReport,
+};
 
 const WRITE_RETRY_ATTEMPTS: usize = 8;
 const WRITE_RETRY_INITIAL_DELAY_MS: u64 = 5;
@@ -59,6 +61,26 @@ impl SQLiteMemoryStore {
         let store = Self { connection };
         store.migrate()?;
         Ok(store)
+    }
+
+    pub fn open_read_only(path: impl AsRef<Path>) -> TreeRingResult<Self> {
+        let path = path
+            .as_ref()
+            .canonicalize()
+            .map_err(|err| sqlite_error(err.to_string()))?;
+        let uri = format!(
+            "file:{}?mode=ro&immutable=1",
+            sqlite_uri_path(&path.to_string_lossy())
+        );
+        let connection = Connection::open_with_flags(
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(sqlite_error_from_rusqlite)?;
+        connection
+            .busy_timeout(std::time::Duration::from_millis(30_000))
+            .map_err(sqlite_error_from_rusqlite)?;
+        Ok(Self { connection })
     }
 
     pub fn connection(&self) -> &Connection {
@@ -426,6 +448,11 @@ impl SQLiteMemoryStore {
         Ok(report)
     }
 
+    pub fn audit(&self, audit_type: &str) -> TreeRingResult<AuditReport> {
+        let events = self.list_all(true)?;
+        audit_memories(&events, audit_type)
+    }
+
     fn apply_supersedes(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
         for old_id in &event.supersedes {
             self.supersede(old_id, &event.id)?;
@@ -554,6 +581,17 @@ fn event_from_row(row: &Row<'_>) -> rusqlite::Result<TreeRingResult<MemoryEvent>
 fn parent_dir_to_create(path: &Path) -> Option<&Path> {
     path.parent()
         .filter(|parent| !parent.as_os_str().is_empty())
+}
+
+fn sqlite_uri_path(path: &str) -> String {
+    path.bytes()
+        .flat_map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+                vec![byte as char]
+            }
+            _ => format!("%{byte:02X}").chars().collect(),
+        })
+        .collect()
 }
 
 fn sqlite_error_from_rusqlite(error: rusqlite::Error) -> TreeRingError {
@@ -1055,6 +1093,42 @@ mod tests {
             .map(|event| event.id)
             .collect();
         assert_eq!(active_ids, vec![new.id]);
+    }
+
+    #[test]
+    fn audit_uses_all_rows_and_does_not_mutate_storage() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut old = MemoryEvent::new("Old decision.", "decision").unwrap();
+        old.superseded_by = Some("mem_missing".to_string());
+        let mut sensitive = MemoryEvent::new("Private diagnosis audit.", "lesson").unwrap();
+        sensitive.sensitivity = "health".to_string();
+        store.put(&old).unwrap();
+        store.put(&sensitive).unwrap();
+
+        let before = store.list_all(true).unwrap();
+        let report = store.audit("all").unwrap();
+        let after = store.list_all(true).unwrap();
+
+        assert_eq!(before, after);
+        assert_eq!(report.memory_count, 2);
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.audit_type == "sensitive"));
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.audit_type == "supersession"));
+    }
+
+    #[test]
+    fn audit_rejects_unknown_type() {
+        let dir = tempdir().unwrap();
+        let store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let err = store.audit("unknown").unwrap_err().to_string();
+
+        assert!(err.contains("unsupported audit_type"));
     }
 
     #[test]

@@ -179,6 +179,9 @@ class PythonTreeRingMemory:
             replace_existing=replace_existing,
         )
 
+    def audit(self, audit_type: str = "all") -> dict:
+        return self.store.audit(audit_type)
+
     def _check_public_text_fields(self, *values: str | None) -> list[SensitivityResult]:
         return [self._sensitivity_guard.check_or_raise(value or "") for value in values]
 

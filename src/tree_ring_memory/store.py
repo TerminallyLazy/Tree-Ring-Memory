@@ -14,7 +14,7 @@ from tree_ring_memory.sensitivity import SensitivityGuard
 EXPORT_RECORD_TYPE = "tree_ring_memory_export"
 MEMORY_EVENT_RECORD_TYPE = "memory_event"
 EXPORT_SCHEMA_VERSION = 1
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.5.0"
 _PLAIN_TEXT_TERM_RE = re.compile(r"\w+")
 _SEARCH_FILLER_TERMS = {
     "a",
@@ -33,6 +33,8 @@ _SEARCH_FILLER_TERMS = {
     "to",
     "what",
 }
+AUDIT_TYPES = {"all", "stale", "sensitive", "low_confidence", "supersession", "contradictions"}
+_DURABLE_RETENTIONS = {"durable", "user_pinned"}
 
 
 class SQLiteMemoryStore:
@@ -236,6 +238,30 @@ class SQLiteMemoryStore:
             self._apply_supersedes(event)
         return report
 
+    def audit(self, audit_type: str = "all") -> dict[str, Any]:
+        audit_type = _normalize_audit_type(audit_type)
+        events = self.list_all(include_superseded=True)
+        findings: list[dict[str, Any]] = []
+
+        if audit_type in {"all", "stale"}:
+            findings.extend(_audit_stale(events))
+        if audit_type in {"all", "sensitive"}:
+            findings.extend(_audit_sensitive(events))
+        if audit_type in {"all", "low_confidence"}:
+            findings.extend(_audit_low_confidence(events))
+        if audit_type in {"all", "supersession"}:
+            findings.extend(_audit_supersession(events))
+        if audit_type in {"all", "contradictions"}:
+            findings.extend(_audit_contradictions(events))
+
+        return {
+            "generated_at": now_utc().isoformat(),
+            "audit_type": audit_type,
+            "memory_count": len(events),
+            "finding_count": len(findings),
+            "findings": findings,
+        }
+
     def _apply_supersedes(self, event: MemoryEvent) -> None:
         for old_id in event.supersedes:
             self.supersede(old_id, event.id)
@@ -255,6 +281,245 @@ def _format_plain_text_fts_query(query: str) -> str:
         if term.casefold() not in _SEARCH_FILLER_TERMS
     ]
     return " AND ".join(f'"{term}"' for term in terms)
+
+
+def _normalize_audit_type(audit_type: str) -> str:
+    normalized = str(audit_type or "all").strip().casefold()
+    if normalized not in AUDIT_TYPES:
+        raise ValueError(f"unsupported audit_type: {audit_type}")
+    return normalized
+
+
+def _audit_stale(events: list[MemoryEvent]) -> list[dict[str, Any]]:
+    now = now_utc()
+    findings: list[dict[str, Any]] = []
+    for event in events:
+        if event.expires_at is None:
+            continue
+        if event.expires_at.tzinfo is None or event.expires_at.utcoffset() is None:
+            findings.append(
+                _finding(
+                    audit_type="stale",
+                    severity="medium",
+                    memory_id=event.id,
+                    finding="Memory has an invalid expires_at timestamp.",
+                    recommended_action=(
+                        "Review the memory and set a valid ISO-8601 expires_at value or redact it."
+                    ),
+                    tags=["retention", "expiry"],
+                )
+            )
+            continue
+        if event.expires_at <= now:
+            findings.append(
+                _finding(
+                    audit_type="stale",
+                    severity="medium",
+                    memory_id=event.id,
+                    finding="Memory expires_at is in the past.",
+                    recommended_action="Review, delete, redact, or refresh this memory.",
+                    tags=["retention", "expiry"],
+                )
+            )
+    return findings
+
+
+def _audit_sensitive(events: list[MemoryEvent]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for event in events:
+        if event.sensitivity == "normal":
+            continue
+        if event.sensitivity == "secret":
+            findings.append(
+                _finding(
+                    audit_type="sensitive",
+                    severity="critical",
+                    memory_id=event.id,
+                    finding="Secret-like memory is retained.",
+                    recommended_action="Redact or delete this memory.",
+                    tags=["privacy", "secret"],
+                )
+            )
+        if event.retention in _DURABLE_RETENTIONS:
+            findings.append(
+                _finding(
+                    audit_type="sensitive",
+                    severity="high",
+                    memory_id=event.id,
+                    finding="Sensitive memory has durable retention.",
+                    recommended_action="Review whether this memory should be redacted or assigned an expiry.",
+                    tags=["privacy", "retention"],
+                )
+            )
+        if event.expires_at is None:
+            findings.append(
+                _finding(
+                    audit_type="sensitive",
+                    severity="medium",
+                    memory_id=event.id,
+                    finding="Sensitive memory is retained without an expiry.",
+                    recommended_action="Set expires_at, redact, or delete this memory.",
+                    tags=["privacy", "expiry"],
+                )
+            )
+    return findings
+
+
+def _audit_low_confidence(events: list[MemoryEvent]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for event in events:
+        if event.ring == "heartwood" and event.confidence < 0.75:
+            findings.append(
+                _finding(
+                    audit_type="low_confidence",
+                    severity="high",
+                    memory_id=event.id,
+                    finding="Heartwood memory has low confidence.",
+                    recommended_action="Review evidence before treating this as durable truth.",
+                    tags=["confidence", "heartwood"],
+                )
+            )
+        if event.retention in _DURABLE_RETENTIONS and event.confidence < 0.5:
+            findings.append(
+                _finding(
+                    audit_type="low_confidence",
+                    severity="medium",
+                    memory_id=event.id,
+                    finding="Durable memory has very low confidence.",
+                    recommended_action="Review, demote, or supersede this memory.",
+                    tags=["confidence", "retention"],
+                )
+            )
+    return findings
+
+
+def _audit_supersession(events: list[MemoryEvent]) -> list[dict[str, Any]]:
+    event_ids = {event.id for event in events}
+    by_id = {event.id: event for event in events}
+    findings: list[dict[str, Any]] = []
+    for event in events:
+        if event.id in event.supersedes:
+            findings.append(
+                _finding(
+                    audit_type="supersession",
+                    severity="high",
+                    memory_id=event.id,
+                    finding="Memory supersedes itself.",
+                    recommended_action="Remove the self-supersession link.",
+                    tags=["supersession", "integrity"],
+                )
+            )
+        if event.superseded_by is not None and event.superseded_by not in event_ids:
+            findings.append(
+                _finding(
+                    audit_type="supersession",
+                    severity="high",
+                    memory_id=event.id,
+                    related_memory_id=event.superseded_by,
+                    finding="Memory points to a missing superseded_by target.",
+                    recommended_action="Import, restore, or clear the missing supersession target.",
+                    tags=["supersession", "integrity"],
+                )
+            )
+        for superseded_id in event.supersedes:
+            if superseded_id not in event_ids:
+                findings.append(
+                    _finding(
+                        audit_type="supersession",
+                        severity="medium",
+                        memory_id=event.id,
+                        related_memory_id=superseded_id,
+                        finding="Memory supersedes a missing memory.",
+                        recommended_action="Import, restore, or remove the missing supersedes reference.",
+                        tags=["supersession", "integrity"],
+                    )
+                )
+                continue
+            superseded = by_id[superseded_id]
+            if superseded.superseded_by != event.id:
+                findings.append(
+                    _finding(
+                        audit_type="supersession",
+                        severity="medium",
+                        memory_id=event.id,
+                        related_memory_id=superseded.id,
+                        finding="Supersedes link is missing a reciprocal superseded_by pointer.",
+                        recommended_action="Repair the supersession chain.",
+                        tags=["supersession", "integrity"],
+                    )
+                )
+    return findings
+
+
+def _audit_contradictions(events: list[MemoryEvent]) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str | None, str, str, str, str], dict[str, list[MemoryEvent]]] = {}
+    for event in events:
+        directive = _directive_phrase(event.summary)
+        if directive is None:
+            continue
+        action, phrase = directive
+        for tag in event.tags:
+            key = (event.project, event.scope, event.event_type, tag, phrase)
+            bucket = buckets.setdefault(key, {"use": [], "avoid": []})
+            bucket[action].append(event)
+
+    findings: list[dict[str, Any]] = []
+    emitted_pairs: set[tuple[str, str]] = set()
+    for bucket in buckets.values():
+        for use_memory in bucket["use"]:
+            for avoid_memory in bucket["avoid"]:
+                pair_key = tuple(sorted((use_memory.id, avoid_memory.id)))
+                if pair_key in emitted_pairs:
+                    continue
+                emitted_pairs.add(pair_key)
+                findings.append(
+                    _finding(
+                        audit_type="contradictions",
+                        severity="medium",
+                        memory_id=use_memory.id,
+                        related_memory_id=avoid_memory.id,
+                        finding="Memories contain contradictory use/avoid guidance.",
+                        recommended_action=(
+                            "Review the pair and supersede the stale or incorrect memory."
+                        ),
+                        tags=["contradiction", "review"],
+                    )
+                )
+    return findings
+
+
+def _directive_phrase(summary: str) -> tuple[str, str] | None:
+    normalized = _normalize_contradiction_phrase(summary)
+    if normalized.startswith("use "):
+        return "use", normalized.removeprefix("use ")
+    if normalized.startswith("avoid "):
+        return "avoid", normalized.removeprefix("avoid ")
+    return None
+
+
+def _normalize_contradiction_phrase(value: str) -> str:
+    return " ".join(_PLAIN_TEXT_TERM_RE.findall(value.casefold()))
+
+
+def _finding(
+    *,
+    audit_type: str,
+    severity: str,
+    memory_id: str,
+    finding: str,
+    recommended_action: str,
+    tags: list[str],
+    related_memory_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "audit_type": audit_type,
+        "severity": severity,
+        "memory_id": memory_id,
+        "related_memory_id": related_memory_id,
+        "finding": finding,
+        "recommended_action": recommended_action,
+        "tags": tags,
+    }
 
 
 def _decode_jsonl(data: str) -> list[MemoryEvent]:
