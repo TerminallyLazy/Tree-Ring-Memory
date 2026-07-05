@@ -521,14 +521,14 @@ fn wrap_index(current: usize, len: usize, delta: isize) -> usize {
 
 fn resolve_export_path(root: &Path, target: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(target);
-    if path.is_absolute() {
-        return Ok(path);
-    }
     if path
         .components()
         .any(|component| matches!(component, Component::ParentDir))
     {
-        return Err("relative export paths cannot contain '..'".to_string());
+        return Err("export paths cannot contain '..'".to_string());
+    }
+    if path.is_absolute() {
+        return Ok(path);
     }
     Ok(root.join("exports").join(path))
 }
@@ -668,6 +668,38 @@ mod tests {
             .join("backup.jsonl")
             .exists());
         assert_eq!(app.status, "action cancelled");
+    }
+
+    #[test]
+    fn export_path_rejects_parent_dir_in_relative_and_absolute_targets() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        let relative_error = resolve_export_path(&root, "../outside.jsonl").unwrap_err();
+        assert!(relative_error.contains(".."));
+
+        let absolute_with_parent = std::env::current_dir()
+            .unwrap()
+            .join("exports")
+            .join("..")
+            .join("outside.jsonl");
+        assert!(absolute_with_parent.is_absolute());
+        let absolute_error =
+            resolve_export_path(&root, &absolute_with_parent.to_string_lossy()).unwrap_err();
+        assert!(absolute_error.contains(".."));
+    }
+
+    #[test]
+    fn export_path_allows_absolute_target_without_parent_dir() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let absolute = std::env::current_dir()
+            .unwrap()
+            .join("tree-ring-export.jsonl");
+
+        let resolved = resolve_export_path(&root, &absolute.to_string_lossy()).unwrap();
+
+        assert_eq!(resolved, absolute);
     }
 
     #[test]

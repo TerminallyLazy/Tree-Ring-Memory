@@ -218,7 +218,9 @@ verify_sha256() {
   else
     die "SHA-256 verification requested, but shasum/sha256sum was not found"
   fi
-  [ "$actual" = "$expected" ] || die "archive checksum mismatch"
+  actual_lower=$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')
+  expected_lower=$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')
+  [ "$actual_lower" = "$expected_lower" ] || die "archive checksum mismatch"
 }
 
 install_prefix() {

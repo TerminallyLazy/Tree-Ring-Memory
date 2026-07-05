@@ -7,6 +7,7 @@ use crate::sensitivity::SensitivityGuard;
 
 const DEFAULT_MAX_FILES: usize = 128;
 const DEFAULT_MAX_SECTIONS_PER_FILE: usize = 8;
+const MAX_SOURCE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoxSyncRequest {
@@ -103,11 +104,13 @@ fn visit_directory(root: &Path, max_files: usize, output: &mut Vec<PathBuf>) -> 
             break;
         }
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|err| sqlite_error(err.to_string()))?;
-        if metadata.file_type().is_symlink() {
+        let file_type = entry
+            .file_type()
+            .map_err(|err| sqlite_error(err.to_string()))?;
+        if file_type.is_symlink() {
             continue;
         }
-        if metadata.is_dir() {
+        if file_type.is_dir() {
             if should_skip_dir(&path) {
                 continue;
             }
@@ -130,6 +133,21 @@ fn events_from_agents_file(
     request: &DoxSyncRequest,
     path: &Path,
 ) -> Result<Vec<MemoryEvent>, AdapterSkip> {
+    let metadata =
+        fs::symlink_metadata(path).map_err(|err| AdapterSkip::Unreadable(err.to_string()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(AdapterSkip::Unreadable(format!(
+            "Refusing symlinked AGENTS.md: {}",
+            path.display()
+        )));
+    }
+    if metadata.len() > MAX_SOURCE_BYTES {
+        return Err(AdapterSkip::Unreadable(format!(
+            "AGENTS.md exceeds {} bytes: {}",
+            MAX_SOURCE_BYTES,
+            path.display()
+        )));
+    }
     let content =
         fs::read_to_string(path).map_err(|err| AdapterSkip::Unreadable(err.to_string()))?;
     let relative = relative_display(&request.root, path);
@@ -462,5 +480,22 @@ mod tests {
 
         assert_eq!(report.source_count, 0);
         assert!(report.events.is_empty());
+    }
+
+    #[test]
+    fn skips_oversized_agents_file_before_reading() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            vec![b'a'; MAX_SOURCE_BYTES as usize + 1],
+        )
+        .unwrap();
+
+        let report = collect_dox_memories(&DoxSyncRequest::new(dir.path())).unwrap();
+
+        assert_eq!(report.source_count, 1);
+        assert_eq!(report.memory_count, 0);
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("exceeds"));
     }
 }

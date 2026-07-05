@@ -115,11 +115,13 @@ fn visit_directory(root: &Path, max_files: usize, output: &mut Vec<PathBuf>) -> 
             break;
         }
         let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|err| sqlite_error(err.to_string()))?;
-        if metadata.file_type().is_symlink() {
+        let file_type = entry
+            .file_type()
+            .map_err(|err| sqlite_error(err.to_string()))?;
+        if file_type.is_symlink() {
             continue;
         }
-        if metadata.is_dir() {
+        if file_type.is_dir() {
             if should_skip_dir(&path) {
                 continue;
             }
@@ -139,10 +141,15 @@ fn should_skip_dir(path: &Path) -> bool {
 }
 
 fn is_supported_source(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("md" | "txt" | "json" | "jsonl")
-    )
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "txt" | "json" | "jsonl"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn event_from_revolve_file(
@@ -386,6 +393,22 @@ mod tests {
 
         assert_eq!(event.ring, "seed");
         assert_eq!(event.event_type, "evaluation_hypothesis");
+    }
+
+    #[test]
+    fn imports_supported_sources_with_uppercase_extensions() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("PROMOTION.MD"),
+            "# Promotion\nPromoted uppercase extension support.",
+        )
+        .unwrap();
+
+        let report = collect_revolve_memories(&RevolveSyncRequest::new(dir.path())).unwrap();
+
+        assert_eq!(report.source_count, 1);
+        assert_eq!(report.memory_count, 1);
+        assert_eq!(report.events[0].ring, "heartwood");
     }
 
     #[test]
