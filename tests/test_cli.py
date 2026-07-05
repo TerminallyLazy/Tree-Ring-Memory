@@ -197,7 +197,7 @@ def test_rust_cli_export_import_jsonl_round_trip(tmp_path):
     exported_lines = [json.loads(line) for line in export_path.read_text().splitlines()]
     assert exported_lines[0]["type"] == "tree_ring_memory_export"
     assert exported_lines[0]["schema_version"] == 1
-    assert exported_lines[0]["plugin_version"] == "0.4.0"
+    assert exported_lines[0]["plugin_version"] == "0.5.0"
     assert exported_lines[1]["type"] == "memory_event"
 
     preview = run_rust_cli(target_root, "--json", "import", str(export_path), "--dry-run")
@@ -309,6 +309,28 @@ def test_rust_cli_import_dry_run_blocks_secret_without_creating_root(tmp_path):
     assert preview.returncode == 2
     assert "blocked" in preview.stderr
     assert not target_root.exists()
+
+
+def test_rust_cli_audit_json_reports_sensitive_memory(tmp_path):
+    root = tmp_path / ".tree-ring"
+    remembered = run_rust_cli(
+        root,
+        "--json",
+        "remember",
+        "Private diagnosis should be reviewed by audit.",
+        "--event-type",
+        "lesson",
+    )
+    assert remembered.returncode == 0, remembered.stderr
+
+    audited = run_rust_cli(root, "--json", "audit", "--audit-type", "sensitive")
+
+    assert audited.returncode == 0, audited.stderr
+    report = json.loads(audited.stdout)
+    assert report["audit_type"] == "sensitive"
+    assert report["memory_count"] == 1
+    assert report["finding_count"] >= 1
+    assert report["findings"][0]["audit_type"] == "sensitive"
 
 
 def test_python_written_rich_memory_is_rust_recall_json_readable(tmp_path):

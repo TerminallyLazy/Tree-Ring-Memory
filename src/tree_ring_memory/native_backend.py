@@ -151,6 +151,10 @@ class NativeTreeRingMemory:
         )
         return dict(json.loads(payload))
 
+    def audit(self, audit_type: str = "all") -> dict[str, Any]:
+        payload = self._native.audit_json(audit_type)
+        return dict(json.loads(payload))
+
 
 def _iso_or_none(value: Any) -> str | None:
     if value is None:

@@ -212,6 +212,12 @@ impl PyTreeRingMemoryNative {
         }))
         .map_err(to_py_runtime_error)
     }
+
+    #[pyo3(signature = (audit_type="all"))]
+    pub fn audit_json(&self, audit_type: &str) -> PyResult<String> {
+        let report = self.store.audit(audit_type).map_err(to_py_runtime_error)?;
+        serde_json::to_string(&report).map_err(to_py_runtime_error)
+    }
 }
 
 impl PyTreeRingMemoryNative {
@@ -646,5 +652,34 @@ mod tests {
             )
             .unwrap()
             .contains(&event.id));
+    }
+
+    #[test]
+    fn native_binding_exposes_audit_json() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let event_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Private durable memory should be audited.",
+                    "event_type": "lesson",
+                    "sensitivity": "health",
+                    "retention": "durable"
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let event: MemoryEvent = serde_json::from_str(&event_json).unwrap();
+
+        let report: serde_json::Value =
+            serde_json::from_str(&memory.audit_json("sensitive").unwrap()).unwrap();
+
+        assert_eq!(report["audit_type"], "sensitive");
+        assert_eq!(report["memory_count"], 1);
+        assert!(report["finding_count"].as_u64().unwrap() >= 1);
+        assert_eq!(report["findings"][0]["memory_id"], event.id);
     }
 }

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
-use tree_ring_memory_core::{decode_jsonl, normalize_import_events};
+use tree_ring_memory_core::{audit_memories, decode_jsonl, normalize_import_events, AuditReport};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod tui;
@@ -72,6 +72,15 @@ enum Command {
         dry_run: bool,
         #[arg(long, help = "replace existing memories with matching ids")]
         replace_existing: bool,
+    },
+    #[command(about = "audit memory quality, privacy, and integrity")]
+    Audit {
+        #[arg(
+            long,
+            default_value = "all",
+            help = "all, stale, sensitive, low_confidence, supersession, or contradictions"
+        )]
+        audit_type: String,
     },
     #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
     Tui {
@@ -144,6 +153,18 @@ fn run(cli: Cli) -> Result<(), String> {
                 events.len()
             );
         }
+        return Ok(());
+    }
+
+    if let Command::Audit { audit_type } = &cli.command {
+        let report = if db_path.exists() {
+            SQLiteMemoryStore::open_read_only(&db_path)
+                .and_then(|store| store.audit(audit_type))
+                .map_err(|err| err.to_string())?
+        } else {
+            audit_memories(&[], audit_type).map_err(|err| err.to_string())?
+        };
+        print_audit_report(&report, cli.json)?;
         return Ok(());
     }
 
@@ -334,7 +355,36 @@ fn run(cli: Cli) -> Result<(), String> {
                 );
             }
         }
+        Command::Audit { .. } => unreachable!("audit returns before opening the writable store"),
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
+    }
+    Ok(())
+}
+
+fn print_audit_report(report: &AuditReport, json_output: bool) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(report).map_err(|err| err.to_string())?
+        );
+    } else {
+        println!(
+            "Tree Ring Memory audit: type={} memories={} findings={}",
+            report.audit_type, report.memory_count, report.finding_count
+        );
+        for finding in &report.findings {
+            let memory_id = finding.memory_id.as_deref().unwrap_or("-");
+            let related = finding.related_memory_id.as_deref().unwrap_or("-");
+            println!(
+                "{} [{}] memory={} related={} {} -> {}",
+                finding.audit_type,
+                finding.severity,
+                memory_id,
+                related,
+                finding.finding,
+                finding.recommended_action
+            );
+        }
     }
     Ok(())
 }
@@ -471,6 +521,99 @@ mod tests {
 
         assert!(hidden.is_empty());
         assert_eq!(visible[0].memory.sensitivity, "health");
+    }
+
+    #[test]
+    fn audit_json_reports_findings_without_mutating_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Remember {
+                summary: "Private diagnosis should be reviewed.".to_string(),
+                event_type: "lesson".to_string(),
+                ring: "cambium".to_string(),
+                scope: "global".to_string(),
+                project: None,
+                tags: Vec::new(),
+            },
+        })
+        .unwrap();
+        let before = SQLiteMemoryStore::open(root.join("memory.sqlite"))
+            .unwrap()
+            .list_all(true)
+            .unwrap();
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Audit {
+                audit_type: "sensitive".to_string(),
+            },
+        })
+        .unwrap();
+
+        let after = SQLiteMemoryStore::open(root.join("memory.sqlite"))
+            .unwrap()
+            .list_all(true)
+            .unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn audit_missing_root_does_not_create_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Audit {
+                audit_type: "all".to_string(),
+            },
+        })
+        .unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn audit_existing_store_does_not_create_sqlite_sidecars() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let db_path = root.join("memory.sqlite");
+        let wal_path = root.join("memory.sqlite-wal");
+        let shm_path = root.join("memory.sqlite-shm");
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Init,
+        })
+        .unwrap();
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        store
+            .connection()
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        drop(store);
+        let _ = fs::remove_file(&wal_path);
+        let _ = fs::remove_file(&shm_path);
+        assert!(db_path.exists());
+        assert!(!wal_path.exists());
+        assert!(!shm_path.exists());
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Audit {
+                audit_type: "all".to_string(),
+            },
+        })
+        .unwrap();
+
+        assert!(!wal_path.exists());
+        assert!(!shm_path.exists());
     }
 
     #[test]

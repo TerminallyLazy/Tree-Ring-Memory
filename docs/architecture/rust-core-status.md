@@ -3,7 +3,8 @@
 Tree Ring Memory has moved from a Python-owned reference implementation toward
 a Rust-first core with Python compatibility. This page tracks the v0.2 Rust
 core, v0.3 native Python binding work, the Rust-native Ratatui terminal
-console, and the v0.4 Rust-owned JSONL import/export path.
+console, the v0.4 Rust-owned JSONL import/export path, and v0.5 deterministic
+audit checks.
 
 ## Current Status
 
@@ -34,6 +35,10 @@ console, and the v0.4 Rust-owned JSONL import/export path.
 - The Rust CLI exposes `tree-ring export` and `tree-ring import`; the optional
   native Python backend and Python reference backend expose matching
   `export_jsonl()` and `import_jsonl()` methods.
+- The v0.5 Rust core owns deterministic audit checks for stale expiry,
+  sensitive retention, low-confidence durable memory, supersession integrity,
+  and conservative contradiction candidates. SQLite, CLI, native Python, and
+  Python reference surfaces expose matching non-mutating audit reports.
 - The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
   always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
@@ -48,6 +53,7 @@ cargo run -p tree-ring-memory-cli -- --help
 cargo run -p tree-ring-memory-cli -- tui --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
+cargo run -p tree-ring-memory-cli -- audit --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -78,6 +84,7 @@ event = memory.remember(summary="Native Rust path works.", event_type="lesson")
 results = memory.recall("Rust path")
 jsonl = memory.export_jsonl()
 preview = memory.import_jsonl(jsonl, dry_run=True)
+audit_report = memory.audit()
 ```
 
 `NativeTreeRingMemory` requires the optional PyO3 extension module. Build it
@@ -98,18 +105,19 @@ Backend controls:
 
 - Rust unit tests cover model validation, sensitivity checks, recall scoring,
   SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
-  import/export filtering and duplicate handling, and basic concurrent writes.
-  Rust binding tests cover native JSON remember/recall round-trip, forget
-  validation, and JSONL import/export.
+  import/export filtering and duplicate handling, deterministic audit checks,
+  and basic concurrent writes. Rust binding tests cover native JSON
+  remember/recall round-trip, forget validation, JSONL import/export, and
+  audit.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
-  JSONL import/export commands plus the Ratatui TUI model, stream reader,
+  JSONL import/export/audit commands plus the Ratatui TUI model, stream reader,
   slash-command parser, store-watch refresh, confirmation-gated actions, CLI
   parsing, and render-buffer smoke.
 - Python tests cover the existing reference backend, Rust CLI database
   compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
   native selection, full native wrapper argument marshalling, and clean
   missing-extension behavior. They also cover Python reference and native
-  wrapper JSONL import/export parity.
+  wrapper JSONL import/export parity and audit parity.
 - `scripts/rust_performance_smoke.py` provides an operator-run local insert and
   recall timing check. It fails if expected recalls are empty, emits a stable
   `METRICS_JSON=` line, and enforces conservative synthetic-workload thresholds
@@ -117,10 +125,10 @@ Backend controls:
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,577.9 ms.
-- Insert throughput: 2,184.4 inserts/sec.
-- Recall average latency: 6.109 ms.
-- Recall max latency: 9.266 ms.
+- Inserted 10,000 memories in 4,860.5 ms.
+- Insert throughput: 2,057.4 inserts/sec.
+- Recall average latency: 4.527 ms.
+- Recall max latency: 6.681 ms.
 
 ## Compatibility Rule
 

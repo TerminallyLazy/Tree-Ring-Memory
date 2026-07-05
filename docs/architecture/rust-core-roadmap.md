@@ -58,6 +58,10 @@ v0.4 implements the JSONL import/export baseline in Rust and exposes it through
 the CLI and Python backends. Markdown exports, SQLite backups, and signed
 bundles remain future extension points.
 
+v0.5 implements deterministic local audit checks in Rust and exposes them
+through SQLite, CLI, native Python, and Python reference surfaces. Consolidation
+and automatic repair remain future extension points.
+
 ## Non-Goals
 
 The Rust rewrite should not:

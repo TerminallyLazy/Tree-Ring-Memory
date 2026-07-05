@@ -20,7 +20,7 @@ def test_python_reference_jsonl_export_import_round_trip(tmp_path):
     header = json.loads(jsonl.splitlines()[0])
     assert header["type"] == "tree_ring_memory_export"
     assert header["schema_version"] == 1
-    assert header["plugin_version"] == "0.4.0"
+    assert header["plugin_version"] == "0.5.0"
     assert event.id in jsonl
     assert dry_run_report == {
         "valid_count": 1,

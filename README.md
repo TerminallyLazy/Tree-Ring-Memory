@@ -20,6 +20,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.2 moved durable behavior into a Rust core while preserving Python compatibility.
 - v0.3 makes the public Python facade Rust-first when the optional PyO3 native module is installed.
 - v0.4 adds Rust-owned JSONL import/export with privacy-preserving defaults across the CLI, native Python backend, and Python reference backend.
+- v0.5 adds Rust-owned audit checks for stale, sensitive, low-confidence, supersession, and contradiction candidates.
 - The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
@@ -70,6 +71,7 @@ The native and reference Python backends expose portable JSONL import/export:
 jsonl = memory.export_jsonl()
 preview = memory.import_jsonl(jsonl, dry_run=True)
 report = memory.import_jsonl(jsonl)
+audit = memory.audit()
 ```
 
 Exports exclude sensitive and superseded memories by default. Pass
@@ -126,6 +128,7 @@ tree-ring forget mem_example --mode delete --reason "example cleanup"
 tree-ring export --output memories.jsonl
 tree-ring import memories.jsonl --dry-run
 tree-ring import memories.jsonl
+tree-ring audit --audit-type sensitive
 ```
 
 The CLI stores memory in `.tree-ring/` by default.
@@ -136,6 +139,10 @@ remaining line is a `memory_event` envelope. The command excludes sensitive and
 superseded memories unless `--include-sensitive` or `--include-superseded` is
 set. Import validates all events, skips duplicate ids by default, and replaces
 existing ids only with `--replace-existing`.
+
+`tree-ring audit` is non-mutating. It reports deterministic local findings for
+stale expiry, sensitive retention, low-confidence durable memory, supersession
+integrity, and conservative contradiction candidates.
 
 ## Terminal Console Preview
 
@@ -181,6 +188,7 @@ python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
+cargo run -p tree-ring-memory-cli -- audit --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -205,6 +213,8 @@ latency of 250 ms for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-ratatui-tui-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-import-export-v0-4-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-import-export-v0-4-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-audit-v0-5-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-audit-v0-5-implementation-plan.md`
 
 ## Agent Workflow Integration
 
