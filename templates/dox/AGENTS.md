@@ -1,0 +1,74 @@
+# Tree Ring Memory Project Contract
+
+This file is a DOX-style template for projects that use Tree Ring Memory.
+Copy it into a project as `AGENTS.md` or merge the relevant sections into an existing project instruction file.
+
+## Authority
+
+Project source files, tests, local `AGENTS.md` files, and explicit user instructions remain authoritative.
+Tree Ring Memory is a recall aid. It must not replace reading the local project contract.
+
+## Memory Store
+
+Default local memory path:
+
+```text
+.tree-ring/
+```
+
+Do not commit local memory databases or exports unless the project explicitly requires sanitized fixtures.
+
+## Recall Rules
+
+Before substantial work, recall project-scoped memory for:
+
+- current project conventions
+- prior decisions
+- durable user preferences
+- warnings and scars related to the task
+- unresolved seeds that may affect the plan
+
+Prefer narrow recall queries that include the project name, subsystem, file path, or workflow.
+
+## Remember Rules
+
+Remember only meaningful information:
+
+- durable decisions
+- verified lessons
+- user corrections
+- repeated workflow warnings
+- project conventions
+- future seeds
+
+Do not store full transcripts, scratchpad notes, raw chain-of-thought, secrets, credentials, or sensitive personal details.
+
+## Ring Mapping
+
+- Use `cambium` for active task context.
+- Use `outer` for recent project lessons.
+- Use `inner` for compressed older project knowledge.
+- Use `heartwood` for confirmed durable rules and preferences.
+- Use `scar` for failures, regressions, rejected approaches, and security or privacy warnings.
+- Use `seed` for future work and unresolved hypotheses.
+
+## Sensitive Data
+
+Secrets and credentials must not be stored.
+If a useful lesson involves sensitive data, store a redacted summary and source pointer only.
+
+## Forgetting
+
+If a memory is incorrect, stale, sensitive, or superseded, delete, redact, or supersede it with an explicit reason.
+
+## Source Discipline
+
+Memory summaries should point back to source evidence such as:
+
+- file paths
+- PRs or issues
+- tests
+- evaluation runs
+- local project docs
+
+When source documents and memory disagree, re-read the source documents and update or forget the stale memory.
