@@ -24,6 +24,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.6 adds Rust-owned deterministic consolidation with idempotent summary records and cautious sensitive-memory handling.
 - v0.7 makes the public facade Rust-native only and adds Rust-owned maintenance for expiry, secret redaction, and FTS repair.
 - v0.8 removes Python-owned runtime behavior; Python is now a thin native-binding surface only.
+- v0.9 removes tracked Python source, tests, and smoke scripts from the canonical repo; the optional CPython extension is Rust-built.
 - The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
@@ -31,78 +32,29 @@ The Rust workspace currently includes:
 - `crates/tree-ring-memory-core`: models, validation, sensitivity checks, and recall scoring.
 - `crates/tree-ring-memory-sqlite`: schema-compatible SQLite/FTS storage and recall filtering.
 - `crates/tree-ring-memory-cli`: native `tree-ring` CLI.
+- `bindings/python`: optional Rust PyO3 crate for CPython extension builds.
 
-The public runtime is Rust-native. The Rust CLI and optional PyO3
-`NativeTreeRingMemory` binding own storage, recall, import/export, audit,
-consolidation, and maintenance behavior. Python only provides thin binding
-wrappers and model conversion objects; all durable runtime behavior stays in
-Rust.
-
-`NativeTreeRingMemory` is the explicit Rust-native backend. `TreeRingMemory`
-uses the same backend and fails with a clear install/build error when the PyO3
-module is absent:
-
-```python
-from tree_ring_memory import TreeRingMemory
-
-memory = TreeRingMemory.open(".tree-ring")
-event = memory.remember(summary="Native Rust path works.", event_type="lesson")
-results = memory.recall("Rust path")
-maintenance = memory.maintain()
-```
-
-Build the optional native module with maturin:
-
-```bash
-cd bindings/python
-pip install -e ../..
-maturin develop
-```
-
-The native binding package is extension-only. Install the main Python package
-and the native extension into the same environment.
-
-The native Python binding exposes portable JSONL import/export:
-
-```python
-jsonl = memory.export_jsonl()
-preview = memory.import_jsonl(jsonl, dry_run=True)
-report = memory.import_jsonl(jsonl)
-audit = memory.audit()
-consolidation = memory.consolidate(period_type="manual", dry_run=True)
-maintenance = memory.maintain()
-```
-
-Exports exclude sensitive and superseded memories by default. Pass
-`include_sensitive=True` or `include_superseded=True` only when the caller
-explicitly needs those rows.
-
-There is no Python backend selector. `TreeRingMemory.open()` always uses the
-native Rust binding and fails if the extension is missing.
+The public runtime is Rust-native. The Rust CLI and Rust crates own storage,
+recall, import/export, audit, consolidation, maintenance, and terminal UI
+behavior. There is no tracked root Python package, Python wrapper layer, pytest
+suite, or Python smoke script.
 
 ## First Example
 
-```python
-from tree_ring_memory import TreeRingMemory
-
-memory = TreeRingMemory.open(".tree-ring")
-event = memory.remember(
-    summary="Use project-scoped recall before changing release behavior.",
-    event_type="lesson",
-    scope="project",
-    project="example-service",
-    tags=["release", "workflow"],
-)
-
-results = memory.recall("release behavior", project="example-service")
-for result in results:
-    print(result.memory.summary, result.score)
+```bash
+tree-ring init
+tree-ring remember "Use project-scoped recall before changing release behavior." \
+  --event-type lesson \
+  --scope project \
+  --project example-service \
+  --tag release \
+  --tag workflow
+tree-ring recall "release behavior" --project example-service
 ```
 
 ## CLI Preview
 
-The `tree-ring` command is the Rust CLI. The Python package no longer installs
-a Python console script with that name.
+The `tree-ring` command is the Rust CLI.
 
 ```bash
 tree-ring init
@@ -141,6 +93,19 @@ review; secret-like memories are excluded from consolidation.
 report, including on a missing root. It can apply eligible temporary-memory
 expiry, redact secret-like memories, and rebuild SQLite FTS only when explicitly
 asked through `--apply-expired`, `--apply-secret-redactions`, or `--repair-fts`.
+
+## Optional CPython Extension
+
+`bindings/python` is a Rust PyO3 crate for building a CPython extension from
+the same Rust runtime. It is an optional host-adapter artifact, not the
+canonical API and not a Python implementation.
+
+```bash
+cargo build -p tree-ring-memory-python --features extension-module
+```
+
+For package builds, run maturin from `bindings/python`. The repository does not
+ship a root Python package or Python wrapper modules.
 
 ## Terminal Console Preview
 
@@ -182,16 +147,15 @@ Event stream lines are local JSONL objects. They are display signals only:
 
 ```bash
 cargo test
-python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
+cargo run -p tree-ring-memory-cli -- tui --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
 cargo run -p tree-ring-memory-cli -- maintain --help
-python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
-python3 scripts/native_binding_smoke.py --install-maturin
+cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000
 ```
 
 The Rust CLI writes the canonical SQLite/raw JSON shape. The performance smoke
@@ -221,6 +185,8 @@ for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-maintenance-v0-7-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-only-v0-8-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-only-v0-8-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-only-repo-v0-9-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-only-repo-v0-9-implementation-plan.md`
 
 ## Agent Workflow Integration
 
