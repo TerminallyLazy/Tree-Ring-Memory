@@ -68,9 +68,10 @@ impl SQLiteMemoryStore {
             .as_ref()
             .canonicalize()
             .map_err(|err| sqlite_error(err.to_string()))?;
+        let normalized_path = normalize_sqlite_uri_path(&path.to_string_lossy());
         let uri = format!(
             "file:{}?mode=ro&immutable=1",
-            sqlite_uri_path(&path.to_string_lossy())
+            sqlite_uri_path(&normalized_path)
         );
         let connection = Connection::open_with_flags(
             uri,
@@ -583,6 +584,16 @@ fn parent_dir_to_create(path: &Path) -> Option<&Path> {
         .filter(|parent| !parent.as_os_str().is_empty())
 }
 
+fn normalize_sqlite_uri_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("\\\\?\\UNC\\") {
+        format!("\\\\{rest}").replace('\\', "/")
+    } else if let Some(rest) = path.strip_prefix("\\\\?\\") {
+        rest.replace('\\', "/")
+    } else {
+        path.replace('\\', "/")
+    }
+}
+
 fn sqlite_uri_path(path: &str) -> String {
     path.bytes()
         .flat_map(|byte| match byte {
@@ -802,6 +813,30 @@ mod tests {
         assert_eq!(
             parent_dir_to_create(Path::new("relative/memory.sqlite")),
             Some(Path::new("relative"))
+        );
+    }
+
+    #[test]
+    fn normalizes_windows_paths_for_sqlite_uri_open() {
+        assert_eq!(
+            normalize_sqlite_uri_path(r"\\?\C:\Users\lazy\memory.sqlite"),
+            "C:/Users/lazy/memory.sqlite"
+        );
+        assert_eq!(
+            normalize_sqlite_uri_path(r"\\?\UNC\server\share\memory.sqlite"),
+            "//server/share/memory.sqlite"
+        );
+        assert_eq!(
+            normalize_sqlite_uri_path(r"C:\Users\lazy\memory.sqlite"),
+            "C:/Users/lazy/memory.sqlite"
+        );
+    }
+
+    #[test]
+    fn sqlite_uri_path_percent_encodes_only_unsafe_bytes() {
+        assert_eq!(
+            sqlite_uri_path("/tmp/tree ring/mémoire.sqlite"),
+            "/tmp/tree%20ring/m%C3%A9moire.sqlite"
         );
     }
 

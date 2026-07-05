@@ -389,19 +389,15 @@ fn directive(summary: &str) -> Option<(&'static str, String)> {
 }
 
 fn normalize(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() {
-                ch.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut normalized = String::new();
+    for ch in value.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            normalized.extend(ch.to_lowercase());
+        } else {
+            normalized.push(' ');
+        }
+    }
+    normalized.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn finding(
@@ -514,6 +510,20 @@ mod tests {
 
         assert_eq!(report.finding_count, 1);
         assert_eq!(report.findings[0].audit_type, "contradictions");
+    }
+
+    #[test]
+    fn contradiction_normalization_preserves_unicode_and_underscores_like_python() {
+        let mut use_memory = MemoryEvent::new("Use résumé_cache_key", "decision").unwrap();
+        let mut avoid_memory = MemoryEvent::new("Avoid résumé_cache_key.", "decision").unwrap();
+        use_memory.project = Some("ui".to_string());
+        avoid_memory.project = Some("ui".to_string());
+        use_memory.tags = vec!["cache".to_string()];
+        avoid_memory.tags = vec!["cache".to_string()];
+
+        let report = audit_memories(&[use_memory, avoid_memory], "contradictions").unwrap();
+
+        assert_eq!(report.finding_count, 1);
     }
 
     #[test]
