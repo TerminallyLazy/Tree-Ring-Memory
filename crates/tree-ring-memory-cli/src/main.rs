@@ -13,13 +13,27 @@ use tree_ring_memory_core::{
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod tui;
+mod welcome;
 
 #[derive(Debug, Parser)]
-#[command(name = "tree-ring", about = "Local tree-ring memory for AI agents.")]
+#[command(
+    name = "tree-ring",
+    version,
+    about = "Local tree-ring memory for AI agents."
+)]
 struct Cli {
-    #[arg(long, default_value = ".tree-ring", help = "memory store root")]
+    #[arg(
+        long,
+        default_value = ".tree-ring",
+        global = true,
+        help = "memory store root"
+    )]
     root: PathBuf,
-    #[arg(long, help = "emit machine-readable JSON where supported")]
+    #[arg(
+        long,
+        global = true,
+        help = "emit machine-readable JSON where supported"
+    )]
     json: bool,
     #[command(subcommand)]
     command: Command,
@@ -134,6 +148,13 @@ enum Command {
         )]
         tick_ms: u64,
     },
+    #[command(about = "show first-run onboarding and next commands")]
+    Welcome {
+        #[arg(long, help = "initialize the configured memory root during onboarding")]
+        init: bool,
+        #[arg(long, help = "print a stable onboarding screen without animation")]
+        no_animation: bool,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -154,6 +175,10 @@ fn main() -> std::process::ExitCode {
 
 fn run(cli: Cli) -> Result<(), String> {
     let db_path = cli.root.join("memory.sqlite");
+
+    if let Command::Welcome { init, no_animation } = &cli.command {
+        return welcome::run(&cli.root, *init, *no_animation, cli.json);
+    }
 
     if let Command::Tui {
         event_stream,
@@ -481,6 +506,9 @@ fn run(cli: Cli) -> Result<(), String> {
             print_maintenance_report(&report, cli.json)?;
         }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
+        Command::Welcome { .. } => {
+            unreachable!("welcome returns before opening the scriptable store")
+        }
     }
     Ok(())
 }
@@ -1010,6 +1038,29 @@ mod tests {
                 assert_eq!(tick_ms, 125);
             }
             _ => panic!("expected tui command"),
+        }
+    }
+
+    #[test]
+    fn parses_global_flags_after_welcome_command() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "welcome",
+            "--json",
+            "--root",
+            ".memory",
+            "--init",
+        ])
+        .unwrap();
+
+        assert!(cli.json);
+        assert_eq!(cli.root, PathBuf::from(".memory"));
+        match cli.command {
+            Command::Welcome { init, no_animation } => {
+                assert!(init);
+                assert!(!no_animation);
+            }
+            _ => panic!("expected welcome command"),
         }
     }
 
