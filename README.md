@@ -21,6 +21,18 @@ The Rust workspace currently includes:
 
 Python remains the stable public API while Rust parity expands.
 
+Python can also exercise the Rust-backed path explicitly through
+`RustCliTreeRingMemory`. This bridge uses the native Rust CLI and preserves the
+Python object shapes while PyO3 bindings are still planned.
+
+```python
+from tree_ring_memory import RustCliTreeRingMemory
+
+memory = RustCliTreeRingMemory.open(".tree-ring")
+event = memory.remember(summary="Rust-backed memory works.", event_type="lesson")
+results = memory.recall("Rust-backed memory")
+```
+
 ## First Example
 
 ```python

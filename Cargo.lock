@@ -592,6 +592,7 @@ name = "tree-ring-memory-cli"
 version = "0.2.0"
 dependencies = [
  "clap",
+ "serde_json",
  "tempfile",
  "tree-ring-memory-core",
  "tree-ring-memory-sqlite",

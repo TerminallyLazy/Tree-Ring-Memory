@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use serde_json::json;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
@@ -9,6 +10,8 @@ use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 struct Cli {
     #[arg(long, default_value = ".tree-ring", help = "memory store root")]
     root: PathBuf,
+    #[arg(long, help = "emit machine-readable JSON where supported")]
+    json: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -73,8 +76,20 @@ fn run(cli: Cli) -> Result<(), String> {
 
     match cli.command {
         Command::Init => {
-            println!("Tree Ring Memory initialized at {}", cli.root.display());
-            println!("No cloud sync; secret-like memory is blocked by default.");
+            if cli.json {
+                println!(
+                    "{}",
+                    json!({
+                        "ok": true,
+                        "root": cli.root,
+                        "sqlite_path": db_path,
+                        "message": "Tree Ring Memory initialized",
+                    })
+                );
+            } else {
+                println!("Tree Ring Memory initialized at {}", cli.root.display());
+                println!("No cloud sync; secret-like memory is blocked by default.");
+            }
         }
         Command::Remember {
             summary,
@@ -103,7 +118,11 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             event.validate().map_err(|err| err.to_string())?;
             store.put(&event).map_err(|err| err.to_string())?;
-            println!("{}", event.id);
+            if cli.json {
+                println!("{}", serde_json::to_string(&event).map_err(|err| err.to_string())?);
+            } else {
+                println!("{}", event.id);
+            }
         }
         Command::Recall {
             query,
@@ -125,11 +144,25 @@ fn run(cli: Cli) -> Result<(), String> {
                     false,
                 )
                 .map_err(|err| err.to_string())?;
-            for result in results {
-                println!(
-                    "{} [{}] {} score={:.3}",
-                    result.memory.id, result.memory.ring, result.memory.summary, result.score
-                );
+            if cli.json {
+                let payload: Vec<_> = results
+                    .into_iter()
+                    .map(|result| {
+                        json!({
+                            "memory": result.memory,
+                            "score": result.score,
+                            "ranking": result.ranking,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string(&payload).map_err(|err| err.to_string())?);
+            } else {
+                for result in results {
+                    println!(
+                        "{} [{}] {} score={:.3}",
+                        result.memory.id, result.memory.ring, result.memory.summary, result.score
+                    );
+                }
             }
         }
         Command::Forget {
@@ -144,7 +177,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 ForgetMode::Delete => store.delete(&memory_id).map_err(|err| err.to_string())?,
                 ForgetMode::Redact => store.redact(&memory_id).map_err(|err| err.to_string())?,
             }
-            println!("Tree Ring Memory forget complete: {memory_id}");
+            if cli.json {
+                println!("{}", json!({"ok": true, "memory_id": memory_id}));
+            } else {
+                println!("Tree Ring Memory forget complete: {memory_id}");
+            }
         }
     }
     Ok(())
@@ -161,6 +198,7 @@ mod tests {
         let root = dir.path().join(".tree-ring");
         run(Cli {
             root: root.clone(),
+            json: false,
             command: Command::Init,
         })
         .unwrap();
@@ -173,6 +211,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let err = run(Cli {
             root: dir.path().join(".tree-ring"),
+            json: false,
             command: Command::Forget {
                 memory_id: "mem_missing".to_string(),
                 mode: ForgetMode::Delete,
@@ -189,6 +228,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let err = run(Cli {
             root: dir.path().join(".tree-ring"),
+            json: false,
             command: Command::Remember {
                 summary: "Facade should guard project metadata.".to_string(),
                 event_type: "lesson".to_string(),
@@ -201,5 +241,31 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("blocked"));
+    }
+
+    #[test]
+    fn remember_json_emits_memory_payload() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Init,
+        })
+        .unwrap();
+
+        run(Cli {
+            root,
+            json: true,
+            command: Command::Remember {
+                summary: "Use Rust JSON bridge.".to_string(),
+                event_type: "lesson".to_string(),
+                ring: "cambium".to_string(),
+                scope: "global".to_string(),
+                project: None,
+                tags: Vec::new(),
+            },
+        })
+        .unwrap();
     }
 }

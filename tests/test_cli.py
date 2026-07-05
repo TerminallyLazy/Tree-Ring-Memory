@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from tree_ring_memory.store import SQLiteMemoryStore
+from tree_ring_memory.rust_backend import RustCliTreeRingMemory
 
 
 PROJECT_SRC = Path(__file__).resolve().parents[1] / "src"
@@ -103,3 +104,22 @@ def test_rust_cli_written_memory_is_python_readable(tmp_path):
     assert event is not None
     assert event.summary == "Rust writes schema-compatible memory."
     assert event.project == "compat"
+
+
+def test_rust_cli_backend_preserves_python_facade_shapes(tmp_path):
+    memory = RustCliTreeRingMemory.open(tmp_path / ".tree-ring")
+
+    event = memory.remember(
+        summary="Rust backend preserves Python shapes.",
+        event_type="lesson",
+        project="compat",
+        tags=["rust"],
+    )
+    results = memory.recall("Python shapes", project="compat")
+
+    assert event.summary == "Rust backend preserves Python shapes."
+    assert results[0].memory.id == event.id
+    assert results[0].memory.tags == ["rust"]
+
+    memory.forget(event.id, mode="delete", reason="test cleanup")
+    assert memory.recall("Python shapes", project="compat") == []
