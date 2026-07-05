@@ -74,8 +74,8 @@ files in the memory root:
 - `.tree-ring/AGENTS.md`: DOX-style Tree Ring Memory guidance and root
   `AGENTS.md` merge notes.
 - `.tree-ring/SKILL.md`: portable skill instructions for agent runtimes.
-- `.tree-ring/CLI.md`: quick command reference for recall, remember, forget,
-  maintain, and TUI usage.
+- `.tree-ring/CLI.md`: quick command reference for recall, remember, evidence,
+  DOX/Revolve sync, import/export, audit, maintenance, and TUI usage.
 
 Existing awareness files are left untouched. Tree Ring Memory does not modify a
 project's root `AGENTS.md`; merge the generated guidance manually when you want
@@ -163,6 +163,16 @@ tree-ring integrations scan --source-root .
 
 The CLI stores memory in `.tree-ring/` by default.
 
+Command ownership is Rust-native:
+
+- `init` creates the SQLite store plus `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+- `remember`, `recall`, and `forget` cover direct memory capture, retrieval, redaction, and deletion.
+- `evidence` is the Revolve-inspired improvement-loop entry point for evaluated outcomes.
+- `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
+- `integrations scan` discovers nearby agent-framework markers and suggests setup paths without changing their config.
+- `export`, `import`, `audit`, `consolidate`, and `maintain` are local maintenance surfaces over the same SQLite store.
+- `welcome` and `tui` are the terminal onboarding and operator-console surfaces.
+
 ## Evidence Loop
 
 The Revolve-inspired loop is exposed through `tree-ring evidence`. It records
@@ -207,9 +217,20 @@ tree-ring revolve sync --source-root revolve --project example-service
 ```
 
 DOX sync discovers `AGENTS.md` files, stores summaries and source refs, and
-keeps the source files authoritative. Revolve sync imports promoted outcomes as
-heartwood, rejected outcomes as scars, deferred hypotheses as seeds, and
-observed results as outer-ring evidence.
+keeps the source files authoritative. It can scan a project root or a single
+`AGENTS.md` file. It does not copy entire project-contract trees into memory,
+does not weaken child contracts, and does not let memory replace fresh DOX
+traversal before edits.
+
+Revolve sync scans a Revolve root or an evidence file. It imports promoted
+outcomes as heartwood, rejected outcomes as scars, deferred hypotheses as
+seeds, and observed results as outer-ring evidence. It keeps source refs back
+to the Revolve/evaluation record and does not treat incomparable or
+outcome-free files as durable truth.
+
+For both adapters, run `--dry-run` first. Imported memory is a concise recall
+aid; the source `AGENTS.md`, Revolve record, evaluation artifact, PR, issue,
+test, or run log remains authoritative.
 
 Framework discovery is read-only:
 
@@ -297,7 +318,7 @@ Event stream lines are local JSONL objects. They are display signals only:
 ## Development Checks
 
 ```bash
-cargo test
+cargo test --locked
 sh install.sh --help
 cargo run -p tree-ring-memory-cli -- --help
 cargo run -p tree-ring-memory-cli -- welcome --no-animation
@@ -344,6 +365,13 @@ binding options that have since been superseded by the Rust-native runtime.
 For DOX-style project awareness, merge the relevant generated `.tree-ring/AGENTS.md`
 sections into the project root `AGENTS.md`. The CLI intentionally does not
 rewrite root project contracts automatically.
+
+For agent harnesses that support local skills or instruction packs, point them
+at `.tree-ring/SKILL.md` or the repository copy under `skills/`. For
+DOX-aware agents, make sure the project root `AGENTS.md` tells the agent to read
+Tree Ring Memory guidance when memory is initialized. For CLI-driven agents,
+include `.tree-ring/CLI.md` in the harness prompt or startup context so the
+agent knows the exact local commands.
 
 ## Brand Assets
 

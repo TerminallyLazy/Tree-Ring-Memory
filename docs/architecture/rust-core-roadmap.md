@@ -50,6 +50,10 @@ The Rust core must support:
 - recall ranking with explainable scores
 - delete, redact, and supersede workflows
 - JSON import/export compatibility with the published schemas
+- deterministic audit, consolidation, and maintenance planning
+- DOX-style `AGENTS.md` summarization without replacing source contracts
+- Revolve/evaluation evidence import without replacing source records
+- a scriptable CLI plus a terminal operator console for local workflows
 
 v0.4 implements the JSONL import/export baseline in Rust and exposes it through
 the CLI. Markdown exports, SQLite backups, and signed bundles remain future
@@ -77,7 +81,9 @@ v0.10 adds one-line installer onboarding and the Rust-native terminal welcome
 flow.
 
 v0.11 adds Rust-native DOX and Revolve source adapters, TUI export and
-consolidation backend actions, and read-only agent-framework discovery.
+consolidation backend actions, read-only agent-framework discovery, and
+terminal onboarding/operator docs that point agents at the CLI, skill, and
+DOX-style project contract.
 
 ## Non-Goals
 

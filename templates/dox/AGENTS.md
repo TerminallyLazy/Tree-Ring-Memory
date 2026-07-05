@@ -49,6 +49,18 @@ become heartwood only when the evidence supports durable reuse. Rejections with
 reusable warning value should become scars. Deferred possibilities should become
 seeds.
 
+Use source adapters when local authoritative files already contain the guidance
+or evaluated outcome:
+
+```bash
+tree-ring dox sync --source-root . --dry-run
+tree-ring revolve sync --source-root revolve --dry-run
+tree-ring integrations scan --source-root .
+```
+
+Run adapter syncs as previews first. Persist only concise, source-linked
+summaries that help future recall.
+
 ## Ring Mapping
 
 - Use `cambium` for active task context.
@@ -78,3 +90,8 @@ Memory summaries should point back to source evidence such as:
 - local project docs
 
 When source documents and memory disagree, re-read the source documents and update or forget the stale memory.
+
+DOX-style `AGENTS.md` files and Revolve/evaluation records remain
+authoritative. Tree Ring Memory can summarize and point to them, but it must not
+replace DOX traversal, copy whole contract trees, treat stale scores as current
+truth, or promote an outcome without source evidence.
