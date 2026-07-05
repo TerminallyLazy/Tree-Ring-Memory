@@ -11,8 +11,8 @@ It intentionally does not package `../../src` or own the public
 install this native extension into the same environment.
 
 When installed, the public `TreeRingMemory.open()` facade uses this Rust-native
-backend by default. Without it, source checkouts fall back to the Python
-reference backend unless native mode is required by environment configuration.
+backend. Without it, `TreeRingMemory.open()` fails with a clear install/build
+hint. The public package does not include a Python-owned runtime.
 
 Development build:
 
