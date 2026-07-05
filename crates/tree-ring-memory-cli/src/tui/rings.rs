@@ -4,9 +4,6 @@ use ratatui::text::{Line, Span};
 use super::model::{DashboardStats, RingStats};
 use super::theme;
 
-const SYMBOL_WIDTH: usize = 28;
-const SYMBOL_HEIGHT: usize = 18;
-
 pub fn ring_color(ring: &str, warning_level: f64) -> Color {
     theme::ring_color(ring, warning_level)
 }
@@ -36,14 +33,6 @@ pub fn ambient_corner_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'
     let scar = dashboard.ring("scar").unwrap_or(&empty_scar);
     let seed = dashboard.ring("seed").unwrap_or(&empty_seed);
     let spin = ["*", "+", ".", "+"][(tick as usize / 2) % 4];
-    let labels = [
-        label("C", cambium),
-        label("O", outer),
-        label("I", inner),
-        label("H", heartwood),
-        label("!", scar),
-        label("?", seed),
-    ];
 
     let mut lines = vec![Line::from(vec![
         Span::styled("live ", theme::live()),
@@ -54,19 +43,20 @@ pub fn ambient_corner_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'
         Span::styled(" total ", theme::dim()),
         Span::styled(format!("{:>3}", dashboard.total), theme::title()),
     ])];
-
-    let symbol_rows = ring_symbol_lines(dashboard, tick);
-    for (index, mut line) in symbol_rows.into_iter().enumerate() {
-        line.spans.push(Span::raw("  "));
-        if let Some(label) = labels.get(index) {
-            line.spans.extend(label.clone());
-        }
-        lines.push(line);
-    }
-
-    lines.push(Line::from(vec![
-        Span::styled("store-watch ", theme::accent()),
-        Span::styled("+ event-stream", theme::secondary_accent()),
+    lines.extend(ascii_ring_lines(
+        cambium, outer, inner, heartwood, scar, tick,
+    ));
+    lines.push(count_line([
+        ("C", cambium),
+        ("O", outer),
+        ("I", inner),
+        ("H", heartwood),
+    ]));
+    lines.push(count_line([
+        ("!", scar),
+        ("?", seed),
+        ("", &empty_seed),
+        ("", &empty_seed),
     ]));
     lines
 }
@@ -151,87 +141,6 @@ pub fn ambient_tree_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'st
     ]
 }
 
-fn label(prefix: &'static str, stats: &RingStats) -> Vec<Span<'static>> {
-    vec![
-        Span::styled(prefix, ring_style(stats)),
-        Span::styled(format!("{:>3}", stats.total), ring_style(stats)),
-    ]
-}
-
-fn ring_symbol_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'static>> {
-    (0..SYMBOL_HEIGHT)
-        .step_by(2)
-        .map(|top_y| {
-            let mut spans = Vec::new();
-            for x in 0..SYMBOL_WIDTH {
-                let top = ring_pixel_color(dashboard, tick, x, top_y);
-                let bottom = ring_pixel_color(dashboard, tick, x, top_y + 1);
-                spans.push(pixel_span(top, bottom));
-            }
-            Line::from(spans)
-        })
-        .collect()
-}
-
-fn pixel_span(top: Option<Color>, bottom: Option<Color>) -> Span<'static> {
-    match (top, bottom) {
-        (Some(top), Some(bottom)) => Span::styled("▀", Style::default().fg(top).bg(bottom)),
-        (Some(top), None) => Span::styled("▀", Style::default().fg(top)),
-        (None, Some(bottom)) => Span::styled("▄", Style::default().fg(bottom)),
-        (None, None) => Span::raw(" "),
-    }
-}
-
-fn ring_pixel_color(dashboard: &DashboardStats, tick: u64, x: usize, y: usize) -> Option<Color> {
-    let cx = (SYMBOL_WIDTH as f64 - 1.0) / 2.0;
-    let cy = (SYMBOL_HEIGHT as f64 - 1.0) / 2.0;
-    let nx = (x as f64 - cx) / (SYMBOL_WIDTH as f64 * 0.42);
-    let ny = (y as f64 - cy) / (SYMBOL_HEIGHT as f64 * 0.42);
-    let radius = (nx * nx + ny * ny).sqrt();
-    if radius > 1.0 {
-        return None;
-    }
-
-    let mut angle = (-ny).atan2(nx).to_degrees();
-    if angle < 0.0 {
-        angle += 360.0;
-    }
-    let wedge_gap =
-        ((34.0..=57.0).contains(&angle) || (214.0..=237.0).contains(&angle)) && radius > 0.32;
-    if wedge_gap {
-        let scar = dashboard.ring("scar");
-        if scar.map(|stats| stats.total).unwrap_or_default() > 0 && radius > 0.44 {
-            return Some(animated_color("scar", scar, tick, 4));
-        }
-        return None;
-    }
-
-    let boundary = [0.24, 0.42, 0.61, 0.80, 0.94]
-        .iter()
-        .any(|ring_radius| (radius - ring_radius).abs() < 0.025);
-    if boundary {
-        return Some(theme::NAVY);
-    }
-
-    let ring = if radius <= 0.24 {
-        "heartwood"
-    } else if radius <= 0.42 {
-        "inner"
-    } else if radius <= 0.61 {
-        "outer"
-    } else if radius <= 0.80 {
-        "cambium"
-    } else {
-        "cambium"
-    };
-    Some(animated_color(
-        ring,
-        dashboard.ring(ring),
-        tick,
-        ring_offset(ring),
-    ))
-}
-
 fn ring_offset(ring: &str) -> u64 {
     match ring {
         "heartwood" => 0,
@@ -242,6 +151,95 @@ fn ring_offset(ring: &str) -> u64 {
         "seed" => 5,
         _ => 0,
     }
+}
+
+fn ascii_ring_lines(
+    cambium: &RingStats,
+    outer: &RingStats,
+    inner: &RingStats,
+    heartwood: &RingStats,
+    scar: &RingStats,
+    tick: u64,
+) -> Vec<Line<'static>> {
+    let cambium_style = ascii_ring_style(cambium, tick);
+    let outer_style = ascii_ring_style(outer, tick);
+    let inner_style = ascii_ring_style(inner, tick);
+    let heartwood_style = ascii_ring_style(heartwood, tick);
+    let scar_style = ascii_ring_style(scar, tick);
+
+    vec![
+        Line::from(vec![
+            Span::raw("   "),
+            Span::styled(".-=====-.", cambium_style),
+            Span::styled("/", scar_style),
+        ]),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled(".-' ", cambium_style),
+            Span::styled(".---.", outer_style),
+            Span::styled("/", scar_style),
+            Span::styled(" '-.", cambium_style),
+        ]),
+        Line::from(vec![
+            Span::styled("/ ", cambium_style),
+            Span::styled(".-' ", outer_style),
+            Span::styled("o", heartwood_style),
+            Span::styled(" '-.", outer_style),
+            Span::styled(" \\", cambium_style),
+        ]),
+        Line::from(vec![
+            Span::styled("| ", cambium_style),
+            Span::styled("\\-. ", outer_style),
+            Span::styled("o", heartwood_style),
+            Span::styled(" .-/", outer_style),
+            Span::styled(" |", cambium_style),
+        ]),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("\\ ", cambium_style),
+            Span::styled("'-. ", outer_style),
+            Span::styled("__", inner_style),
+            Span::styled(" .-'", outer_style),
+            Span::styled(" /", cambium_style),
+        ]),
+        Line::from(vec![
+            Span::raw("    "),
+            Span::styled("'--", cambium_style),
+            Span::styled("/", scar_style),
+            Span::styled("--'", cambium_style),
+        ]),
+    ]
+}
+
+fn ascii_ring_style(stats: &RingStats, tick: u64) -> Style {
+    Style::default()
+        .fg(animated_color(
+            &stats.ring,
+            Some(stats),
+            tick,
+            ring_offset(&stats.ring),
+        ))
+        .add_modifier(if stats.total > 0 && stats.pulse_level > 0.35 {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        })
+}
+
+fn count_line<const N: usize>(items: [(&'static str, &RingStats); N]) -> Line<'static> {
+    let mut spans = Vec::new();
+    spans.push(Span::raw(" "));
+    for (index, (label, stats)) in items.into_iter().enumerate() {
+        if label.is_empty() {
+            continue;
+        }
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(label, ring_style(stats)));
+        spans.push(Span::styled(stats.total.to_string(), ring_style(stats)));
+    }
+    Line::from(spans)
 }
 
 fn animated_color(ring: &str, stats: Option<&RingStats>, tick: u64, offset: u64) -> Color {
@@ -255,6 +253,9 @@ fn animated_color(ring: &str, stats: Option<&RingStats>, tick: u64, offset: u64)
     }
     if stats.pulse_level > 0.05 && (tick + offset) % 6 < 3 {
         return brighten_color(base, 0.34 + (stats.pulse_level * 0.18));
+    }
+    if (tick + offset) % 18 < 3 {
+        return brighten_color(base, 0.18);
     }
     base
 }
@@ -387,10 +388,10 @@ mod tests {
 
         assert!(joined.contains("live"));
         assert!(joined.contains("total   2"));
-        assert!(joined.contains("C  1"));
-        assert!(joined.contains("H  1"));
-        assert!(joined.contains("store-watch"));
-        assert!(joined.contains("event-stream"));
+        assert!(joined.contains("C1"));
+        assert!(joined.contains("H1"));
+        assert!(joined.contains("!0"));
+        assert!(joined.contains("?0"));
     }
 
     #[test]

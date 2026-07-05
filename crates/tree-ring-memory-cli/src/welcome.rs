@@ -8,59 +8,12 @@ use tree_ring_memory_sqlite::SQLiteMemoryStore;
 use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
 
 const RESET: &str = "\x1b[0m";
+const TEAL: &str = "\x1b[38;2;22;156;166m";
+const PINK: &str = "\x1b[38;2;239;65;103m";
+const ORANGE: &str = "\x1b[38;2;255;125;34m";
 const YELLOW: &str = "\x1b[38;5;220m";
+const CORAL: &str = "\x1b[38;2;255;101;83m";
 const BOLD: &str = "\x1b[1m";
-const LOGO_64_COLOR_FRAMES: [&str; 3] = [
-    include_str!("generated/logo_64_color_frame_0.ansi"),
-    include_str!("generated/logo_64_color_frame_1.ansi"),
-    include_str!("generated/logo_64_color_frame_2.ansi"),
-];
-const LOGO_80_COLOR_FRAMES: [&str; 3] = [
-    include_str!("generated/logo_80_color_frame_0.ansi"),
-    include_str!("generated/logo_80_color_frame_1.ansi"),
-    include_str!("generated/logo_80_color_frame_2.ansi"),
-];
-const LOGO_96_COLOR_FRAMES: [&str; 3] = [
-    include_str!("generated/logo_96_color_frame_0.ansi"),
-    include_str!("generated/logo_96_color_frame_1.ansi"),
-    include_str!("generated/logo_96_color_frame_2.ansi"),
-];
-const LOGO_112_COLOR_FRAMES: [&str; 3] = [
-    include_str!("generated/logo_112_color_frame_0.ansi"),
-    include_str!("generated/logo_112_color_frame_1.ansi"),
-    include_str!("generated/logo_112_color_frame_2.ansi"),
-];
-const LOGO_64_PLAIN: &str = include_str!("generated/logo_64_plain.txt");
-const LOGO_80_PLAIN: &str = include_str!("generated/logo_80_plain.txt");
-const LOGO_96_PLAIN: &str = include_str!("generated/logo_96_plain.txt");
-const LOGO_112_PLAIN: &str = include_str!("generated/logo_112_plain.txt");
-
-struct LogoVariant {
-    width: u16,
-    frames: [&'static str; 3],
-    plain: &'static str,
-}
-
-const LOGO_64: LogoVariant = LogoVariant {
-    width: 64,
-    frames: LOGO_64_COLOR_FRAMES,
-    plain: LOGO_64_PLAIN,
-};
-const LOGO_80: LogoVariant = LogoVariant {
-    width: 80,
-    frames: LOGO_80_COLOR_FRAMES,
-    plain: LOGO_80_PLAIN,
-};
-const LOGO_96: LogoVariant = LogoVariant {
-    width: 96,
-    frames: LOGO_96_COLOR_FRAMES,
-    plain: LOGO_96_PLAIN,
-};
-const LOGO_112: LogoVariant = LogoVariant {
-    width: 112,
-    frames: LOGO_112_COLOR_FRAMES,
-    plain: LOGO_112_PLAIN,
-};
 
 pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
@@ -109,13 +62,11 @@ fn print_static_welcome(
     animated: bool,
 ) -> Result<(), String> {
     if color && animated {
-        animate_logo(selected_logo_variant())?;
+        animate_logo(color)?;
     } else if color {
-        print!("{}", selected_logo_variant().frames[1]);
-    } else if let Some(variant) = selected_plain_logo_variant() {
-        print!("{}", variant.plain);
+        print!("{}", welcome_logo_frame(1, color));
     } else {
-        println!("Tree Ring Memory");
+        print!("{}", welcome_logo_frame(1, color));
     }
     println!();
     println!("{}", paint("Tree Ring Memory is ready.", BOLD, color));
@@ -167,54 +118,101 @@ fn color_output_enabled() -> bool {
             .unwrap_or(true)
 }
 
-fn terminal_width() -> u16 {
-    ratatui::crossterm::terminal::size()
-        .map(|(width, _)| width)
-        .unwrap_or(80)
-}
-
-fn selected_logo_variant() -> &'static LogoVariant {
-    let width = terminal_width();
-    if width >= LOGO_112.width {
-        &LOGO_112
-    } else if width >= LOGO_96.width {
-        &LOGO_96
-    } else if width >= LOGO_80.width {
-        &LOGO_80
-    } else {
-        &LOGO_64
-    }
-}
-
-fn selected_plain_logo_variant() -> Option<&'static LogoVariant> {
-    let width = terminal_width();
-    if width >= LOGO_112.width {
-        Some(&LOGO_112)
-    } else if width >= LOGO_96.width {
-        Some(&LOGO_96)
-    } else if width >= LOGO_80.width {
-        Some(&LOGO_80)
-    } else if width >= LOGO_64.width {
-        Some(&LOGO_64)
-    } else {
-        None
-    }
-}
-
-fn animate_logo(variant: &LogoVariant) -> Result<(), String> {
+fn animate_logo(color: bool) -> Result<(), String> {
     let mut stdout = io::stdout();
-    let rows = variant.frames[0].lines().count();
-    let sequence = [0usize, 1, 2, 1];
+    let rows = welcome_logo_frame(0, color).lines().count();
+    let sequence = [0usize, 1, 2, 3, 4, 3, 2, 1];
 
     for (index, frame_index) in sequence.iter().enumerate() {
         if index > 0 {
             write!(stdout, "\x1b[{rows}A\x1b[J").map_err(|err| err.to_string())?;
         }
-        write!(stdout, "{}", variant.frames[*frame_index]).map_err(|err| err.to_string())?;
+        write!(stdout, "{}", welcome_logo_frame(*frame_index, color))
+            .map_err(|err| err.to_string())?;
         stdout.flush().map_err(|err| err.to_string())?;
-        thread::sleep(Duration::from_millis(85));
+        thread::sleep(Duration::from_millis(95));
     }
     Ok(())
+}
+
+fn welcome_logo_frame(frame: usize, color: bool) -> String {
+    let cambium = frame_style(0, frame, TEAL, color);
+    let outer = frame_style(1, frame, PINK, color);
+    let inner = frame_style(2, frame, ORANGE, color);
+    let heartwood = frame_style(3, frame, YELLOW, color);
+    let scar = frame_style(4, frame, CORAL, color);
+    let mut lines = vec![
+        join([raw("   "), span(".-=====-.", &cambium), span("/", &scar)]),
+        join([
+            raw(" "),
+            span(".-' ", &cambium),
+            span(".---.", &outer),
+            span("/", &scar),
+            span(" '-.", &cambium),
+        ]),
+        join([
+            span("/ ", &cambium),
+            span(".-' ", &outer),
+            span(".-.", &inner),
+            span(" '-.", &outer),
+            span(" \\", &cambium),
+        ]),
+        join([
+            span("| ", &cambium),
+            span("\\-. ", &outer),
+            span("oo", &heartwood),
+            span(" .-/", &outer),
+            span(" |", &cambium),
+        ]),
+        join([
+            raw(" "),
+            span("\\ ", &cambium),
+            span("'-. ", &outer),
+            span("__", &inner),
+            span(" .-'", &outer),
+            span(" /", &cambium),
+        ]),
+        join([
+            raw("     "),
+            span("'--", &cambium),
+            span("/", &scar),
+            span("--'", &cambium),
+        ]),
+        join([
+            span("Tree ", &cambium),
+            span("Ring ", &outer),
+            span("Memory", &heartwood),
+        ]),
+    ];
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn frame_style(index: usize, frame: usize, code: &str, color: bool) -> String {
+    if !color {
+        return String::new();
+    }
+    if frame % 5 == index {
+        format!("{BOLD}{code}")
+    } else {
+        code.to_string()
+    }
+}
+
+fn span(text: &str, style: &str) -> String {
+    if style.is_empty() {
+        text.to_string()
+    } else {
+        format!("{style}{text}{RESET}")
+    }
+}
+
+fn raw(text: &str) -> String {
+    text.to_string()
+}
+
+fn join<const N: usize>(parts: [String; N]) -> String {
+    parts.join("")
 }
 
 fn next_commands(root: &Path) -> Vec<String> {
@@ -260,19 +258,15 @@ mod tests {
     }
 
     #[test]
-    fn generated_logo_frames_are_consistent() {
-        for variant in [&LOGO_64, &LOGO_80, &LOGO_96, &LOGO_112] {
-            let rows = variant.frames[0].lines().count();
+    fn ascii_welcome_logo_is_compact_and_frame_stable() {
+        let plain = welcome_logo_frame(0, false);
+        let color = welcome_logo_frame(1, true);
 
-            assert!(rows > 20);
-            assert!(variant.frames[0]
-                .lines()
-                .all(|line| line.len() >= variant.width as usize));
-            assert_eq!(variant.frames[1].lines().count(), rows);
-            assert_eq!(variant.frames[2].lines().count(), rows);
-            assert_eq!(variant.plain.lines().count(), rows);
-            assert!(variant.plain.contains("@@@"));
-        }
+        assert_eq!(plain.lines().count(), color.lines().count());
+        assert!(plain.lines().count() <= 10);
+        assert!(plain.contains("Tree Ring Memory"));
+        assert!(plain.contains(".-=====-./"));
+        assert!(color.contains("\x1b["));
     }
 
     #[test]
