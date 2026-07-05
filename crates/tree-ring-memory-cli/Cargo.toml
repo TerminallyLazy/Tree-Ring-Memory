@@ -1,0 +1,19 @@
+[package]
+name = "tree-ring-memory-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tree-ring"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+tree-ring-memory-core = { path = "../tree-ring-memory-core" }
+tree-ring-memory-sqlite = { path = "../tree-ring-memory-sqlite" }
+
+[dev-dependencies]
+tempfile.workspace = true

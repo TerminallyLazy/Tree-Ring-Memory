@@ -6,9 +6,20 @@ Tree Ring Memory is a framework-agnostic memory lifecycle layer for AI agents.
 
 It helps agents remember useful decisions, warnings, preferences, and lessons without turning memory into a transcript dump. Fresh memory stays detailed, older memory compresses into rings, important scars remain visible, and durable truths become heartwood.
 
-## v0.1 Status
+## Status
 
-This repository is in protocol-preview status. The first implementation target is a local Python reference library with SQLite storage and no required cloud services.
+Tree Ring Memory is in protocol-preview status.
+
+- v0.1 provides a local Python reference library with SQLite storage and no required cloud services.
+- v0.2 is moving durable behavior into a Rust core while preserving Python compatibility.
+
+The Rust workspace currently includes:
+
+- `crates/tree-ring-memory-core`: models, validation, sensitivity checks, and recall scoring.
+- `crates/tree-ring-memory-sqlite`: schema-compatible SQLite/FTS storage and recall filtering.
+- `crates/tree-ring-memory-cli`: native `tree-ring` CLI.
+
+Python remains the stable public API while Rust parity expands.
 
 ## First Example
 
@@ -40,11 +51,24 @@ tree-ring forget mem_example --mode delete --reason "example cleanup"
 
 The CLI stores memory in `.tree-ring/` by default.
 
+## Development Checks
+
+```bash
+cargo test
+python3 -m pytest
+cargo run -p tree-ring-memory-cli -- --help
+```
+
+The Rust CLI writes the same SQLite/raw JSON shape as the Python reference.
+
 ## Design Docs
 
 - `docs/superpowers/specs/2026-07-04-tree-ring-memory-framework-design.md`
 - `docs/feature/tree-ring-memory-framework/diverge/options-raw.md`
 - `docs/architecture/rust-core-roadmap.md`
+- `docs/architecture/rust-core-status.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-core-v0-2-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-core-v0-2-implementation-plan.md`
 
 ## Agent Workflow Integration
 

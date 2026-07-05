@@ -1,0 +1,20 @@
+{
+  "query": "failure stale cache",
+  "expected_top_ring": "scar",
+  "memories": [
+    {
+      "summary": "Avoid stale frontend cache.",
+      "event_type": "warning",
+      "ring": "scar",
+      "salience": 0.5,
+      "confidence": 0.7
+    },
+    {
+      "summary": "Use cache for fast reads.",
+      "event_type": "lesson",
+      "ring": "outer",
+      "salience": 0.5,
+      "confidence": 0.9
+    }
+  ]
+}

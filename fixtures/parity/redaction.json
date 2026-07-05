@@ -1,0 +1,6 @@
+{
+  "input_summary": "Legacy memory with secret metadata.",
+  "secret": "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890",
+  "expected_summary": "[REDACTED]",
+  "expected_sensitivity": "private"
+}

@@ -3,8 +3,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tree_ring_memory.store import SQLiteMemoryStore
+
 
 PROJECT_SRC = Path(__file__).resolve().parents[1] / "src"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_cli(*args, cwd):
@@ -66,3 +69,37 @@ def test_cli_forget_blank_reason_returns_controlled_error(tmp_path):
     assert forgotten.returncode == 2
     assert "forget reason is required" in forgotten.stderr
     assert "Traceback" not in forgotten.stderr
+
+
+def test_rust_cli_written_memory_is_python_readable(tmp_path):
+    cargo = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "-q",
+            "-p",
+            "tree-ring-memory-cli",
+            "--",
+            "--root",
+            str(tmp_path / ".tree-ring"),
+            "remember",
+            "Rust writes schema-compatible memory.",
+            "--event-type",
+            "lesson",
+            "--project",
+            "compat",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert cargo.returncode == 0, cargo.stderr
+    memory_id = cargo.stdout.strip()
+
+    store = SQLiteMemoryStore.open(tmp_path / ".tree-ring" / "memory.sqlite")
+    event = store.get(memory_id)
+
+    assert event is not None
+    assert event.summary == "Rust writes schema-compatible memory."
+    assert event.project == "compat"
