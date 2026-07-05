@@ -155,6 +155,24 @@ class NativeTreeRingMemory:
         payload = self._native.audit_json(audit_type)
         return dict(json.loads(payload))
 
+    def consolidate(
+        self,
+        *,
+        period_type: str = "daily",
+        period_key: str | None = None,
+        project: str | None = None,
+        dry_run: bool = False,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        payload = self._native.consolidate_json(
+            period_type,
+            period_key,
+            project,
+            dry_run,
+            force,
+        )
+        return dict(json.loads(payload))
+
 
 def _iso_or_none(value: Any) -> str | None:
     if value is None:

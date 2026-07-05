@@ -3,7 +3,9 @@ use pyo3::prelude::*;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
-use tree_ring_memory_core::{MemoryEvent, MemoryLink, MemoryReview, MemorySource};
+use tree_ring_memory_core::{
+    ConsolidationPeriod, ConsolidationRequest, MemoryEvent, MemoryLink, MemoryReview, MemorySource,
+};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 #[pyclass(name = "TreeRingMemoryNative", unsendable)]
@@ -216,6 +218,29 @@ impl PyTreeRingMemoryNative {
     #[pyo3(signature = (audit_type="all"))]
     pub fn audit_json(&self, audit_type: &str) -> PyResult<String> {
         let report = self.store.audit(audit_type).map_err(to_py_runtime_error)?;
+        serde_json::to_string(&report).map_err(to_py_runtime_error)
+    }
+
+    #[pyo3(signature = (period_type="daily", period_key=None, project=None, dry_run=false, force=false))]
+    pub fn consolidate_json(
+        &mut self,
+        period_type: &str,
+        period_key: Option<String>,
+        project: Option<String>,
+        dry_run: bool,
+        force: bool,
+    ) -> PyResult<String> {
+        let request = ConsolidationRequest {
+            period_type: ConsolidationPeriod::parse(period_type).map_err(to_py_value_error)?,
+            period_key,
+            project,
+            dry_run,
+            force,
+        };
+        let report = self
+            .store
+            .consolidate(&request)
+            .map_err(to_py_runtime_error)?;
         serde_json::to_string(&report).map_err(to_py_runtime_error)
     }
 }
@@ -681,5 +706,70 @@ mod tests {
         assert_eq!(report["memory_count"], 1);
         assert!(report["finding_count"].as_u64().unwrap() >= 1);
         assert_eq!(report["findings"][0]["memory_id"], event.id);
+    }
+
+    #[test]
+    fn native_binding_exposes_consolidation_json() {
+        pyo3::prepare_freethreaded_python();
+        let dir = tempdir().unwrap();
+        let mut memory =
+            PyTreeRingMemoryNative::open(dir.path().join(".tree-ring").display().to_string())
+                .unwrap();
+        let event_json = memory
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Consolidate native Python surface.",
+                    "event_type": "decision",
+                    "project": "bindings",
+                    "salience": 0.8
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let event: MemoryEvent = serde_json::from_str(&event_json).unwrap();
+
+        let dry_run: serde_json::Value = serde_json::from_str(
+            &memory
+                .consolidate_json(
+                    "manual",
+                    Some("manual-native-test".to_string()),
+                    Some("bindings".to_string()),
+                    true,
+                    false,
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let created: serde_json::Value = serde_json::from_str(
+            &memory
+                .consolidate_json(
+                    "manual",
+                    Some("manual-native-test".to_string()),
+                    Some("bindings".to_string()),
+                    false,
+                    false,
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let unchanged: serde_json::Value = serde_json::from_str(
+            &memory
+                .consolidate_json(
+                    "manual",
+                    Some("manual-native-test".to_string()),
+                    Some("bindings".to_string()),
+                    false,
+                    false,
+                )
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(dry_run["status"], "dry_run");
+        assert_eq!(dry_run["candidate_count"], 1);
+        assert_eq!(dry_run["source_memory_ids"][0], event.id);
+        assert_eq!(created["status"], "created");
+        assert_eq!(created["candidate_count"], 1);
+        assert_eq!(unchanged["status"], "unchanged");
     }
 }

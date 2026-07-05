@@ -182,6 +182,23 @@ class PythonTreeRingMemory:
     def audit(self, audit_type: str = "all") -> dict:
         return self.store.audit(audit_type)
 
+    def consolidate(
+        self,
+        *,
+        period_type: str = "daily",
+        period_key: str | None = None,
+        project: str | None = None,
+        dry_run: bool = False,
+        force: bool = False,
+    ) -> dict:
+        return self.store.consolidate(
+            period_type=period_type,
+            period_key=period_key,
+            project=project,
+            dry_run=dry_run,
+            force=force,
+        )
+
     def _check_public_text_fields(self, *values: str | None) -> list[SensitivityResult]:
         return [self._sensitivity_guard.check_or_raise(value or "") for value in values]
 

@@ -4,7 +4,10 @@ use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
-use tree_ring_memory_core::{audit_memories, decode_jsonl, normalize_import_events, AuditReport};
+use tree_ring_memory_core::{
+    audit_memories, consolidate_memories, decode_jsonl, normalize_import_events, AuditReport,
+    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest,
+};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod tui;
@@ -81,6 +84,29 @@ enum Command {
             help = "all, stale, sensitive, low_confidence, supersession, or contradictions"
         )]
         audit_type: String,
+    },
+    #[command(about = "consolidate memories into deterministic ring summaries")]
+    Consolidate {
+        #[arg(
+            long,
+            default_value = "daily",
+            help = "daily, weekly, monthly, yearly, or manual"
+        )]
+        period_type: String,
+        #[arg(
+            long,
+            help = "stable period key; derived from current UTC time when omitted"
+        )]
+        period_key: Option<String>,
+        #[arg(long, help = "optional project filter")]
+        project: Option<String>,
+        #[arg(long, help = "plan consolidation without writing summaries or records")]
+        dry_run: bool,
+        #[arg(
+            long,
+            help = "create a new consolidation and supersede prior summaries"
+        )]
+        force: bool,
     },
     #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
     Tui {
@@ -165,6 +191,33 @@ fn run(cli: Cli) -> Result<(), String> {
             audit_memories(&[], audit_type).map_err(|err| err.to_string())?
         };
         print_audit_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Consolidate {
+        period_type,
+        period_key,
+        project,
+        dry_run: true,
+        force,
+    } = &cli.command
+    {
+        let request = consolidation_request(
+            period_type,
+            period_key.clone(),
+            project.clone(),
+            true,
+            *force,
+        )?;
+        let report = if db_path.exists() {
+            let store =
+                SQLiteMemoryStore::open_read_only(&db_path).map_err(|err| err.to_string())?;
+            let events = store.list_all(false).map_err(|err| err.to_string())?;
+            consolidate_memories(&events, &request).map_err(|err| err.to_string())?
+        } else {
+            consolidate_memories(&[], &request).map_err(|err| err.to_string())?
+        };
+        print_consolidation_report(&report, cli.json)?;
         return Ok(());
     }
 
@@ -356,9 +409,36 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         }
         Command::Audit { .. } => unreachable!("audit returns before opening the writable store"),
+        Command::Consolidate {
+            period_type,
+            period_key,
+            project,
+            dry_run,
+            force,
+        } => {
+            let request = consolidation_request(&period_type, period_key, project, dry_run, force)?;
+            let report = store.consolidate(&request).map_err(|err| err.to_string())?;
+            print_consolidation_report(&report, cli.json)?;
+        }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
     }
     Ok(())
+}
+
+fn consolidation_request(
+    period_type: &str,
+    period_key: Option<String>,
+    project: Option<String>,
+    dry_run: bool,
+    force: bool,
+) -> Result<ConsolidationRequest, String> {
+    Ok(ConsolidationRequest {
+        period_type: ConsolidationPeriod::parse(period_type).map_err(|err| err.to_string())?,
+        period_key,
+        project,
+        dry_run,
+        force,
+    })
 }
 
 fn print_audit_report(report: &AuditReport, json_output: bool) -> Result<(), String> {
@@ -384,6 +464,31 @@ fn print_audit_report(report: &AuditReport, json_output: bool) -> Result<(), Str
                 finding.finding,
                 finding.recommended_action
             );
+        }
+    }
+    Ok(())
+}
+
+fn print_consolidation_report(
+    report: &ConsolidationReport,
+    json_output: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(report).map_err(|err| err.to_string())?
+        );
+    } else {
+        println!(
+            "Tree Ring Memory consolidation: type={} key={} candidates={} outputs={} status={}",
+            report.period_type,
+            report.period_key,
+            report.candidate_count,
+            report.output_memory_ids.len(),
+            report.status
+        );
+        if !report.notes.is_empty() {
+            println!("{}", report.notes);
         }
     }
     Ok(())
@@ -614,6 +719,103 @@ mod tests {
 
         assert!(!wal_path.exists());
         assert!(!shm_path.exists());
+    }
+
+    #[test]
+    fn consolidate_dry_run_missing_root_does_not_create_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Consolidate {
+                period_type: "manual".to_string(),
+                period_key: Some("manual-test".to_string()),
+                project: None,
+                dry_run: true,
+                force: false,
+            },
+        })
+        .unwrap();
+
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn consolidate_empty_creates_store_without_summary_or_record() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Consolidate {
+                period_type: "manual".to_string(),
+                period_key: Some("manual-empty".to_string()),
+                project: Some("core".to_string()),
+                dry_run: false,
+                force: false,
+            },
+        })
+        .unwrap();
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(memories, 0);
+        assert_eq!(records, 0);
+    }
+
+    #[test]
+    fn consolidate_json_creates_summary_and_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Remember {
+                summary: "Use deterministic consolidation.".to_string(),
+                event_type: "decision".to_string(),
+                ring: "cambium".to_string(),
+                scope: "global".to_string(),
+                project: Some("core".to_string()),
+                tags: vec!["memory".to_string()],
+            },
+        })
+        .unwrap();
+
+        run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Consolidate {
+                period_type: "manual".to_string(),
+                period_key: Some("manual-test".to_string()),
+                project: Some("core".to_string()),
+                dry_run: false,
+                force: false,
+            },
+        })
+        .unwrap();
+        let second = SQLiteMemoryStore::open(root.join("memory.sqlite"))
+            .unwrap()
+            .consolidate(&ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-test".to_string()),
+                project: Some("core".to_string()),
+                dry_run: false,
+                force: false,
+            })
+            .unwrap();
+
+        assert_eq!(second.status, "unchanged");
+        assert_eq!(second.output_memory_ids.len(), 1);
     }
 
     #[test]

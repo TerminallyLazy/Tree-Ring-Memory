@@ -62,6 +62,11 @@ v0.5 implements deterministic local audit checks in Rust and exposes them
 through SQLite, CLI, native Python, and Python reference surfaces. Consolidation
 and automatic repair remain future extension points.
 
+v0.6 implements deterministic consolidation in Rust. It creates source-linked
+summary memories without LLMs, persists idempotent consolidation records, and
+keeps sensitive payloads out of generated summaries. Automatic deletion,
+expiry, repair, and adapter-specific sync remain future extension points.
+
 ## Non-Goals
 
 The Rust rewrite should not:
