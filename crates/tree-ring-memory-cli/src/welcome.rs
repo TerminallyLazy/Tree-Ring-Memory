@@ -18,8 +18,8 @@ const BOLD: &str = "\x1b[1m";
 pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
     let (initialized, awareness) = if init {
-        SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
         let awareness = ensure_agent_awareness(root)?;
+        SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
         (true, Some(awareness))
     } else {
         (db_path.exists(), None)

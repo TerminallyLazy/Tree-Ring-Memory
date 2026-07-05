@@ -154,7 +154,7 @@ intro() {
     for pulse in "*" "+" "*" "+"; do
       printf '\033[2J\033[H'
       ring_frame "$pulse"
-      sleep 0.08
+      sleep 0.08 2>/dev/null || :
     done
   else
     ring_frame "*"
@@ -180,6 +180,7 @@ install_prefix() {
   if [ "$INSTALL_SCOPE" = "project" ]; then
     printf '%s' ".tree-ring"
   else
+    [ "${HOME:-}" != "" ] || die "HOME is not set. Pass --install-dir or use --project."
     printf '%s' "$HOME/.local"
   fi
 }

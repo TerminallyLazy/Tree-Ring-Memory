@@ -125,7 +125,12 @@ Memory does not overwrite root project contracts automatically.
 }
 
 fn shell_path(path: &Path) -> String {
-    path.display().to_string()
+    let value = path.display().to_string();
+    if value.contains(' ') {
+        format!("'{value}'")
+    } else {
+        value
+    }
 }
 
 #[cfg(test)]
@@ -162,5 +167,16 @@ mod tests {
         assert!(agents.contains("CLI.md"));
         assert!(agents.contains("DOX Integration"));
         assert!(agents.contains("Tree Ring Memory Project Contract"));
+    }
+
+    #[test]
+    fn generated_agents_file_quotes_roots_with_spaces() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("project memory").join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+
+        assert!(agents.contains(&format!("--root '{}'", root.display())));
     }
 }
