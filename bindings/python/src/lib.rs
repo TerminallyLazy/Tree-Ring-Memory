@@ -178,6 +178,40 @@ impl PyTreeRingMemoryNative {
             ))),
         }
     }
+
+    #[pyo3(signature = (include_sensitive=false, include_superseded=false))]
+    pub fn export_jsonl(
+        &self,
+        include_sensitive: bool,
+        include_superseded: bool,
+    ) -> PyResult<String> {
+        let (jsonl, _report) = self
+            .store
+            .export_jsonl(include_sensitive, include_superseded)
+            .map_err(to_py_runtime_error)?;
+        Ok(jsonl)
+    }
+
+    #[pyo3(signature = (data, dry_run=false, replace_existing=false))]
+    pub fn import_jsonl(
+        &mut self,
+        data: &str,
+        dry_run: bool,
+        replace_existing: bool,
+    ) -> PyResult<String> {
+        let report = self
+            .store
+            .import_jsonl(data, dry_run, replace_existing)
+            .map_err(to_py_runtime_error)?;
+        serde_json::to_string(&serde_json::json!({
+            "valid_count": report.valid_count,
+            "inserted_count": report.inserted_count,
+            "replaced_count": report.replaced_count,
+            "skipped_duplicate_count": report.skipped_duplicate_count,
+            "dry_run": report.dry_run,
+        }))
+        .map_err(to_py_runtime_error)
+    }
 }
 
 impl PyTreeRingMemoryNative {
@@ -564,5 +598,53 @@ mod tests {
         assert_eq!(stored.sensitivity, "health");
         assert_eq!(hidden, "[]");
         assert!(visible.contains(&stored.id));
+    }
+
+    #[test]
+    fn native_binding_exports_and_imports_jsonl() {
+        pyo3::prepare_freethreaded_python();
+        let source_dir = tempdir().unwrap();
+        let target_dir = tempdir().unwrap();
+        let mut source = PyTreeRingMemoryNative::open(
+            source_dir.path().join(".tree-ring").display().to_string(),
+        )
+        .unwrap();
+        let mut target = PyTreeRingMemoryNative::open(
+            target_dir.path().join(".tree-ring").display().to_string(),
+        )
+        .unwrap();
+        let event_json = source
+            .remember_event_json(
+                &serde_json::json!({
+                    "summary": "Native JSONL import export preserves memory.",
+                    "event_type": "lesson",
+                    "project": "bindings"
+                })
+                .to_string(),
+            )
+            .unwrap();
+        let event: MemoryEvent = serde_json::from_str(&event_json).unwrap();
+
+        let jsonl = source.export_jsonl(false, false).unwrap();
+        let dry_run_report: serde_json::Value =
+            serde_json::from_str(&target.import_jsonl(&jsonl, true, false).unwrap()).unwrap();
+        let import_report: serde_json::Value =
+            serde_json::from_str(&target.import_jsonl(&jsonl, false, false).unwrap()).unwrap();
+
+        assert!(jsonl.contains("tree_ring_memory_export"));
+        assert!(jsonl.contains(&event.id));
+        assert_eq!(dry_run_report["valid_count"], 1);
+        assert_eq!(dry_run_report["inserted_count"], 0);
+        assert_eq!(dry_run_report["dry_run"], true);
+        assert_eq!(import_report["inserted_count"], 1);
+        assert!(target
+            .recall_json(
+                "JSONL preserves memory".to_string(),
+                Some("bindings".to_string()),
+                8,
+                false
+            )
+            .unwrap()
+            .contains(&event.id));
     }
 }

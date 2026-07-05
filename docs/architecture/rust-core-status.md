@@ -2,8 +2,8 @@
 
 Tree Ring Memory has moved from a Python-owned reference implementation toward
 a Rust-first core with Python compatibility. This page tracks the v0.2 Rust
-core, v0.3 native Python binding work, and the Rust-native Ratatui terminal
-console now being added to the CLI.
+core, v0.3 native Python binding work, the Rust-native Ratatui terminal
+console, and the v0.4 Rust-owned JSONL import/export path.
 
 ## Current Status
 
@@ -27,6 +27,13 @@ console now being added to the CLI.
   contracts, including details, source metadata, agent profile, scores,
   retention, expiry, links, review metadata, supersession, recall filters,
   superseded-memory inclusion, and ranking explanations.
+- The v0.4 Rust core and SQLite store own portable JSONL import/export.
+  Exports exclude sensitive and superseded memories by default; import validates
+  events, supports dry-run previews, skips duplicate ids by default, and only
+  replaces existing rows when explicitly requested.
+- The Rust CLI exposes `tree-ring export` and `tree-ring import`; the optional
+  native Python backend and Python reference backend expose matching
+  `export_jsonl()` and `import_jsonl()` methods.
 - The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
   always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
@@ -39,6 +46,8 @@ cargo test
 python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
 cargo run -p tree-ring-memory-cli -- tui --help
+cargo run -p tree-ring-memory-cli -- export --help
+cargo run -p tree-ring-memory-cli -- import --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -67,6 +76,8 @@ from tree_ring_memory import TreeRingMemory
 memory = TreeRingMemory.open(".tree-ring")
 event = memory.remember(summary="Native Rust path works.", event_type="lesson")
 results = memory.recall("Rust path")
+jsonl = memory.export_jsonl()
+preview = memory.import_jsonl(jsonl, dry_run=True)
 ```
 
 `NativeTreeRingMemory` requires the optional PyO3 extension module. Build it
@@ -86,16 +97,19 @@ Backend controls:
 ## Smoke Coverage
 
 - Rust unit tests cover model validation, sensitivity checks, recall scoring,
-  SQLite/FTS storage, transactional row/FTS consistency, redaction, and basic
-  concurrent writes. Rust binding tests cover native JSON remember/recall
-  round-trip and forget validation.
+  SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
+  import/export filtering and duplicate handling, and basic concurrent writes.
+  Rust binding tests cover native JSON remember/recall round-trip, forget
+  validation, and JSONL import/export.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
-  the Ratatui TUI model, stream reader, slash-command parser, store-watch
-  refresh, confirmation-gated actions, CLI parsing, and render-buffer smoke.
+  JSONL import/export commands plus the Ratatui TUI model, stream reader,
+  slash-command parser, store-watch refresh, confirmation-gated actions, CLI
+  parsing, and render-buffer smoke.
 - Python tests cover the existing reference backend, Rust CLI database
   compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
   native selection, full native wrapper argument marshalling, and clean
-  missing-extension behavior.
+  missing-extension behavior. They also cover Python reference and native
+  wrapper JSONL import/export parity.
 - `scripts/rust_performance_smoke.py` provides an operator-run local insert and
   recall timing check. It fails if expected recalls are empty, emits a stable
   `METRICS_JSON=` line, and enforces conservative synthetic-workload thresholds
@@ -103,10 +117,10 @@ Backend controls:
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,598.8 ms.
-- Insert throughput: 2,174.5 inserts/sec.
-- Recall average latency: 8.142 ms.
-- Recall max latency: 15.017 ms.
+- Inserted 10,000 memories in 4,577.9 ms.
+- Insert throughput: 2,184.4 inserts/sec.
+- Recall average latency: 6.109 ms.
+- Recall max latency: 9.266 ms.
 
 ## Compatibility Rule
 

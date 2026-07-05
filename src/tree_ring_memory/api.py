@@ -155,6 +155,30 @@ class PythonTreeRingMemory:
 
         raise ValueError(f"unsupported forget mode: {mode}")
 
+    def export_jsonl(
+        self,
+        *,
+        include_sensitive: bool = False,
+        include_superseded: bool = False,
+    ) -> str:
+        return self.store.export_jsonl(
+            include_sensitive=include_sensitive,
+            include_superseded=include_superseded,
+        )
+
+    def import_jsonl(
+        self,
+        data: str,
+        *,
+        dry_run: bool = False,
+        replace_existing: bool = False,
+    ) -> dict:
+        return self.store.import_jsonl(
+            data,
+            dry_run=dry_run,
+            replace_existing=replace_existing,
+        )
+
     def _check_public_text_fields(self, *values: str | None) -> list[SensitivityResult]:
         return [self._sensitivity_guard.check_or_raise(value or "") for value in values]
 

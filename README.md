@@ -19,7 +19,8 @@ Tree Ring Memory is in protocol-preview status.
 - v0.1 provides a local Python reference library with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core while preserving Python compatibility.
 - v0.3 makes the public Python facade Rust-first when the optional PyO3 native module is installed.
-- The current Rust branch adds a Ratatui operator console behind `tree-ring tui`.
+- v0.4 adds Rust-owned JSONL import/export with privacy-preserving defaults across the CLI, native Python backend, and Python reference backend.
+- The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
 
@@ -62,6 +63,18 @@ maturin develop
 The native binding package is extension-only. It does not package or own the
 public `tree_ring_memory` Python package; install the main package separately in
 the same environment.
+
+The native and reference Python backends expose portable JSONL import/export:
+
+```python
+jsonl = memory.export_jsonl()
+preview = memory.import_jsonl(jsonl, dry_run=True)
+report = memory.import_jsonl(jsonl)
+```
+
+Exports exclude sensitive and superseded memories by default. Pass
+`include_sensitive=True` or `include_superseded=True` only when the caller
+explicitly needs those rows.
 
 Backend selection:
 
@@ -110,9 +123,19 @@ tree-ring init
 tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
 tree-ring recall "protocol design"
 tree-ring forget mem_example --mode delete --reason "example cleanup"
+tree-ring export --output memories.jsonl
+tree-ring import memories.jsonl --dry-run
+tree-ring import memories.jsonl
 ```
 
 The CLI stores memory in `.tree-ring/` by default.
+
+`tree-ring export` writes newline-delimited JSON. The first line is a
+`tree_ring_memory_export` header with schema and plugin version metadata; each
+remaining line is a `memory_event` envelope. The command excludes sensitive and
+superseded memories unless `--include-sensitive` or `--include-superseded` is
+set. Import validates all events, skips duplicate ids by default, and replaces
+existing ids only with `--replace-existing`.
 
 ## Terminal Console Preview
 
@@ -156,6 +179,8 @@ Event stream lines are local JSONL objects. They are display signals only:
 cargo test
 python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
+cargo run -p tree-ring-memory-cli -- export --help
+cargo run -p tree-ring-memory-cli -- import --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -178,6 +203,8 @@ latency of 250 ms for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-python-bindings-v0-3-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-ratatui-tui-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-ratatui-tui-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-import-export-v0-4-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-import-export-v0-4-implementation-plan.md`
 
 ## Agent Workflow Integration
 

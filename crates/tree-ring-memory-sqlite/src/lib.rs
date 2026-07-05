@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
+use tree_ring_memory_core::{decode_jsonl, encode_jsonl, normalize_import_events};
 
 const WRITE_RETRY_ATTEMPTS: usize = 8;
 const WRITE_RETRY_INITIAL_DELAY_MS: u64 = 5;
@@ -22,6 +23,22 @@ pub struct RecallResult {
 
 pub struct SQLiteMemoryStore {
     connection: Connection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportReport {
+    pub memory_count: usize,
+    pub sensitive_included: bool,
+    pub superseded_included: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportReport {
+    pub valid_count: usize,
+    pub inserted_count: usize,
+    pub replaced_count: usize,
+    pub skipped_duplicate_count: usize,
+    pub dry_run: bool,
 }
 
 impl SQLiteMemoryStore {
@@ -347,6 +364,73 @@ impl SQLiteMemoryStore {
         };
         event.redact();
         self.put(&event)
+    }
+
+    pub fn export_jsonl(
+        &self,
+        include_sensitive: bool,
+        include_superseded: bool,
+    ) -> TreeRingResult<(String, ExportReport)> {
+        let events: Vec<_> = self
+            .list_all(include_superseded)?
+            .into_iter()
+            .filter(|event| include_sensitive || event.sensitivity == "normal")
+            .collect();
+        let jsonl = encode_jsonl(&events, include_sensitive)?;
+        let report = ExportReport {
+            memory_count: events.len(),
+            sensitive_included: include_sensitive,
+            superseded_included: include_superseded,
+        };
+        Ok((jsonl, report))
+    }
+
+    pub fn import_jsonl(
+        &mut self,
+        input: &str,
+        dry_run: bool,
+        replace_existing: bool,
+    ) -> TreeRingResult<ImportReport> {
+        let decoded = decode_jsonl(input)?;
+        let events = normalize_import_events(decoded.events)?;
+        let mut report = ImportReport {
+            valid_count: events.len(),
+            inserted_count: 0,
+            replaced_count: 0,
+            skipped_duplicate_count: 0,
+            dry_run,
+        };
+        if dry_run {
+            return Ok(report);
+        }
+
+        let mut imported_events = Vec::new();
+        for event in events {
+            if self.get(&event.id)?.is_some() {
+                if replace_existing {
+                    self.put(&event)?;
+                    imported_events.push(event);
+                    report.replaced_count += 1;
+                } else {
+                    report.skipped_duplicate_count += 1;
+                }
+            } else {
+                self.put(&event)?;
+                imported_events.push(event);
+                report.inserted_count += 1;
+            }
+        }
+        for event in imported_events {
+            self.apply_supersedes(&event)?;
+        }
+        Ok(report)
+    }
+
+    fn apply_supersedes(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
+        for old_id in &event.supersedes {
+            self.supersede(old_id, &event.id)?;
+        }
+        Ok(())
     }
 }
 
@@ -814,6 +898,163 @@ mod tests {
             .search_text("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", true)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn export_jsonl_excludes_sensitive_and_superseded_by_default() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let normal = MemoryEvent::new("Normal export memory.", "lesson").unwrap();
+        let mut sensitive = MemoryEvent::new("Private diagnosis export memory.", "lesson").unwrap();
+        sensitive.sensitivity = "health".to_string();
+        let mut superseded = MemoryEvent::new("Superseded export memory.", "lesson").unwrap();
+        superseded.superseded_by = Some(normal.id.clone());
+        store.put(&normal).unwrap();
+        store.put(&sensitive).unwrap();
+        store.put(&superseded).unwrap();
+
+        let (jsonl, report) = store.export_jsonl(false, false).unwrap();
+
+        assert_eq!(report.memory_count, 1);
+        assert!(jsonl.contains("Normal export memory."));
+        assert!(!jsonl.contains("Private diagnosis"));
+        assert!(!jsonl.contains("Superseded export memory."));
+    }
+
+    #[test]
+    fn import_jsonl_dry_run_validates_without_writing() {
+        let source_dir = tempdir().unwrap();
+        let target_dir = tempdir().unwrap();
+        let mut source = SQLiteMemoryStore::open(source_dir.path().join("memory.sqlite")).unwrap();
+        let event = MemoryEvent::new("Dry run import memory.", "lesson").unwrap();
+        source.put(&event).unwrap();
+        let (jsonl, _) = source.export_jsonl(false, false).unwrap();
+        let mut target = SQLiteMemoryStore::open(target_dir.path().join("memory.sqlite")).unwrap();
+
+        let report = target.import_jsonl(&jsonl, true, false).unwrap();
+
+        assert_eq!(report.valid_count, 1);
+        assert_eq!(report.inserted_count, 0);
+        assert!(target.list_all(false).unwrap().is_empty());
+    }
+
+    #[test]
+    fn import_jsonl_skips_duplicates_unless_replace_is_enabled() {
+        let source_dir = tempdir().unwrap();
+        let target_dir = tempdir().unwrap();
+        let mut source = SQLiteMemoryStore::open(source_dir.path().join("memory.sqlite")).unwrap();
+        let original = MemoryEvent::new("Original import memory.", "lesson").unwrap();
+        source.put(&original).unwrap();
+        let (jsonl, _) = source.export_jsonl(false, false).unwrap();
+        let mut target = SQLiteMemoryStore::open(target_dir.path().join("memory.sqlite")).unwrap();
+
+        let first = target.import_jsonl(&jsonl, false, false).unwrap();
+        let duplicate = target.import_jsonl(&jsonl, false, false).unwrap();
+
+        assert_eq!(first.inserted_count, 1);
+        assert_eq!(duplicate.inserted_count, 0);
+        assert_eq!(duplicate.skipped_duplicate_count, 1);
+
+        let mut replacement = original.clone();
+        replacement.summary = "Replacement import memory.".to_string();
+        let replacement_jsonl = encode_jsonl(&[replacement.clone()], false).unwrap();
+        let replaced = target
+            .import_jsonl(&replacement_jsonl, false, true)
+            .unwrap();
+
+        assert_eq!(replaced.replaced_count, 1);
+        assert_eq!(
+            target.get(&replacement.id).unwrap().unwrap().summary,
+            "Replacement import memory."
+        );
+    }
+
+    #[test]
+    fn import_jsonl_reclassifies_sensitive_and_blocks_secrets() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut health =
+            MemoryEvent::new("Private diagnosis imported as normal.", "lesson").unwrap();
+        health.sensitivity = "normal".to_string();
+        let health_jsonl = encode_jsonl(&[health.clone()], false).unwrap();
+
+        let report = store.import_jsonl(&health_jsonl, false, false).unwrap();
+
+        assert_eq!(report.inserted_count, 1);
+        assert_eq!(
+            store.get(&health.id).unwrap().unwrap().sensitivity,
+            "health"
+        );
+
+        let secret = MemoryEvent::new(
+            "Imported secret sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 must fail.",
+            "lesson",
+        )
+        .unwrap();
+        let secret_jsonl = encode_jsonl(&[secret], false).unwrap();
+
+        let err = store
+            .import_jsonl(&secret_jsonl, false, false)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("blocked"));
+    }
+
+    #[test]
+    fn import_jsonl_applies_supersedes_to_existing_target_memory() {
+        let source_dir = tempdir().unwrap();
+        let target_dir = tempdir().unwrap();
+        let mut source = SQLiteMemoryStore::open(source_dir.path().join("memory.sqlite")).unwrap();
+        let mut target = SQLiteMemoryStore::open(target_dir.path().join("memory.sqlite")).unwrap();
+        let old = MemoryEvent::new("Old imported decision.", "decision").unwrap();
+        let mut new = MemoryEvent::new("New imported decision.", "decision").unwrap();
+        new.supersedes = vec![old.id.clone()];
+        target.put(&old).unwrap();
+        source.put(&new).unwrap();
+        let (jsonl, _) = source.export_jsonl(false, false).unwrap();
+
+        let report = target.import_jsonl(&jsonl, false, false).unwrap();
+
+        assert_eq!(report.inserted_count, 1);
+        assert_eq!(
+            target.get(&old.id).unwrap().unwrap().superseded_by,
+            Some(new.id.clone())
+        );
+        let active_ids: Vec<_> = target
+            .list_all(false)
+            .unwrap()
+            .into_iter()
+            .map(|event| event.id)
+            .collect();
+        assert_eq!(active_ids, vec![new.id]);
+    }
+
+    #[test]
+    fn import_jsonl_applies_supersedes_after_all_imported_rows_are_written() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let old = MemoryEvent::new("Old decision imported after replacement.", "decision").unwrap();
+        let mut new = MemoryEvent::new("New decision imported before old.", "decision").unwrap();
+        new.supersedes = vec![old.id.clone()];
+        let out_of_order_jsonl = encode_jsonl(&[new.clone(), old.clone()], false).unwrap();
+
+        let report = store
+            .import_jsonl(&out_of_order_jsonl, false, false)
+            .unwrap();
+
+        assert_eq!(report.inserted_count, 2);
+        assert_eq!(
+            store.get(&old.id).unwrap().unwrap().superseded_by,
+            Some(new.id.clone())
+        );
+        let active_ids: Vec<_> = store
+            .list_all(false)
+            .unwrap()
+            .into_iter()
+            .map(|event| event.id)
+            .collect();
+        assert_eq!(active_ids, vec![new.id]);
     }
 
     #[test]

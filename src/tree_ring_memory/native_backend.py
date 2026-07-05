@@ -124,6 +124,33 @@ class NativeTreeRingMemory:
     def forget(self, memory_id: str, *, mode: str, reason: str) -> None:
         self._native.forget(memory_id, mode, reason)
 
+    def export_jsonl(
+        self,
+        *,
+        include_sensitive: bool = False,
+        include_superseded: bool = False,
+    ) -> str:
+        return str(
+            self._native.export_jsonl(
+                include_sensitive=include_sensitive,
+                include_superseded=include_superseded,
+            )
+        )
+
+    def import_jsonl(
+        self,
+        data: str,
+        *,
+        dry_run: bool = False,
+        replace_existing: bool = False,
+    ) -> dict[str, Any]:
+        payload = self._native.import_jsonl(
+            data,
+            dry_run=dry_run,
+            replace_existing=replace_existing,
+        )
+        return dict(json.loads(payload))
+
 
 def _iso_or_none(value: Any) -> str | None:
     if value is None:

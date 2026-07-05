@@ -54,6 +54,10 @@ The Rust core must support:
 - delete, redact, and supersede workflows
 - JSON import/export compatibility with the published schemas
 
+v0.4 implements the JSONL import/export baseline in Rust and exposes it through
+the CLI and Python backends. Markdown exports, SQLite backups, and signed
+bundles remain future extension points.
+
 ## Non-Goals
 
 The Rust rewrite should not:
