@@ -4,7 +4,7 @@ Tree Ring Memory has moved from a Python-owned reference implementation toward
 a Rust-first core with Python compatibility. This page tracks the v0.2 Rust
 core, v0.3 native Python binding work, the Rust-native Ratatui terminal
 console, the v0.4 Rust-owned JSONL import/export path, and v0.5 deterministic
-audit checks.
+audit checks, and the v0.6 deterministic consolidation path.
 
 ## Current Status
 
@@ -39,6 +39,10 @@ audit checks.
   sensitive retention, low-confidence durable memory, supersession integrity,
   and conservative contradiction candidates. SQLite, CLI, native Python, and
   Python reference surfaces expose matching non-mutating audit reports.
+- The v0.6 Rust core owns deterministic consolidation planning. SQLite and CLI
+  consolidation create source-linked summary memories, persist idempotent
+  consolidation records, and avoid copying sensitive payload text into
+  generated summaries.
 - The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
   always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
@@ -54,6 +58,7 @@ cargo run -p tree-ring-memory-cli -- tui --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
+cargo run -p tree-ring-memory-cli -- consolidate --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -85,6 +90,7 @@ results = memory.recall("Rust path")
 jsonl = memory.export_jsonl()
 preview = memory.import_jsonl(jsonl, dry_run=True)
 audit_report = memory.audit()
+consolidation_report = memory.consolidate(period_type="manual", dry_run=True)
 ```
 
 `NativeTreeRingMemory` requires the optional PyO3 extension module. Build it
@@ -106,13 +112,14 @@ Backend controls:
 - Rust unit tests cover model validation, sensitivity checks, recall scoring,
   SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
   import/export filtering and duplicate handling, deterministic audit checks,
-  and basic concurrent writes. Rust binding tests cover native JSON
+  deterministic consolidation planning, and basic concurrent writes. Rust
+  binding tests cover native JSON
   remember/recall round-trip, forget validation, JSONL import/export, and
   audit.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
-  JSONL import/export/audit commands plus the Ratatui TUI model, stream reader,
-  slash-command parser, store-watch refresh, confirmation-gated actions, CLI
-  parsing, and render-buffer smoke.
+  JSONL import/export/audit/consolidate commands plus the Ratatui TUI model,
+  stream reader, slash-command parser, store-watch refresh, confirmation-gated
+  actions, CLI parsing, and render-buffer smoke.
 - Python tests cover the existing reference backend, Rust CLI database
   compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
   native selection, full native wrapper argument marshalling, and clean
@@ -125,10 +132,10 @@ Backend controls:
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,860.5 ms.
-- Insert throughput: 2,057.4 inserts/sec.
-- Recall average latency: 4.527 ms.
-- Recall max latency: 6.681 ms.
+- Inserted 10,000 memories in 4,423.3 ms.
+- Insert throughput: 2,260.7 inserts/sec.
+- Recall average latency: 4.267 ms.
+- Recall max latency: 6.095 ms.
 
 ## Compatibility Rule
 

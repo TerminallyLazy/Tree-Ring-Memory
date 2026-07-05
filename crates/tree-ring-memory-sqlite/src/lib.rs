@@ -9,7 +9,8 @@ use std::time::Duration;
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
 use tree_ring_memory_core::{
-    audit_memories, decode_jsonl, encode_jsonl, normalize_import_events, AuditReport,
+    audit_memories, consolidate_memories, decode_jsonl, encode_jsonl, normalize_import_events,
+    AuditReport, ConsolidationReport, ConsolidationRequest,
 };
 
 const WRITE_RETRY_ATTEMPTS: usize = 8;
@@ -25,6 +26,13 @@ pub struct RecallResult {
 
 pub struct SQLiteMemoryStore {
     connection: Connection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredConsolidation {
+    id: String,
+    created_at: String,
+    output_memory_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +130,16 @@ impl SQLiteMemoryStore {
                   details,
                   tags,
                   source_ref
+                );
+                CREATE TABLE IF NOT EXISTS consolidations (
+                  id TEXT PRIMARY KEY,
+                  created_at TEXT NOT NULL,
+                  period_type TEXT NOT NULL,
+                  period_key TEXT NOT NULL,
+                  source_memory_ids_json TEXT NOT NULL,
+                  output_memory_ids_json TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  notes TEXT NOT NULL
                 );
                 "#,
             )
@@ -454,6 +472,174 @@ impl SQLiteMemoryStore {
         audit_memories(&events, audit_type)
     }
 
+    pub fn consolidate(
+        &mut self,
+        request: &ConsolidationRequest,
+    ) -> TreeRingResult<ConsolidationReport> {
+        let events = self.list_all(false)?;
+        let mut report = consolidate_memories(&events, request)?;
+        if request.dry_run || report.candidate_count == 0 {
+            return Ok(report);
+        }
+
+        let source_ids_json =
+            serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
+        if !request.force {
+            if let Some(existing) = self.find_consolidation(
+                report.period_type.as_str(),
+                &report.period_key,
+                &source_ids_json,
+            )? {
+                report.id = existing.id;
+                report.created_at = existing.created_at;
+                report.output_memory_ids = existing.output_memory_ids;
+                report.status = "unchanged".to_string();
+                report.notes = "Matching consolidation already exists.".to_string();
+                report.outputs.clear();
+                return Ok(report);
+            }
+        }
+
+        let previous_outputs = if request.force {
+            self.previous_consolidation_outputs(report.period_type.as_str(), &report.period_key)?
+        } else {
+            Vec::new()
+        };
+        let output_events = report
+            .outputs
+            .iter()
+            .map(|output| output.memory.clone())
+            .collect::<Vec<_>>();
+        let supersession_pairs = if request.force {
+            consolidation_supersession_pairs(&previous_outputs, &output_events)
+        } else {
+            Vec::new()
+        };
+        report.status = "created".to_string();
+        report.notes = "Consolidation summaries stored.".to_string();
+        self.insert_consolidation_transaction(&report, &output_events, &supersession_pairs)?;
+        Ok(report)
+    }
+
+    fn find_consolidation(
+        &self,
+        period_type: &str,
+        period_key: &str,
+        source_ids_json: &str,
+    ) -> TreeRingResult<Option<StoredConsolidation>> {
+        self.connection
+            .query_row(
+                r#"
+                SELECT id, created_at, output_memory_ids_json
+                FROM consolidations
+                WHERE period_type = ?
+                  AND period_key = ?
+                  AND source_memory_ids_json = ?
+                  AND status = 'created'
+                ORDER BY created_at DESC
+                LIMIT 1
+                "#,
+                params![period_type, period_key, source_ids_json],
+                stored_consolidation_from_row,
+            )
+            .optional()
+            .map_err(sqlite_error_from_rusqlite)?
+            .transpose()
+    }
+
+    fn previous_consolidation_outputs(
+        &self,
+        period_type: &str,
+        period_key: &str,
+    ) -> TreeRingResult<Vec<MemoryEvent>> {
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+                SELECT output_memory_ids_json
+                FROM consolidations
+                WHERE period_type = ?
+                  AND period_key = ?
+                  AND status = 'created'
+                ORDER BY created_at ASC
+                "#,
+            )
+            .map_err(sqlite_error_from_rusqlite)?;
+        let rows = statement
+            .query_map(params![period_type, period_key], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(sqlite_error_from_rusqlite)?;
+        let mut output_ids = Vec::new();
+        for row in rows {
+            let output_ids_json = row.map_err(sqlite_error_from_rusqlite)?;
+            let mut parsed = serde_json::from_str::<Vec<String>>(&output_ids_json)
+                .map_err(TreeRingError::Json)?;
+            output_ids.append(&mut parsed);
+        }
+        let mut outputs = Vec::new();
+        for output_id in output_ids {
+            if let Some(output) = self.get(&output_id)? {
+                outputs.push(output);
+            }
+        }
+        Ok(outputs)
+    }
+
+    fn insert_consolidation_transaction(
+        &mut self,
+        report: &ConsolidationReport,
+        output_events: &[MemoryEvent],
+        supersession_pairs: &[(MemoryEvent, String)],
+    ) -> TreeRingResult<()> {
+        let source_ids_json =
+            serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
+        let output_ids_json =
+            serde_json::to_string(&report.output_memory_ids).map_err(TreeRingError::Json)?;
+        retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction()
+                .map_err(sqlite_error_from_rusqlite)?;
+            for event in output_events {
+                put_in_transaction(&transaction, event)?;
+            }
+            for (old, new_id) in supersession_pairs {
+                let mut updated = old.clone();
+                updated.superseded_by = Some(new_id.clone());
+                let raw_json = serde_json::to_string(&updated)?;
+                transaction
+                    .execute(
+                        "UPDATE memories SET superseded_by = ?, raw_json = ? WHERE id = ?",
+                        params![new_id, raw_json, &old.id],
+                    )
+                    .map_err(sqlite_error_from_rusqlite)?;
+            }
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO consolidations (
+                      id, created_at, period_type, period_key, source_memory_ids_json,
+                      output_memory_ids_json, status, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                    params![
+                        report.id,
+                        report.created_at,
+                        report.period_type.as_str(),
+                        &report.period_key,
+                        source_ids_json,
+                        output_ids_json,
+                        &report.status,
+                        &report.notes
+                    ],
+                )
+                .map_err(sqlite_error_from_rusqlite)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(())
+        })
+    }
+
     fn apply_supersedes(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
         for old_id in &event.supersedes {
             self.supersede(old_id, &event.id)?;
@@ -577,6 +763,68 @@ fn matches_filters(
 fn event_from_row(row: &Row<'_>) -> rusqlite::Result<TreeRingResult<MemoryEvent>> {
     let raw_json: String = row.get(0)?;
     Ok(serde_json::from_str::<MemoryEvent>(&raw_json).map_err(Into::into))
+}
+
+fn consolidation_supersession_pairs(
+    previous_outputs: &[MemoryEvent],
+    new_outputs: &[MemoryEvent],
+) -> Vec<(MemoryEvent, String)> {
+    if new_outputs.is_empty() {
+        return Vec::new();
+    }
+    previous_outputs
+        .iter()
+        .enumerate()
+        .map(|(index, old)| {
+            let target = best_consolidation_replacement(old, new_outputs)
+                .unwrap_or_else(|| &new_outputs[index % new_outputs.len()]);
+            (old.clone(), target.id.clone())
+        })
+        .collect()
+}
+
+fn best_consolidation_replacement<'a>(
+    old: &MemoryEvent,
+    new_outputs: &'a [MemoryEvent],
+) -> Option<&'a MemoryEvent> {
+    let old_targets = memory_link_targets(old);
+    if old_targets.is_empty() {
+        return None;
+    }
+    new_outputs
+        .iter()
+        .map(|candidate| {
+            let candidate_targets = memory_link_targets(candidate);
+            let overlap = old_targets.intersection(&candidate_targets).count();
+            (overlap, candidate)
+        })
+        .filter(|(overlap, _candidate)| *overlap > 0)
+        .max_by_key(|(overlap, candidate)| (*overlap, std::cmp::Reverse(candidate.id.as_str())))
+        .map(|(_overlap, candidate)| candidate)
+}
+
+fn memory_link_targets(event: &MemoryEvent) -> HashSet<String> {
+    event
+        .links
+        .iter()
+        .filter(|link| link.link_type == "memory")
+        .map(|link| link.target.clone())
+        .collect()
+}
+
+fn stored_consolidation_from_row(
+    row: &Row<'_>,
+) -> rusqlite::Result<TreeRingResult<StoredConsolidation>> {
+    let id: String = row.get(0)?;
+    let created_at: String = row.get(1)?;
+    let output_ids_json: String = row.get(2)?;
+    Ok(serde_json::from_str::<Vec<String>>(&output_ids_json)
+        .map(|output_memory_ids| StoredConsolidation {
+            id,
+            created_at,
+            output_memory_ids,
+        })
+        .map_err(Into::into))
 }
 
 fn parent_dir_to_create(path: &Path) -> Option<&Path> {
@@ -1164,6 +1412,244 @@ mod tests {
         let err = store.audit("unknown").unwrap_err().to_string();
 
         assert!(err.contains("unsupported audit_type"));
+    }
+
+    #[test]
+    fn consolidation_dry_run_writes_nothing() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Use deterministic consolidation.", "decision").unwrap();
+        event.project = Some("core".to_string());
+        store.put(&event).unwrap();
+        let request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-test".to_string()),
+            project: Some("core".to_string()),
+            dry_run: true,
+            force: false,
+        };
+
+        let report = store.consolidate(&request).unwrap();
+        let rows: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(report.status, "dry_run");
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(rows, 1);
+        assert_eq!(records, 0);
+    }
+
+    #[test]
+    fn consolidation_empty_writes_no_rows_or_records() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-empty".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+
+        let report = store.consolidate(&request).unwrap();
+        let rows: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(report.status, "empty");
+        assert_eq!(report.candidate_count, 0);
+        assert_eq!(rows, 0);
+        assert_eq!(records, 0);
+    }
+
+    #[test]
+    fn consolidation_is_idempotent_for_same_source_set() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Use deterministic consolidation.", "decision").unwrap();
+        event.project = Some("core".to_string());
+        store.put(&event).unwrap();
+        let request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-test".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+
+        let first = store.consolidate(&request).unwrap();
+        let second = store.consolidate(&request).unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(first.status, "created");
+        assert_eq!(second.status, "unchanged");
+        assert_eq!(second.output_memory_ids, first.output_memory_ids);
+        assert!(second.outputs.is_empty());
+        assert_eq!(records, 1);
+    }
+
+    #[test]
+    fn forced_consolidation_supersedes_prior_summary() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Use deterministic consolidation.", "decision").unwrap();
+        event.project = Some("core".to_string());
+        store.put(&event).unwrap();
+        let mut request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-test".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+        let first = store.consolidate(&request).unwrap();
+        request.force = true;
+
+        let second = store.consolidate(&request).unwrap();
+        let old = store.get(&first.output_memory_ids[0]).unwrap().unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(second.status, "created");
+        assert_eq!(
+            old.superseded_by.as_deref(),
+            Some(second.output_memory_ids[0].as_str())
+        );
+        assert_eq!(records, 2);
+    }
+
+    #[test]
+    fn forced_consolidation_supersedes_prior_summary_when_source_set_changes() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut first_event =
+            MemoryEvent::new("Use deterministic consolidation.", "decision").unwrap();
+        first_event.project = Some("core".to_string());
+        store.put(&first_event).unwrap();
+        let mut request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-test".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+        let first = store.consolidate(&request).unwrap();
+
+        let mut second_event = MemoryEvent::new(
+            "Keep forced consolidation replacing old summaries.",
+            "decision",
+        )
+        .unwrap();
+        second_event.project = Some("core".to_string());
+        store.put(&second_event).unwrap();
+        request.force = true;
+
+        let second = store.consolidate(&request).unwrap();
+        let old = store.get(&first.output_memory_ids[0]).unwrap().unwrap();
+
+        assert_eq!(second.status, "created");
+        assert_eq!(
+            old.superseded_by.as_deref(),
+            Some(second.output_memory_ids[0].as_str())
+        );
+        assert!(second.source_memory_ids.contains(&first_event.id));
+        assert!(second.source_memory_ids.contains(&second_event.id));
+    }
+
+    #[test]
+    fn forced_consolidation_maps_multiple_prior_outputs_to_matching_new_outputs() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut decision =
+            MemoryEvent::new("Use deterministic consolidation.", "decision").unwrap();
+        decision.project = Some("core".to_string());
+        let mut lesson = MemoryEvent::new("Keep source-linked summaries.", "lesson").unwrap();
+        lesson.project = Some("core".to_string());
+        store.put(&decision).unwrap();
+        store.put(&lesson).unwrap();
+        let mut request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-multi-output".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+        let first = store.consolidate(&request).unwrap();
+        let output_id_for_source = |report: &ConsolidationReport, source_id: &str| {
+            report
+                .outputs
+                .iter()
+                .find(|output| {
+                    output
+                        .memory
+                        .links
+                        .iter()
+                        .any(|link| link.link_type == "memory" && link.target == source_id)
+                })
+                .map(|output| output.memory.id.clone())
+                .unwrap()
+        };
+        let old_decision_output_id = output_id_for_source(&first, &decision.id);
+        let old_lesson_output_id = output_id_for_source(&first, &lesson.id);
+        request.force = true;
+
+        let second = store.consolidate(&request).unwrap();
+        let new_decision_output_id = output_id_for_source(&second, &decision.id);
+        let new_lesson_output_id = output_id_for_source(&second, &lesson.id);
+        let old_decision_output = store.get(&old_decision_output_id).unwrap().unwrap();
+        let old_lesson_output = store.get(&old_lesson_output_id).unwrap().unwrap();
+
+        assert_eq!(second.status, "created");
+        assert_eq!(
+            old_decision_output.superseded_by.as_deref(),
+            Some(new_decision_output_id.as_str())
+        );
+        assert_eq!(
+            old_lesson_output.superseded_by.as_deref(),
+            Some(new_lesson_output_id.as_str())
+        );
+        assert_ne!(new_decision_output_id, new_lesson_output_id);
+    }
+
+    #[test]
+    fn consolidation_summarizes_sensitive_without_payload_leakage() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Private diagnosis payload.", "lesson").unwrap();
+        event.project = Some("core".to_string());
+        event.sensitivity = "health".to_string();
+        store.put(&event).unwrap();
+        let request = ConsolidationRequest {
+            period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
+            period_key: Some("manual-sensitive".to_string()),
+            project: Some("core".to_string()),
+            dry_run: false,
+            force: false,
+        };
+
+        let report = store.consolidate(&request).unwrap();
+        let output = store.get(&report.output_memory_ids[0]).unwrap().unwrap();
+
+        assert_eq!(output.sensitivity, "private");
+        assert!(output.review.needs_review);
+        assert!(!output.summary.contains("diagnosis"));
+        assert!(!output.details.contains("diagnosis"));
     }
 
     #[test]

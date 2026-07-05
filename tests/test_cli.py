@@ -197,7 +197,7 @@ def test_rust_cli_export_import_jsonl_round_trip(tmp_path):
     exported_lines = [json.loads(line) for line in export_path.read_text().splitlines()]
     assert exported_lines[0]["type"] == "tree_ring_memory_export"
     assert exported_lines[0]["schema_version"] == 1
-    assert exported_lines[0]["plugin_version"] == "0.5.0"
+    assert exported_lines[0]["plugin_version"] == "0.6.0"
     assert exported_lines[1]["type"] == "memory_event"
 
     preview = run_rust_cli(target_root, "--json", "import", str(export_path), "--dry-run")
