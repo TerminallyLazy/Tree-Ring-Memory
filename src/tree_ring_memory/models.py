@@ -239,3 +239,10 @@ class MemoryEvent:
         )
         event.validate()
         return event
+
+
+@dataclass(slots=True)
+class RecallResult:
+    memory: MemoryEvent
+    score: float
+    ranking: dict[str, float] = field(default_factory=dict)

@@ -34,12 +34,12 @@ tree-ring-memory/
 
 ## Migration Strategy
 
-1. Preserve the current Python implementation as the executable reference.
-2. Add a Rust workspace with equivalent schema, sensitivity, storage, recall, and forget behavior.
-3. Create parity fixtures shared by Python and Rust.
-4. Move the CLI to Rust once parity tests pass.
-5. Keep Python as bindings or compatibility package, not the long-term core.
-6. Add optional Node bindings after the Rust API stabilizes.
+1. Preserve the original Python implementation only as historical migration
+   evidence.
+2. Keep Rust as the runtime owner for schema, sensitivity, storage, recall,
+   forget, import/export, audit, consolidation, maintenance, CLI, and TUI.
+3. Keep Python as a thin PyO3 binding package plus model conversion objects.
+4. Add optional Node bindings after the Rust API stabilizes.
 
 ## Rust Core Requirements
 
@@ -59,8 +59,8 @@ the CLI and Python backends. Markdown exports, SQLite backups, and signed
 bundles remain future extension points.
 
 v0.5 implements deterministic local audit checks in Rust and exposes them
-through SQLite, CLI, native Python, and Python reference surfaces. Consolidation
-and automatic repair remain future extension points.
+through SQLite, CLI, and native Python surfaces. Consolidation and automatic
+repair remain future extension points.
 
 v0.6 implements deterministic consolidation in Rust. It creates source-linked
 summary memories without LLMs, persists idempotent consolidation records, and
@@ -69,9 +69,12 @@ keeps sensitive payloads out of generated summaries.
 v0.7 implements Rust-owned maintenance. It plans expired-memory deletion,
 secret-like redaction, protected-memory review, invalid-expiry review, and
 SQLite FTS drift repair. Apply/repair behavior is explicit and Rust-owned; the
-public `TreeRingMemory.open()` facade requires the native Rust binding instead
-of silently falling back to Python. Adapter-specific sync remains a future
-extension point.
+public `TreeRingMemory.open()` facade requires the native Rust binding.
+Adapter-specific sync remains a future extension point.
+
+v0.8 removes Python-owned runtime behavior. Python remains useful for agent
+workflows through the native binding, but no durable behavior is implemented in
+Python.
 
 ## Non-Goals
 
@@ -80,11 +83,9 @@ The Rust rewrite should not:
 - introduce cloud services
 - require an external vector database
 - bind Tree Ring Memory to one agent framework
-- remove Python before parity exists
 - change the public memory schema without migration support
 
 ## Decision
 
 The framework direction is Rust-native runtime, adapter-friendly edges.
-The current Python reference backend remains useful as a protocol reference and
-compatibility layer during migration, but it is not the public runtime owner.
+Python is a binding surface, not a runtime owner.

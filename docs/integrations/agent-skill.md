@@ -41,8 +41,7 @@ tree-ring maintain
 
 ## Minimal Python Flow
 
-This flow requires the Rust native PyO3 binding. For reference-backend parity
-testing, import `PythonTreeRingMemory` explicitly instead.
+This flow requires the Rust native PyO3 binding.
 
 ```python
 from tree_ring_memory import TreeRingMemory

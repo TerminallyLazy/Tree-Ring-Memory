@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 from datetime import datetime
 
-from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource
-from tree_ring_memory.recall import RecallResult
+from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource, RecallResult
 
 
 class NativeBindingNotInstalled(ImportError):
