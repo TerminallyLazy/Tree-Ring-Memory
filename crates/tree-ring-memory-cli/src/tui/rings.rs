@@ -2,20 +2,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::model::{DashboardStats, RingStats};
+use super::theme;
 
 pub fn ring_color(ring: &str, warning_level: f64) -> Color {
-    if warning_level > 0.75 {
-        return Color::LightRed;
-    }
-    match ring {
-        "cambium" => Color::LightYellow,
-        "outer" => Color::LightMagenta,
-        "inner" => Color::Cyan,
-        "heartwood" => Color::Yellow,
-        "scar" => Color::Red,
-        "seed" => Color::LightCyan,
-        _ => Color::Gray,
-    }
+    theme::ring_color(ring, warning_level)
 }
 
 pub fn ring_style(stats: &RingStats) -> Style {
@@ -93,27 +83,43 @@ pub fn ambient_tree_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'st
 pub fn exploded_ring_lines(dashboard: &DashboardStats, selected_ring: usize) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(Span::styled(
         "EXPLODED RINGS".to_string(),
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
+        theme::title(),
     ))];
 
     for (index, stats) in dashboard.rings.iter().enumerate() {
         let marker = if index == selected_ring { ">" } else { " " };
         let bar = ring_bar(stats.total, dashboard.total);
         let top_types = stats.top_event_types(2).join(", ");
+        let marker_style = if index == selected_ring {
+            theme::secondary_accent().add_modifier(Modifier::BOLD)
+        } else {
+            theme::dim()
+        };
         lines.push(Line::from(vec![
-            Span::raw(format!("{marker} ")),
+            Span::styled(format!("{marker} "), marker_style),
             Span::styled(format!("{:<10}", stats.ring), ring_style(stats)),
-            Span::raw(format!(" {:>4} ", stats.total)),
+            Span::styled(
+                format!(" {:>4} ", stats.total),
+                if index == selected_ring {
+                    theme::selected()
+                } else {
+                    theme::title()
+                },
+            ),
             Span::styled(bar, ring_style(stats)),
-            Span::raw(format!(
-                " conf {:.2} sal {:.2} private {}",
-                stats.average_confidence, stats.average_salience, stats.sensitive_count
-            )),
+            Span::styled(
+                format!(
+                    " conf {:.2} sal {:.2} private {}",
+                    stats.average_confidence, stats.average_salience, stats.sensitive_count
+                ),
+                theme::dim(),
+            ),
         ]));
         if !top_types.is_empty() {
-            lines.push(Line::from(Span::raw(format!("    top: {top_types}"))));
+            lines.push(Line::from(vec![
+                Span::styled("    top: ", theme::dim()),
+                Span::styled(top_types, theme::accent()),
+            ]));
         }
     }
 

@@ -1,12 +1,13 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::app::{App, AppMode};
 use super::input::command_help;
 use super::rings::{ambient_tree_lines, exploded_ring_lines, ring_style};
+use super::theme;
 
 pub fn render(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
@@ -47,18 +48,21 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         AppMode::Watch => "watch",
     };
     let header = Paragraph::new(Line::from(vec![
+        Span::styled("TREE RING MEMORY", theme::brand()),
+        Span::styled(format!("  mode:{mode}"), theme::accent()),
+        Span::styled(format!("  total:{}", app.dashboard.total), theme::title()),
         Span::styled(
-            "TREE RING MEMORY",
-            Style::default()
-                .fg(Color::LightYellow)
-                .add_modifier(Modifier::BOLD),
+            format!("  private:{}", app.dashboard.sensitive_total),
+            if app.dashboard.sensitive_total > 0 {
+                theme::warning()
+            } else {
+                theme::dim()
+            },
         ),
-        Span::raw(format!("  mode:{mode}")),
-        Span::raw(format!("  total:{}", app.dashboard.total)),
-        Span::raw(format!("  private:{}", app.dashboard.sensitive_total)),
-        Span::raw(format!("  status: {}", app.status)),
+        Span::styled("  status: ", theme::dim()),
+        Span::raw(app.status.clone()),
     ]))
-    .block(Block::default().borders(Borders::ALL));
+    .block(theme::plain_panel());
     frame.render_widget(header, area);
 }
 
@@ -88,18 +92,14 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
 fn render_ambient(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let paragraph = Paragraph::new(ambient_tree_lines(&app.dashboard, app.tick))
-        .block(
-            Block::default()
-                .title("Ambient Rings")
-                .borders(Borders::ALL),
-        )
+        .block(theme::panel("Ambient Rings"))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
 
 fn render_exploded(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let paragraph = Paragraph::new(exploded_ring_lines(&app.dashboard, app.selected_ring))
-        .block(Block::default().title("/rings").borders(Borders::ALL))
+        .block(theme::panel("/rings"))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
@@ -112,21 +112,34 @@ fn render_ring_hud(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .enumerate()
         .map(|(index, stats)| {
             let selected = if index == app.selected_ring { ">" } else { " " };
+            let selector_style = if index == app.selected_ring {
+                theme::secondary_accent().add_modifier(Modifier::BOLD)
+            } else {
+                theme::dim()
+            };
             let line = Line::from(vec![
-                Span::raw(selected),
+                Span::styled(selected, selector_style),
                 Span::styled(format!(" {:<10}", stats.ring), ring_style(stats)),
-                Span::raw(format!(
-                    " {:>4} avg {:.2}/{:.2} private {}",
-                    stats.total,
-                    stats.average_confidence,
-                    stats.average_salience,
-                    stats.sensitive_count
-                )),
+                Span::styled(
+                    format!(" {:>4}", stats.total),
+                    if index == app.selected_ring {
+                        theme::selected()
+                    } else {
+                        theme::title()
+                    },
+                ),
+                Span::styled(
+                    format!(
+                        " avg {:.2}/{:.2} private {}",
+                        stats.average_confidence, stats.average_salience, stats.sensitive_count
+                    ),
+                    theme::dim(),
+                ),
             ]);
             ListItem::new(line)
         })
         .collect();
-    let list = List::new(items).block(Block::default().title("Rings").borders(Borders::ALL));
+    let list = List::new(items).block(theme::panel("Rings"));
     frame.render_widget(list, area);
 }
 
@@ -154,7 +167,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
     } else if app.results.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
             "No matching memory.",
-            Style::default().fg(Color::DarkGray),
+            theme::dim(),
         )))]
     } else {
         app.results
@@ -171,7 +184,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
             })
             .collect()
     };
-    let list = List::new(items).block(Block::default().title(title).borders(Borders::ALL));
+    let list = List::new(items).block(theme::panel(title));
     frame.render_widget(list, area);
 }
 
@@ -186,11 +199,29 @@ fn memory_item<'a>(
     let score = score
         .map(|score| format!(" score={score:.3}"))
         .unwrap_or_default();
+    let selected_row = index == selected;
+    let memory_style = if selected_row {
+        theme::selected()
+    } else {
+        Style::default()
+    };
     ListItem::new(Line::from(vec![
-        Span::raw(marker.to_string()),
-        Span::styled(format!(" [{ring}] "), Style::default().fg(Color::LightCyan)),
-        Span::raw(truncate(summary, 80)),
-        Span::styled(score, Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            marker.to_string(),
+            if selected_row {
+                theme::secondary_accent().add_modifier(Modifier::BOLD)
+            } else {
+                theme::dim()
+            },
+        ),
+        Span::styled(
+            format!(" [{ring}] "),
+            Style::default()
+                .fg(theme::ring_color(ring, 0.0))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(truncate(summary, 80), memory_style),
+        Span::styled(score, theme::dim()),
     ]))
 }
 
@@ -203,23 +234,28 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
             "[sensitive details hidden]".to_string()
         };
         lines.push(Line::from(vec![
-            Span::styled("id ", Style::default().fg(Color::DarkGray)),
+            Span::styled("id ", theme::dim()),
             Span::raw(memory.id.clone()),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("ring ", Style::default().fg(Color::DarkGray)),
-            Span::raw(memory.ring.clone()),
-            Span::styled(" type ", Style::default().fg(Color::DarkGray)),
+            Span::styled("ring ", theme::dim()),
+            Span::styled(
+                memory.ring.clone(),
+                Style::default()
+                    .fg(theme::ring_color(&memory.ring, 0.0))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" type ", theme::dim()),
             Span::raw(memory.event_type.clone()),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("confidence ", Style::default().fg(Color::DarkGray)),
-            Span::raw(format!("{:.2}", memory.confidence)),
-            Span::styled(" salience ", Style::default().fg(Color::DarkGray)),
-            Span::raw(format!("{:.2}", memory.salience)),
+            Span::styled("confidence ", theme::dim()),
+            Span::styled(format!("{:.2}", memory.confidence), theme::accent()),
+            Span::styled(" salience ", theme::dim()),
+            Span::styled(format!("{:.2}", memory.salience), theme::secondary_accent()),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("source ", Style::default().fg(Color::DarkGray)),
+            Span::styled("source ", theme::dim()),
             Span::raw(format!(
                 "{} {}",
                 memory.source.source_type, memory.source.ref_
@@ -239,40 +275,36 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
     if app.mode == AppMode::Command {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled("/", Style::default().fg(Color::LightYellow)),
+            Span::styled("/", theme::brand()),
             Span::raw(app.command_buffer.clone()),
         ]));
     } else if app.mode == AppMode::Search {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled("search ", Style::default().fg(Color::LightYellow)),
+            Span::styled("search ", theme::brand()),
             Span::raw(app.search_query.clone()),
         ]));
     }
 
     if !app.live_events.is_empty() {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "live",
-            Style::default()
-                .fg(Color::LightMagenta)
-                .add_modifier(Modifier::BOLD),
-        )));
+        lines.push(Line::from(Span::styled("live", theme::live())));
         for event in app.live_events.iter().rev().take(3) {
-            lines.push(Line::from(format!(
-                "{} {}",
-                event.ring.as_deref().unwrap_or("-"),
-                event.safe_label()
-            )));
+            let ring = event.ring.as_deref().unwrap_or("-");
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{ring:<10} "),
+                    Style::default()
+                        .fg(theme::ring_color(ring, 0.0))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(event.safe_label()),
+            ]));
         }
     }
 
     let paragraph = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title("Detail / Actions")
-                .borders(Borders::ALL),
-        )
+        .block(theme::panel("Detail / Actions"))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -285,7 +317,8 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
         command_help()
     );
     let footer = Paragraph::new(text)
-        .block(Block::default().title("Actions").borders(Borders::ALL))
+        .style(theme::accent())
+        .block(theme::panel("Actions"))
         .wrap(Wrap { trim: true });
     frame.render_widget(footer, area);
 }
@@ -295,32 +328,25 @@ fn render_confirmation(frame: &mut Frame<'_>, area: Rect, prompt: &str) {
     let paragraph = Paragraph::new(vec![
         Line::from(Span::styled(
             "Confirm Tree Ring Memory action",
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
+            theme::warning(),
         )),
         Line::from(""),
         Line::from(prompt.to_string()),
     ])
-    .block(Block::default().borders(Borders::ALL))
+    .block(theme::plain_panel().border_style(theme::warning()))
     .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
 
 fn render_compact(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let mut lines = vec![Line::from(Span::styled(
-        "TREE RING MEMORY",
-        Style::default()
-            .fg(Color::LightYellow)
-            .add_modifier(Modifier::BOLD),
-    ))];
+    let mut lines = vec![Line::from(Span::styled("TREE RING MEMORY", theme::brand()))];
     lines.extend(ambient_tree_lines(&app.dashboard, app.tick));
     lines.push(Line::from(format!(
         "total {} | q quit | / command",
         app.dashboard.total
     )));
     let paragraph = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL))
+        .block(theme::plain_panel())
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }

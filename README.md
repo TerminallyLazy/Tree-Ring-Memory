@@ -25,6 +25,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.7 makes the public facade Rust-native only and adds Rust-owned maintenance for expiry, secret redaction, and FTS repair.
 - v0.8 removes Python-owned runtime behavior; Python is now a thin native-binding surface only.
 - v0.9 removes tracked Python source, tests, and smoke scripts from the canonical repo; the optional CPython extension is Rust-built.
+- v0.10 adds a one-line installer plus Rust-native terminal onboarding with ASCII tree rings.
 - The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
 The Rust workspace currently includes:
@@ -38,6 +39,65 @@ The public runtime is Rust-native. The Rust CLI and Rust crates own storage,
 recall, import/export, audit, consolidation, maintenance, and terminal UI
 behavior. There is no tracked root Python package, Python wrapper layer, pytest
 suite, or Python smoke script.
+
+## Install
+
+Global user install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+```
+
+Project-local install with first-run initialization:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
+```
+
+The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
+a short terminal onboarding screen with ASCII rings and the next useful
+commands. It does not initialize memory unless `--init` is passed.
+
+Initialization creates the SQLite store and non-destructive agent-awareness
+files in the memory root:
+
+- `.tree-ring/AGENTS.md`: DOX-style Tree Ring Memory guidance and root
+  `AGENTS.md` merge notes.
+- `.tree-ring/SKILL.md`: portable skill instructions for agent runtimes.
+- `.tree-ring/CLI.md`: quick command reference for recall, remember, forget,
+  maintain, and TUI usage.
+
+Existing awareness files are left untouched. Tree Ring Memory does not modify a
+project's root `AGENTS.md`; merge the generated guidance manually when you want
+DOX-aware agents to see it before entering `.tree-ring/`.
+
+Useful installer options:
+
+```bash
+sh install.sh --help
+sh install.sh --project --init
+sh install.sh --global --install-dir "$HOME/.local"
+sh install.sh --no-animation
+```
+
+After install, rerun onboarding anytime:
+
+```bash
+tree-ring welcome
+tree-ring welcome --init
+```
+
+Open the terminal console after a global install:
+
+```bash
+tree-ring tui
+```
+
+Open the terminal console after a project-local install:
+
+```bash
+.tree-ring/bin/tree-ring --root .tree-ring tui
+```
 
 ## First Example
 
@@ -59,6 +119,7 @@ The `tree-ring` command is the Rust CLI.
 ```bash
 tree-ring init
 tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
+tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
 tree-ring recall "protocol design"
 tree-ring forget mem_example --mode delete --reason "example cleanup"
 tree-ring export --output memories.jsonl
@@ -71,6 +132,35 @@ tree-ring maintain --apply-expired --repair-fts
 ```
 
 The CLI stores memory in `.tree-ring/` by default.
+
+## Evidence Loop
+
+The Revolve-inspired loop is exposed through `tree-ring evidence`. It records
+evaluated outcomes as memory with an evidence reference instead of treating
+claims as durable truth without support.
+
+```bash
+tree-ring evidence "Snapshot invalidation fixed stale unread chat state." \
+  --outcome promoted \
+  --evidence-ref evals/chat-state/run-042 \
+  --project agent-ui \
+  --score 0.91
+
+tree-ring evidence "Aggressive caching caused stale multi-chat state." \
+  --outcome rejected \
+  --evidence-ref evals/cache-branch/run-013 \
+  --project agent-ui
+```
+
+Outcome mapping:
+
+- `promoted` -> `heartwood`, durable `evaluation_promotion`
+- `rejected` -> `scar`, durable `evaluation_rejection`
+- `deferred` -> `seed`, `evaluation_hypothesis`
+- `observed` -> `outer`, `evaluation_result`
+
+This is not a replacement for Revolve records. Use source refs that point back
+to real evaluations, checkpoints, PRs, issues, logs, or run artifacts.
 
 `tree-ring export` writes newline-delimited JSON. The first line is a
 `tree_ring_memory_export` header with schema and plugin version metadata; each
@@ -117,6 +207,14 @@ tree-ring tui
 tree-ring --root .tree-ring tui --event-stream ./tree-ring-events.jsonl --tick-ms 150
 ```
 
+From a source checkout without installing:
+
+```bash
+cargo run -p tree-ring-memory-cli -- --root .tree-ring welcome --init --no-animation
+cargo run -p tree-ring-memory-cli -- --root .tree-ring remember "Try the TUI with a first memory." --event-type lesson --scope project
+cargo run -p tree-ring-memory-cli -- --root .tree-ring tui
+```
+
 The console keeps an animated ASCII tree-ring cross-section visible at all
 times. Store-watch polling updates persisted counts from SQLite, while the
 optional event stream lights rings in real time without treating stream events
@@ -147,7 +245,9 @@ Event stream lines are local JSONL objects. They are display signals only:
 
 ```bash
 cargo test
+sh install.sh --help
 cargo run -p tree-ring-memory-cli -- --help
+cargo run -p tree-ring-memory-cli -- welcome --no-animation
 cargo run -p tree-ring-memory-cli -- tui --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
@@ -187,12 +287,19 @@ for the synthetic workload.
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-only-v0-8-implementation-plan.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-only-repo-v0-9-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-only-repo-v0-9-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-installer-onboarding-v0-10-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-installer-onboarding-v0-10-implementation-plan.md`
 
 ## Agent Workflow Integration
 
 - `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, remember, redact, forget, or avoid memory capture.
 - `templates/dox/AGENTS.md` is a DOX-style project contract template for repos that want Tree Ring Memory rules alongside source code.
 - `docs/integrations/agent-skill.md` explains how to use both without making memory more authoritative than local project docs.
+- `tree-ring init` and `tree-ring welcome --init` copy local guidance into `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+
+For DOX-style project awareness, merge the relevant generated `.tree-ring/AGENTS.md`
+sections into the project root `AGENTS.md`. The CLI intentionally does not
+rewrite root project contracts automatically.
 
 ## Brand Assets
 

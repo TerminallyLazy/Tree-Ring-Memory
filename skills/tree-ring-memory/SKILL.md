@@ -55,6 +55,17 @@ Store a memory when the information is likely to help future work:
 
 Keep memory concise. Store the lesson, decision, or warning, not the full conversation.
 
+Use `tree-ring evidence` instead of plain `remember` when the lesson comes from
+an evaluation, checkpoint, experiment, branch, incident, or reviewed run
+artifact.
+
+Evidence outcome mapping:
+
+- `promoted`: durable heartwood from supported evidence
+- `rejected`: scar for reusable failed or rolled-back approaches
+- `deferred`: seed for promising unresolved options
+- `observed`: outer-ring evaluation result
+
 ## Ring Selection
 
 Use these rings:
@@ -108,6 +119,7 @@ Set project and scope deliberately:
 - use agent scope for agent-profile behavior
 - use global scope only for durable user preferences or cross-project guidance
 - include source references such as file paths, issue ids, PR ids, run ids, or docs paths
+- use `tree-ring evidence ... --evidence-ref <ref>` for evaluated outcomes
 
 Memory does not replace source documents. If a repo has `AGENTS.md`, project docs, tests, architectural records, or host-specific instruction files, read those sources directly and treat them as authoritative.
 

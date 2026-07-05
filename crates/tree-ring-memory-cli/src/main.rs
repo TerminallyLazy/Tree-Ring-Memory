@@ -4,22 +4,37 @@ use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::plan_maintenance;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
-use tree_ring_memory_core::MemoryEvent;
 use tree_ring_memory_core::{
     audit_memories, consolidate_memories, decode_jsonl, normalize_import_events, AuditReport,
     ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, MaintenanceReport,
     MaintenanceRequest,
 };
+use tree_ring_memory_core::{MemoryEvent, MemoryLink};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
+mod agent_awareness;
 mod tui;
+mod welcome;
 
 #[derive(Debug, Parser)]
-#[command(name = "tree-ring", about = "Local tree-ring memory for AI agents.")]
+#[command(
+    name = "tree-ring",
+    version,
+    about = "Local tree-ring memory for AI agents."
+)]
 struct Cli {
-    #[arg(long, default_value = ".tree-ring", help = "memory store root")]
+    #[arg(
+        long,
+        default_value = ".tree-ring",
+        global = true,
+        help = "memory store root"
+    )]
     root: PathBuf,
-    #[arg(long, help = "emit machine-readable JSON where supported")]
+    #[arg(
+        long,
+        global = true,
+        help = "emit machine-readable JSON where supported"
+    )]
     json: bool,
     #[command(subcommand)]
     command: Command,
@@ -40,6 +55,29 @@ enum Command {
         scope: String,
         #[arg(long)]
         project: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    #[command(about = "record an evidence-backed improvement-loop outcome")]
+    Evidence {
+        summary: String,
+        #[arg(
+            long,
+            default_value = "observed",
+            help = "observed, promoted, rejected, or deferred"
+        )]
+        outcome: String,
+        #[arg(
+            long,
+            help = "file path, run id, checkpoint id, PR, issue, or eval ref"
+        )]
+        evidence_ref: String,
+        #[arg(long, help = "optional project scope")]
+        project: Option<String>,
+        #[arg(long, help = "optional extra context")]
+        details: Option<String>,
+        #[arg(long, help = "optional numeric evaluation score")]
+        score: Option<f64>,
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
@@ -134,6 +172,13 @@ enum Command {
         )]
         tick_ms: u64,
     },
+    #[command(about = "show first-run onboarding and next commands")]
+    Welcome {
+        #[arg(long, help = "initialize the configured memory root during onboarding")]
+        init: bool,
+        #[arg(long, help = "print a stable onboarding screen without animation")]
+        no_animation: bool,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -154,6 +199,10 @@ fn main() -> std::process::ExitCode {
 
 fn run(cli: Cli) -> Result<(), String> {
     let db_path = cli.root.join("memory.sqlite");
+
+    if let Command::Welcome { init, no_animation } = &cli.command {
+        return welcome::run(&cli.root, *init, *no_animation, cli.json);
+    }
 
     if let Command::Tui {
         event_stream,
@@ -268,6 +317,8 @@ fn run(cli: Cli) -> Result<(), String> {
 
     match cli.command {
         Command::Init => {
+            let awareness = agent_awareness::ensure_agent_awareness(&cli.root)
+                .map_err(|err| err.to_string())?;
             if cli.json {
                 println!(
                     "{}",
@@ -276,11 +327,13 @@ fn run(cli: Cli) -> Result<(), String> {
                         "root": cli.root,
                         "sqlite_path": db_path,
                         "message": "Tree Ring Memory initialized",
+                        "agent_awareness": awareness,
                     })
                 );
             } else {
                 println!("Tree Ring Memory initialized at {}", cli.root.display());
                 println!("No cloud sync; secret-like memory is blocked by default.");
+                print_agent_awareness_summary(&awareness);
             }
         }
         Command::Remember {
@@ -317,6 +370,37 @@ fn run(cli: Cli) -> Result<(), String> {
                 );
             } else {
                 println!("{}", event.id);
+            }
+        }
+        Command::Evidence {
+            summary,
+            outcome,
+            evidence_ref,
+            project,
+            details,
+            score,
+            tags,
+        } => {
+            let event = evidence_event(
+                summary,
+                outcome,
+                evidence_ref,
+                project,
+                details,
+                score,
+                tags,
+            )?;
+            store.put(&event).map_err(|err| err.to_string())?;
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&event).map_err(|err| err.to_string())?
+                );
+            } else {
+                println!(
+                    "{} [{}] {} evidence={}",
+                    event.id, event.ring, event.summary, event.source.ref_
+                );
             }
         }
         Command::Recall {
@@ -481,6 +565,9 @@ fn run(cli: Cli) -> Result<(), String> {
             print_maintenance_report(&report, cli.json)?;
         }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
+        Command::Welcome { .. } => {
+            unreachable!("welcome returns before opening the scriptable store")
+        }
     }
     Ok(())
 }
@@ -516,6 +603,120 @@ fn consolidation_request(
         dry_run,
         force,
     })
+}
+
+fn evidence_event(
+    summary: String,
+    outcome: String,
+    evidence_ref: String,
+    project: Option<String>,
+    details: Option<String>,
+    score: Option<f64>,
+    tags: Vec<String>,
+) -> Result<MemoryEvent, String> {
+    if summary.trim().is_empty() {
+        return Err("evidence summary is required".to_string());
+    }
+    if evidence_ref.trim().is_empty() {
+        return Err("evidence-ref is required".to_string());
+    }
+    if let Some(score) = score {
+        if !(0.0..=1.0).contains(&score) {
+            return Err("evidence score must be between 0 and 1".to_string());
+        }
+    }
+
+    let normalized_outcome = outcome.trim().to_ascii_lowercase();
+    let (ring, event_type, salience, confidence, retention) = match normalized_outcome.as_str() {
+        "promoted" | "promotion" => (
+            "heartwood",
+            "evaluation_promotion",
+            0.86,
+            score.unwrap_or(0.84).max(0.75),
+            "durable",
+        ),
+        "rejected" | "rejection" => (
+            "scar",
+            "evaluation_rejection",
+            0.90,
+            score.unwrap_or(0.78),
+            "durable",
+        ),
+        "deferred" | "seed" | "hypothesis" => (
+            "seed",
+            "evaluation_hypothesis",
+            0.68,
+            score.unwrap_or(0.60),
+            "normal",
+        ),
+        "observed" | "observation" | "result" => (
+            "outer",
+            "evaluation_result",
+            0.72,
+            score.unwrap_or(0.70),
+            "normal",
+        ),
+        _ => {
+            return Err(
+                "evidence outcome must be observed, promoted, rejected, or deferred".to_string(),
+            )
+        }
+    };
+
+    let guard = SensitivityGuard::default();
+    let values = [&summary, &outcome, &evidence_ref]
+        .into_iter()
+        .chain(project.iter())
+        .chain(details.iter())
+        .chain(tags.iter())
+        .map(String::as_str);
+    let detected_sensitivity = guard
+        .detect_text_sensitivity(values)
+        .map_err(|err| err.to_string())?;
+
+    let mut event = MemoryEvent::new(summary.trim(), event_type).map_err(|err| err.to_string())?;
+    event.ring = ring.to_string();
+    event.scope = "eval".to_string();
+    event.project = project;
+    event.details = evidence_details(&normalized_outcome, score, details);
+    event.source.source_type = "evidence".to_string();
+    event.source.ref_ = evidence_ref.trim().to_string();
+    event.tags = evidence_tags(normalized_outcome.as_str(), tags);
+    event.salience = salience;
+    event.confidence = confidence.clamp(0.0, 1.0);
+    event.retention = retention.to_string();
+    event.links.push(MemoryLink {
+        link_type: "evidence".to_string(),
+        target: event.source.ref_.clone(),
+    });
+    if detected_sensitivity != "normal" {
+        event.sensitivity = detected_sensitivity;
+    }
+    event.validate().map_err(|err| err.to_string())?;
+    Ok(event)
+}
+
+fn evidence_details(outcome: &str, score: Option<f64>, details: Option<String>) -> String {
+    let mut lines = vec![format!("Outcome: {outcome}")];
+    if let Some(score) = score {
+        lines.push(format!("Score: {score:.3}"));
+    }
+    if let Some(details) = details {
+        let trimmed = details.trim();
+        if !trimmed.is_empty() {
+            lines.push(trimmed.to_string());
+        }
+    }
+    lines.join("\n")
+}
+
+fn evidence_tags(outcome: &str, mut tags: Vec<String>) -> Vec<String> {
+    tags.push("evidence".to_string());
+    tags.push("improvement-loop".to_string());
+    tags.push(format!("outcome:{outcome}"));
+    tags.sort();
+    tags.dedup();
+    tags
 }
 
 fn print_audit_report(report: &AuditReport, json_output: bool) -> Result<(), String> {
@@ -613,6 +814,22 @@ fn print_maintenance_report(report: &MaintenanceReport, json_output: bool) -> Re
     Ok(())
 }
 
+fn print_agent_awareness_summary(report: &agent_awareness::AgentAwarenessReport) {
+    if !report.created.is_empty() {
+        println!("Agent awareness files created:");
+        for path in &report.created {
+            println!("  {}", path.display());
+        }
+    }
+    if !report.existing.is_empty() {
+        println!("Agent awareness files already present:");
+        for path in &report.existing {
+            println!("  {}", path.display());
+        }
+    }
+    println!("If this repo uses DOX, merge .tree-ring/AGENTS.md guidance into the project root AGENTS.md when you want agents to see it before entering .tree-ring.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -630,6 +847,9 @@ mod tests {
         .unwrap();
 
         assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("AGENTS.md").exists());
+        assert!(root.join("SKILL.md").exists());
+        assert!(root.join("CLI.md").exists());
     }
 
     #[test]
@@ -693,6 +913,88 @@ mod tests {
             },
         })
         .unwrap();
+    }
+
+    #[test]
+    fn evidence_promotion_becomes_heartwood_with_evidence_source() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Evidence {
+                summary: "Snapshot invalidation fixed stale unread chat state.".to_string(),
+                outcome: "promoted".to_string(),
+                evidence_ref: "evals/chat-state/run-042".to_string(),
+                project: Some("agent-ui".to_string()),
+                details: Some("Passed regression suite and manual replay.".to_string()),
+                score: Some(0.91),
+                tags: vec!["chat".to_string()],
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories = store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        let memory = &memories[0];
+        assert_eq!(memory.ring, "heartwood");
+        assert_eq!(memory.scope, "eval");
+        assert_eq!(memory.event_type, "evaluation_promotion");
+        assert_eq!(memory.retention, "durable");
+        assert_eq!(memory.source.source_type, "evidence");
+        assert_eq!(memory.source.ref_, "evals/chat-state/run-042");
+        assert!(memory.tags.contains(&"improvement-loop".to_string()));
+        assert!(memory.tags.contains(&"outcome:promoted".to_string()));
+    }
+
+    #[test]
+    fn evidence_rejection_becomes_scar() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Evidence {
+                summary: "Aggressive caching caused stale multi-chat state.".to_string(),
+                outcome: "rejected".to_string(),
+                evidence_ref: "evals/cache-branch/run-013".to_string(),
+                project: Some("agent-ui".to_string()),
+                details: None,
+                score: Some(0.82),
+                tags: Vec::new(),
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories = store.list_all(false).unwrap();
+        assert_eq!(memories[0].ring, "scar");
+        assert_eq!(memories[0].event_type, "evaluation_rejection");
+        assert_eq!(memories[0].retention, "durable");
+    }
+
+    #[test]
+    fn evidence_rejects_invalid_scores() {
+        let dir = tempdir().unwrap();
+        let err = run(Cli {
+            root: dir.path().join(".tree-ring"),
+            json: false,
+            command: Command::Evidence {
+                summary: "Invalid evidence score".to_string(),
+                outcome: "observed".to_string(),
+                evidence_ref: "evals/run".to_string(),
+                project: None,
+                details: None,
+                score: Some(2.0),
+                tags: Vec::new(),
+            },
+        })
+        .unwrap_err();
+
+        assert_eq!(err, "evidence score must be between 0 and 1");
     }
 
     #[test]
@@ -1010,6 +1312,29 @@ mod tests {
                 assert_eq!(tick_ms, 125);
             }
             _ => panic!("expected tui command"),
+        }
+    }
+
+    #[test]
+    fn parses_global_flags_after_welcome_command() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "welcome",
+            "--json",
+            "--root",
+            ".memory",
+            "--init",
+        ])
+        .unwrap();
+
+        assert!(cli.json);
+        assert_eq!(cli.root, PathBuf::from(".memory"));
+        match cli.command {
+            Command::Welcome { init, no_animation } => {
+                assert!(init);
+                assert!(!no_animation);
+            }
+            _ => panic!("expected welcome command"),
         }
     }
 

@@ -5,8 +5,8 @@ runtime. This page tracks the v0.2 Rust
 core, v0.3 native Python binding work, the Rust-native Ratatui terminal
 console, the v0.4 Rust-owned JSONL import/export path, and v0.5 deterministic
 audit checks, the v0.6 deterministic consolidation path, the v0.7 Rust-owned
-maintenance lifecycle, v0.8 Python-runtime removal, and v0.9 removal of tracked
-Python source from the canonical repo.
+maintenance lifecycle, v0.8 Python-runtime removal, v0.9 removal of tracked
+Python source from the canonical repo, and v0.10 installer/onboarding work.
 
 ## Current Status
 
@@ -44,12 +44,16 @@ Python source from the canonical repo.
   always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
   gates for destructive or authority-changing actions.
+- The repository includes `install.sh` for one-line global or project-local
+  installs, plus `tree-ring welcome` for first-run terminal onboarding.
 
 ## Build Commands
 
 ```bash
 cargo test
+sh install.sh --help
 cargo run -p tree-ring-memory-cli -- --help
+cargo run -p tree-ring-memory-cli -- welcome --no-animation
 cargo run -p tree-ring-memory-cli -- tui --help
 cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
