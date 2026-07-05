@@ -7,6 +7,7 @@ mod render;
 mod rings;
 mod store_watch;
 mod stream;
+mod theme;
 
 use std::path::PathBuf;
 use std::time::Duration;

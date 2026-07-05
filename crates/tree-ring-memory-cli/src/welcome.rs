@@ -5,6 +5,8 @@ use std::thread;
 use std::time::Duration;
 use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
+use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
+
 const RESET: &str = "\x1b[0m";
 const TEAL: &str = "\x1b[38;5;37m";
 const PINK: &str = "\x1b[38;5;204m";
@@ -15,11 +17,12 @@ const BOLD: &str = "\x1b[1m";
 
 pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
-    let initialized = if init {
+    let (initialized, awareness) = if init {
         SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
-        true
+        let awareness = ensure_agent_awareness(root)?;
+        (true, Some(awareness))
     } else {
-        db_path.exists()
+        (db_path.exists(), None)
     };
 
     if json_output {
@@ -31,6 +34,7 @@ pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Re
                 "sqlite_path": db_path,
                 "initialized": initialized,
                 "init_requested": init,
+                "agent_awareness": awareness,
                 "next": next_commands(root),
             })
         );
@@ -41,7 +45,7 @@ pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Re
     if color && !no_animation {
         animate_intro()?;
     }
-    print_static_welcome(root, initialized, init, color);
+    print_static_welcome(root, initialized, init, awareness.as_ref(), color);
     Ok(())
 }
 
@@ -58,7 +62,13 @@ fn animate_intro() -> Result<(), String> {
     Ok(())
 }
 
-fn print_static_welcome(root: &Path, initialized: bool, init_requested: bool, color: bool) {
+fn print_static_welcome(
+    root: &Path,
+    initialized: bool,
+    init_requested: bool,
+    awareness: Option<&AgentAwarenessReport>,
+    color: bool,
+) {
     for line in ring_frame(7, color) {
         println!("{line}");
     }
@@ -81,6 +91,21 @@ fn print_static_welcome(root: &Path, initialized: bool, init_requested: bool, co
         );
     }
     println!("Local-first by default. Secret-like memory is blocked before storage.");
+    if let Some(awareness) = awareness {
+        println!();
+        println!("{}", paint("Agent awareness", YELLOW, color));
+        if awareness.created.is_empty() {
+            println!("  Existing guidance found in the memory root.");
+        } else {
+            for path in &awareness.created {
+                println!("  created {}", path.display());
+            }
+        }
+        println!("  Read SKILL.md for agent behavior and CLI.md for commands.");
+        println!(
+            "  Merge AGENTS.md guidance into the project root AGENTS.md for DOX-aware agents."
+        );
+    }
     println!();
     println!("{}", paint("Next useful commands", YELLOW, color));
     for command in next_commands(root) {
@@ -153,6 +178,9 @@ mod tests {
         run(&root, true, true, false).unwrap();
 
         assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("AGENTS.md").exists());
+        assert!(root.join("SKILL.md").exists());
+        assert!(root.join("CLI.md").exists());
     }
 
     #[test]
@@ -163,5 +191,8 @@ mod tests {
         run(&root, true, true, true).unwrap();
 
         assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("AGENTS.md").exists());
+        assert!(root.join("SKILL.md").exists());
+        assert!(root.join("CLI.md").exists());
     }
 }
