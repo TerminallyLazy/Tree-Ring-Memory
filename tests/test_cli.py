@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tree_ring_memory import TreeRingMemory
+from tree_ring_memory.native_backend import NativeTreeRingMemory
 from tree_ring_memory.models import MemorySource
 from tree_ring_memory.store import SQLiteMemoryStore
 from tree_ring_memory.rust_backend import RustCliTreeRingMemory
@@ -215,3 +216,8 @@ def test_rust_cli_backend_rejects_unsupported_python_facade_fields(tmp_path):
             details="not yet supported by the Rust CLI bridge",
             event_type="lesson",
         )
+
+
+def test_native_backend_reports_missing_extension_cleanly(tmp_path):
+    with pytest.raises(ImportError, match="native bindings are not installed"):
+        NativeTreeRingMemory.open(tmp_path / ".tree-ring")

@@ -12,6 +12,7 @@ Tree Ring Memory is in protocol-preview status.
 
 - v0.1 provides a local Python reference library with SQLite storage and no required cloud services.
 - v0.2 is moving durable behavior into a Rust core while preserving Python compatibility.
+- v0.3 starts a PyO3 native binding path through explicit `NativeTreeRingMemory`; the default Python facade has not switched yet.
 
 The Rust workspace currently includes:
 
@@ -27,7 +28,31 @@ same Python model object shapes, but it is intentionally limited in v0.2:
 `remember` supports summary, event type, ring, scope, project, and tags; `recall`
 supports query, project, limit, and sensitive-memory inclusion. Unsupported
 Python facade fields fail explicitly instead of being silently ignored. Full
-PyO3 bindings and richer CLI flags remain planned.
+parity for the default PyO3-backed Python facade and richer CLI flags remain
+planned.
+
+`NativeTreeRingMemory` is the v0.3 native preview. It requires the optional PyO3
+module and is intentionally explicit:
+
+```python
+from tree_ring_memory import NativeTreeRingMemory
+
+memory = NativeTreeRingMemory.open(".tree-ring")
+event = memory.remember(summary="Native Rust path works.", event_type="lesson")
+results = memory.recall("Rust path")
+```
+
+Build the optional native module with maturin:
+
+```bash
+cd bindings/python
+pip install -e ../..
+maturin develop
+```
+
+The native binding package is extension-only. It does not package or own the
+public `tree_ring_memory` Python package; install the main package separately in
+the same environment.
 
 ```python
 from tree_ring_memory import RustCliTreeRingMemory
@@ -74,6 +99,8 @@ cargo test
 python3 -m pytest
 cargo run -p tree-ring-memory-cli -- --help
 python3 scripts/rust_performance_smoke.py --count 1000
+cargo build -p tree-ring-memory-python --features extension-module
+python3 scripts/native_binding_smoke.py --install-maturin
 ```
 
 The Rust CLI writes the same SQLite/raw JSON shape as the Python reference. The
@@ -89,6 +116,8 @@ latency of 250 ms for the synthetic workload.
 - `docs/architecture/rust-core-status.md`
 - `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-core-v0-2-design.md`
 - `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-core-v0-2-implementation-plan.md`
+- `docs/superpowers/specs/2026-07-05-tree-ring-memory-rust-python-bindings-v0-3-design.md`
+- `docs/superpowers/plans/2026-07-05-tree-ring-memory-rust-python-bindings-v0-3-implementation-plan.md`
 
 ## Agent Workflow Integration
 
