@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+ratatui.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tree-ring-memory-core = { path = "../tree-ring-memory-core" }
 tree-ring-memory-sqlite = { path = "../tree-ring-memory-sqlite" }
