@@ -1,12 +1,12 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::app::{App, AppMode};
 use super::input::command_help;
-use super::rings::{ambient_tree_lines, exploded_ring_lines, ring_style};
+use super::rings::{ambient_corner_lines, ambient_tree_lines, exploded_ring_lines, ring_style};
 use super::theme;
 
 pub fn render(frame: &mut Frame<'_>, app: &App) {
@@ -54,10 +54,21 @@ fn render_narrow(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .split(area);
 
     render_header(frame, vertical[0], app);
-    if app.mode == AppMode::Exploded {
+    if vertical[1].width >= 76 {
+        let top = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(30), Constraint::Length(42)])
+            .split(vertical[1]);
+        if app.mode == AppMode::Exploded {
+            render_exploded(frame, top[0], app);
+        } else {
+            render_ring_activity(frame, top[0], app);
+        }
+        render_ambient_corner(frame, top[1], app);
+    } else if app.mode == AppMode::Exploded {
         render_exploded(frame, vertical[1], app);
     } else {
-        render_ambient(frame, vertical[1], app);
+        render_ring_activity(frame, vertical[1], app);
     }
     let lower = Layout::default()
         .direction(Direction::Horizontal)
@@ -116,22 +127,38 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .split(columns[0]);
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(54), Constraint::Percentage(46)])
+        .constraints([
+            Constraint::Length(13),
+            Constraint::Percentage(45),
+            Constraint::Percentage(55),
+        ])
         .split(columns[1]);
 
     if app.mode == AppMode::Exploded {
         render_exploded(frame, left[0], app);
     } else {
-        render_ambient(frame, left[0], app);
+        render_ring_activity(frame, left[0], app);
     }
     render_ring_hud(frame, left[1], app);
-    render_results(frame, right[0], app);
-    render_detail(frame, right[1], app);
+    render_ambient_corner(frame, right[0], app);
+    render_results(frame, right[1], app);
+    render_detail(frame, right[2], app);
 }
 
-fn render_ambient(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let paragraph = Paragraph::new(ambient_tree_lines(&app.dashboard, app.tick))
+fn render_ambient_corner(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    if area.width < 40 || area.height < 11 {
+        return;
+    }
+    frame.render_widget(Clear, area);
+    let paragraph = Paragraph::new(ambient_corner_lines(&app.dashboard, app.tick))
         .block(theme::panel("Ambient Rings"))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+fn render_ring_activity(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let paragraph = Paragraph::new(exploded_ring_lines(&app.dashboard, app.selected_ring))
+        .block(theme::panel("Ring Activity"))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
@@ -440,7 +467,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_confirmation(frame: &mut Frame<'_>, area: Rect, prompt: &str) {
-    frame.render_widget(ratatui::widgets::Clear, area);
+    frame.render_widget(Clear, area);
     let paragraph = Paragraph::new(vec![
         Line::from(Span::styled(
             "Confirm Tree Ring Memory action",
@@ -519,6 +546,7 @@ mod tests {
 
         assert!(output.contains("TREE RING MEMORY"));
         assert!(output.contains("Ambient Rings"));
+        assert!(output.contains("Ring Activity"));
         assert!(output.contains("Actions"));
         assert!(output.contains("cambium"));
     }
@@ -535,6 +563,7 @@ mod tests {
         let output = terminal.backend().to_string();
 
         assert!(output.contains("Ambient Rings"));
+        assert!(output.contains("live"));
         assert!(output.contains("heartwood"));
         assert!(output.contains("u super:false"));
     }
