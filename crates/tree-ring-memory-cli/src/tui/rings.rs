@@ -1,6 +1,8 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::ring_mark::{ring_mark_rows, RingMarkCell, RingMarkLayer};
+
 use super::model::{DashboardStats, RingStats};
 use super::theme;
 
@@ -161,63 +163,10 @@ fn ascii_ring_lines(
     scar: &RingStats,
     tick: u64,
 ) -> Vec<Line<'static>> {
-    let cambium_style = ascii_ring_style(cambium, tick);
-    let outer_style = ascii_ring_style(outer, tick);
-    let inner_style = ascii_ring_style(inner, tick);
-    let heartwood_style = ascii_ring_style(heartwood, tick);
-    let scar_style = ascii_ring_style(scar, tick);
-
-    vec![
-        Line::from(vec![
-            Span::raw("      "),
-            Span::styled(".========.", cambium_style),
-            Span::styled("/", scar_style),
-        ]),
-        Line::from(vec![
-            Span::raw("   "),
-            Span::styled(".-' ", cambium_style),
-            Span::styled(".-----.", outer_style),
-            Span::styled(" '-.", cambium_style),
-        ]),
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled("/ ", cambium_style),
-            Span::styled(".-' ", outer_style),
-            Span::styled(".---.", inner_style),
-            Span::styled(" '-.", outer_style),
-            Span::styled(" \\", cambium_style),
-        ]),
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("| | ", cambium_style),
-            Span::styled(".-' ", outer_style),
-            Span::styled("ooo", heartwood_style),
-            Span::styled(" '-.", outer_style),
-            Span::styled(" | |", cambium_style),
-        ]),
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("| | ", cambium_style),
-            Span::styled("'-. ", outer_style),
-            Span::styled("___", inner_style),
-            Span::styled(" .-'", outer_style),
-            Span::styled(" | |", cambium_style),
-        ]),
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled("\\ ", cambium_style),
-            Span::styled("'-. ", outer_style),
-            Span::styled("'---'", inner_style),
-            Span::styled(" .-'", outer_style),
-            Span::styled(" /", cambium_style),
-        ]),
-        Line::from(vec![
-            Span::raw("   "),
-            Span::styled("'-.____", cambium_style),
-            Span::styled("/", scar_style),
-            Span::styled("____.-'", cambium_style),
-        ]),
-    ]
+    ring_mark_rows(23, 7, tick as usize)
+        .into_iter()
+        .map(|row| ring_mark_line(row, cambium, outer, inner, heartwood, scar, tick))
+        .collect()
 }
 
 fn ascii_ring_style(stats: &RingStats, tick: u64) -> Style {
@@ -233,6 +182,51 @@ fn ascii_ring_style(stats: &RingStats, tick: u64) -> Style {
         } else {
             Modifier::empty()
         })
+}
+
+fn ring_mark_line(
+    row: Vec<RingMarkCell>,
+    cambium: &RingStats,
+    outer: &RingStats,
+    inner: &RingStats,
+    heartwood: &RingStats,
+    scar: &RingStats,
+    tick: u64,
+) -> Line<'static> {
+    Line::from(
+        row.into_iter()
+            .map(|cell| {
+                let text = cell.ch.to_string();
+                match cell.layer {
+                    Some(layer) => Span::styled(
+                        text,
+                        ascii_ring_style(
+                            layer_stats(layer, cambium, outer, inner, heartwood, scar),
+                            tick,
+                        ),
+                    ),
+                    None => Span::raw(text),
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn layer_stats<'a>(
+    layer: RingMarkLayer,
+    cambium: &'a RingStats,
+    outer: &'a RingStats,
+    inner: &'a RingStats,
+    heartwood: &'a RingStats,
+    scar: &'a RingStats,
+) -> &'a RingStats {
+    match layer {
+        RingMarkLayer::Cambium => cambium,
+        RingMarkLayer::Outer => outer,
+        RingMarkLayer::Inner => inner,
+        RingMarkLayer::Heartwood => heartwood,
+        RingMarkLayer::Scar => scar,
+    }
 }
 
 fn count_line<const N: usize>(items: [(&'static str, &RingStats); N]) -> Line<'static> {

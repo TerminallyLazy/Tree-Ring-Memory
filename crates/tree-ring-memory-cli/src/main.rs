@@ -16,6 +16,7 @@ use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod agent_awareness;
 mod integrations;
+mod ring_mark;
 mod tui;
 mod welcome;
 

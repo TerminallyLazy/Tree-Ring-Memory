@@ -6,6 +6,7 @@ use std::time::Duration;
 use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
 use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
+use crate::ring_mark::{pulse_index, ring_mark_rows, RingMarkCell, RingMarkLayer};
 
 const RESET: &str = "\x1b[0m";
 const TEAL: &str = "\x1b[38;2;22;156;166m";
@@ -136,79 +137,54 @@ fn animate_logo(color: bool) -> Result<(), String> {
 }
 
 fn welcome_logo_frame(frame: usize, color: bool) -> String {
-    let cambium = frame_style(0, frame, TEAL, color);
-    let outer = frame_style(1, frame, PINK, color);
-    let inner = frame_style(2, frame, ORANGE, color);
-    let heartwood = frame_style(3, frame, YELLOW, color);
-    let scar = frame_style(4, frame, CORAL, color);
-    let mut lines = vec![
-        join([
-            raw("      "),
-            span(".========.", &cambium),
-            span("/", &scar),
-        ]),
-        join([
-            raw("   "),
-            span(".-' ", &cambium),
-            span(".-----.", &outer),
-            span(" '-.", &cambium),
-        ]),
-        join([
-            raw("  "),
-            span("/ ", &cambium),
-            span(".-' ", &outer),
-            span(".---.", &inner),
-            span(" '-.", &outer),
-            span(" \\", &cambium),
-        ]),
-        join([
-            raw(" "),
-            span("| | ", &cambium),
-            span(".-' ", &outer),
-            span("ooo", &heartwood),
-            span(" '-.", &outer),
-            span(" | |", &cambium),
-        ]),
-        join([
-            raw(" "),
-            span("| | ", &cambium),
-            span("'-. ", &outer),
-            span("___", &inner),
-            span(" .-'", &outer),
-            span(" | |", &cambium),
-        ]),
-        join([
-            raw("  "),
-            span("\\ ", &cambium),
-            span("'-. ", &outer),
-            span("'---'", &inner),
-            span(" .-'", &outer),
-            span(" /", &cambium),
-        ]),
-        join([
-            raw("   "),
-            span("'-.____", &cambium),
-            span("/", &scar),
-            span("____.-'", &cambium),
-        ]),
-        join([
-            span("Tree ", &cambium),
-            span("Ring ", &outer),
-            span("Memory", &heartwood),
-        ]),
-    ];
+    let mut lines: Vec<String> = ring_mark_rows(29, 11, frame)
+        .into_iter()
+        .map(|row| welcome_logo_line(row, frame, color))
+        .collect();
+    lines.push(join([
+        span("Tree ", &layer_style(RingMarkLayer::Cambium, frame, color)),
+        span("Ring ", &layer_style(RingMarkLayer::Outer, frame, color)),
+        span(
+            "Memory",
+            &layer_style(RingMarkLayer::Heartwood, frame, color),
+        ),
+    ]));
     lines.push(String::new());
     lines.join("\n")
 }
 
-fn frame_style(index: usize, frame: usize, code: &str, color: bool) -> String {
+fn welcome_logo_line(row: Vec<RingMarkCell>, frame: usize, color: bool) -> String {
+    let mut line = String::new();
+    for cell in row {
+        let text = cell.ch.to_string();
+        if let Some(layer) = cell.layer {
+            line.push_str(&span(&text, &layer_style(layer, frame, color)));
+        } else {
+            line.push(cell.ch);
+        }
+    }
+    line.trim_end().to_string()
+}
+
+fn layer_style(layer: RingMarkLayer, frame: usize, color: bool) -> String {
     if !color {
         return String::new();
     }
-    if frame % 5 == index {
+    let code = layer_color(layer);
+    if frame % 5 == pulse_index(layer) {
         format!("{BOLD}{code}")
     } else {
         code.to_string()
+    }
+}
+
+fn layer_color(layer: RingMarkLayer) -> &'static str {
+    match layer {
+        RingMarkLayer::Cambium => TEAL,
+        RingMarkLayer::Outer => PINK,
+        RingMarkLayer::Inner => ORANGE,
+        RingMarkLayer::Heartwood => YELLOW,
+        RingMarkLayer::Scar => CORAL,
     }
 }
 
@@ -218,10 +194,6 @@ fn span(text: &str, style: &str) -> String {
     } else {
         format!("{style}{text}{RESET}")
     }
-}
-
-fn raw(text: &str) -> String {
-    text.to_string()
 }
 
 fn join<const N: usize>(parts: [String; N]) -> String {
@@ -276,9 +248,13 @@ mod tests {
         let color = welcome_logo_frame(1, true);
 
         assert_eq!(plain.lines().count(), color.lines().count());
-        assert!(plain.lines().count() <= 10);
+        assert!(plain.lines().count() <= 13);
         assert!(plain.contains("Tree Ring Memory"));
-        assert!(plain.contains(".========./"));
+        assert!(plain.contains('#') || plain.contains('@'));
+        assert!(plain.contains('='));
+        assert!(plain.contains('-') || plain.contains('+'));
+        assert!(plain.contains('o') || plain.contains('O'));
+        assert!(plain.contains('/'));
         assert!(color.contains("\x1b["));
     }
 
