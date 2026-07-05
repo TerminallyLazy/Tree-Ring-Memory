@@ -32,6 +32,8 @@ pub enum TreeRingError {
     Validation(String),
     #[error("secret-like memory is blocked by policy")]
     SensitiveMemoryBlocked,
+    #[error("storage locked: {0}")]
+    StorageLocked(String),
     #[error("storage error: {0}")]
     Storage(String),
     #[error("json error: {0}")]
@@ -174,12 +176,12 @@ impl MemoryEvent {
         event.validated()
     }
 
-    pub fn validated(mut self) -> TreeRingResult<Self> {
+    pub fn validated(self) -> TreeRingResult<Self> {
         self.validate()?;
         Ok(self)
     }
 
-    pub fn validate(&mut self) -> TreeRingResult<()> {
+    pub fn validate(&self) -> TreeRingResult<()> {
         if self.summary.trim().is_empty() {
             return Err(TreeRingError::Validation("summary is required".to_string()));
         }
@@ -192,8 +194,8 @@ impl MemoryEvent {
         validate_member("ring", &self.ring, RINGS)?;
         validate_member("sensitivity", &self.sensitivity, SENSITIVITIES)?;
         validate_member("retention", &self.retention, RETENTIONS)?;
-        self.salience = validate_score("salience", self.salience)?;
-        self.confidence = validate_score("confidence", self.confidence)?;
+        validate_score("salience", self.salience)?;
+        validate_score("confidence", self.confidence)?;
         Ok(())
     }
 
@@ -291,7 +293,7 @@ mod tests {
     #[test]
     fn schema_valid_sparse_memory_defaults_like_python() {
         let payload = include_str!("../../../fixtures/parity/schema-valid-sparse-memory.json");
-        let mut event: MemoryEvent = serde_json::from_str(payload).unwrap();
+        let event: MemoryEvent = serde_json::from_str(payload).unwrap();
         event.validate().unwrap();
 
         assert_eq!(event.details, "");

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
 from tree_ring_memory.models import MemoryEvent
 from tree_ring_memory.recall import RecallResult
@@ -86,7 +88,7 @@ class RustCliTreeRingMemory:
         self._run("forget", memory_id, "--mode", mode, "--reason", reason, json_output=True)
 
     def _run(self, *args: str, json_output: bool = False) -> subprocess.CompletedProcess[str]:
-        command = ["cargo", "run", "-q", "-p", "tree-ring-memory-cli", "--", "--root", str(self.root)]
+        command = [*self._cli_prefix(), "--root", str(self.root)]
         if json_output:
             command.append("--json")
         command.extend(args)
@@ -102,6 +104,15 @@ class RustCliTreeRingMemory:
         if result.returncode != 0:
             raise ValueError(result.stderr.strip() or result.stdout.strip() or "rust backend command failed")
         return result
+
+    def _cli_prefix(self) -> list[str]:
+        configured = os.environ.get("TREE_RING_MEMORY_CLI")
+        if configured:
+            return shlex.split(configured)
+        installed = shutil.which("tree-ring")
+        if installed:
+            return [installed]
+        return ["cargo", "run", "-q", "-p", "tree-ring-memory-cli", "--"]
 
 
 def _reject_unsupported(operation: str, values: dict[str, object]) -> None:

@@ -29,6 +29,10 @@ supports query, project, limit, and sensitive-memory inclusion. Unsupported
 Python facade fields fail explicitly instead of being silently ignored. Full
 PyO3 bindings and richer CLI flags remain planned.
 
+For the CLI bridge, set `TREE_RING_MEMORY_CLI=/path/to/tree-ring` to use a
+prebuilt binary. If unset, the bridge looks for `tree-ring` on `PATH` and falls
+back to `cargo run` for development checkouts.
+
 ```python
 from tree_ring_memory import RustCliTreeRingMemory
 

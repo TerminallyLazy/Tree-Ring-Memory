@@ -55,10 +55,10 @@ unchanged.
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,509.8 ms.
-- Insert throughput: 2,217.4 inserts/sec.
-- Recall average latency: 6.340 ms.
-- Recall max latency: 9.858 ms.
+- Inserted 10,000 memories in 4,463.6 ms.
+- Insert throughput: 2,240.3 inserts/sec.
+- Recall average latency: 7.992 ms.
+- Recall max latency: 14.940 ms.
 
 ## Compatibility Rule
 

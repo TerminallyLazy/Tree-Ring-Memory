@@ -215,3 +215,10 @@ def test_rust_cli_backend_rejects_unsupported_python_facade_fields(tmp_path):
             details="not yet supported by the Rust CLI bridge",
             event_type="lesson",
         )
+
+
+def test_rust_cli_backend_prefers_configured_binary(tmp_path, monkeypatch):
+    monkeypatch.setenv("TREE_RING_MEMORY_CLI", "/tmp/tree-ring --flag")
+    memory = RustCliTreeRingMemory.__new__(RustCliTreeRingMemory)
+
+    assert memory._cli_prefix() == ["/tmp/tree-ring", "--flag"]
