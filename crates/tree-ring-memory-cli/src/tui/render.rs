@@ -47,7 +47,7 @@ fn render_narrow(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(11),
+            Constraint::Length(12),
             Constraint::Min(5),
             Constraint::Length(3),
         ])
@@ -57,7 +57,7 @@ fn render_narrow(frame: &mut Frame<'_>, area: Rect, app: &App) {
     if vertical[1].width >= 66 {
         let top = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(30), Constraint::Length(32)])
+            .constraints([Constraint::Min(30), Constraint::Length(36)])
             .split(vertical[1]);
         if app.mode == AppMode::Exploded {
             render_exploded(frame, top[0], app);
@@ -128,7 +128,7 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(11),
+            Constraint::Length(12),
             Constraint::Percentage(45),
             Constraint::Percentage(55),
         ])
@@ -146,7 +146,7 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_ambient_corner(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    if area.width < 28 || area.height < 10 {
+    if area.width < 34 || area.height < 11 {
         return;
     }
     frame.render_widget(Clear, area);

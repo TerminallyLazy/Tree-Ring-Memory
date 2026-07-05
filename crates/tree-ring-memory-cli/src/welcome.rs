@@ -142,41 +142,54 @@ fn welcome_logo_frame(frame: usize, color: bool) -> String {
     let heartwood = frame_style(3, frame, YELLOW, color);
     let scar = frame_style(4, frame, CORAL, color);
     let mut lines = vec![
-        join([raw("   "), span(".-=====-.", &cambium), span("/", &scar)]),
         join([
-            raw(" "),
-            span(".-' ", &cambium),
-            span(".---.", &outer),
+            raw("      "),
+            span(".========.", &cambium),
             span("/", &scar),
+        ]),
+        join([
+            raw("   "),
+            span(".-' ", &cambium),
+            span(".-----.", &outer),
             span(" '-.", &cambium),
         ]),
         join([
+            raw("  "),
             span("/ ", &cambium),
             span(".-' ", &outer),
-            span(".-.", &inner),
+            span(".---.", &inner),
             span(" '-.", &outer),
             span(" \\", &cambium),
         ]),
         join([
-            span("| ", &cambium),
-            span("\\-. ", &outer),
-            span("oo", &heartwood),
-            span(" .-/", &outer),
-            span(" |", &cambium),
+            raw(" "),
+            span("| | ", &cambium),
+            span(".-' ", &outer),
+            span("ooo", &heartwood),
+            span(" '-.", &outer),
+            span(" | |", &cambium),
         ]),
         join([
             raw(" "),
+            span("| | ", &cambium),
+            span("'-. ", &outer),
+            span("___", &inner),
+            span(" .-'", &outer),
+            span(" | |", &cambium),
+        ]),
+        join([
+            raw("  "),
             span("\\ ", &cambium),
             span("'-. ", &outer),
-            span("__", &inner),
+            span("'---'", &inner),
             span(" .-'", &outer),
             span(" /", &cambium),
         ]),
         join([
-            raw("     "),
-            span("'--", &cambium),
+            raw("   "),
+            span("'-.____", &cambium),
             span("/", &scar),
-            span("--'", &cambium),
+            span("____.-'", &cambium),
         ]),
         join([
             span("Tree ", &cambium),
@@ -265,7 +278,7 @@ mod tests {
         assert_eq!(plain.lines().count(), color.lines().count());
         assert!(plain.lines().count() <= 10);
         assert!(plain.contains("Tree Ring Memory"));
-        assert!(plain.contains(".-=====-./"));
+        assert!(plain.contains(".========./"));
         assert!(color.contains("\x1b["));
     }
 
