@@ -11,7 +11,7 @@ ARCHIVE_SHA256=${TREE_RING_ARCHIVE_SHA256:-""}
 MEMORY_ROOT=${TREE_RING_ROOT:-".tree-ring"}
 RUN_INIT=${TREE_RING_INIT:-"0"}
 RUN_ONBOARDING=${TREE_RING_ONBOARDING:-"1"}
-ANIMATION=${TREE_RING_ANIMATION:-"0"}
+ANIMATION=${TREE_RING_ANIMATION:-"auto"}
 UPDATE_PATH=${TREE_RING_UPDATE_PATH:-"1"}
 PATH_PROFILE_UPDATED=""
 
@@ -19,6 +19,19 @@ if [ ! -t 1 ] || [ "${NO_COLOR:-}" != "" ]; then
   COLOR=0
 else
   COLOR=1
+fi
+
+case "$ANIMATION" in
+  auto|0|1) ;;
+  *) ANIMATION=auto ;;
+esac
+
+if [ "$ANIMATION" = "auto" ]; then
+  if [ -t 1 ] && [ "$COLOR" = "1" ] && [ "${TERM:-}" != "dumb" ]; then
+    ANIMATION=1
+  else
+    ANIMATION=0
+  fi
 fi
 
 die() {
@@ -39,6 +52,7 @@ Options:
   --project             Install to .tree-ring/bin in the current project.
   --init                Run tree-ring welcome --init after install.
   --no-init             Do not initialize memory after install (default).
+  --animation           Play the installer ring animation when stdout is a TTY.
   --no-animation        Print stable output without animated rings.
   --no-onboarding       Skip tree-ring welcome after install.
   --no-path-update      Do not append the global install bin dir to a shell profile.
@@ -61,7 +75,7 @@ Environment:
   TREE_RING_ARCHIVE_URL=https://example/tree-ring-memory.tar.gz
   TREE_RING_ARCHIVE_SHA256=...
   TREE_RING_INIT=1
-  TREE_RING_ANIMATION=0
+  TREE_RING_ANIMATION=auto|1|0
   TREE_RING_ONBOARDING=0
   TREE_RING_UPDATE_PATH=0
 EOF
@@ -80,6 +94,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-init)
       RUN_INIT=0
+      ;;
+    --animation)
+      ANIMATION=1
       ;;
     --no-animation)
       ANIMATION=0
@@ -154,34 +171,99 @@ line() {
   printf '%s\n' "$*"
 }
 
+paint_line() {
+  paint "$1" "$2"
+  line ""
+}
+
+term_cols() {
+  if command -v tput >/dev/null 2>&1; then
+    cols=$(tput cols 2>/dev/null || printf '80')
+  else
+    cols=80
+  fi
+  case "$cols" in
+    ''|*[!0-9]*) printf '80' ;;
+    *) printf '%s' "$cols" ;;
+  esac
+}
+
+can_animate() {
+  [ "$ANIMATION" = "1" ] || return 1
+  [ -t 1 ] || return 1
+  [ "${TERM:-}" != "dumb" ] || return 1
+  cols=$(term_cols)
+  [ "$cols" -ge 66 ] || return 1
+  sleep 0.001 2>/dev/null || return 1
+  return 0
+}
+
+sleep_tick() {
+  sleep 0.08 2>/dev/null || true
+}
+
+clear_ring_frame() {
+  printf '\033[%sA\033[J' "$1"
+}
+
 ring_frame() {
-  paint "38;5;33" "          .------------------------.          "
-  line ""
-  paint "38;5;37" "       .-'  cambium  fresh detail  /'-.      "
-  line ""
-  paint "38;5;204" "     .'  .---------------------. /   '.     "
-  line ""
-  paint "38;5;208" "    /  .' outer detailed ring  / '.   \\    "
-  line ""
-  paint "38;5;220" "   |  /  .-----------------. /  |    |   "
-  line ""
-  paint "38;5;33" "   | |  | heartwood core | |   |    |   "
-  line ""
-  paint "38;5;204" "   |  \\  ' scars + seeds ' /   |    |   "
-  line ""
-  paint "38;5;208" "    \\  '. inner compressed .'  /   "
-  line ""
-  paint "38;5;37" "      '-. '==============='  .-'       "
-  line ""
-  paint "38;5;33" "          '-----------------'          "
+  phase=${1:-0}
+  case "$phase" in
+    0) core="oo"; scar=" /" ;;
+    1) core="OO"; scar="//" ;;
+    2) core="@@"; scar="\\ " ;;
+    *) core="OO"; scar=" /" ;;
+  esac
+
+  paint_line "1;38;5;24"  "              .================================.              "
+  paint_line "1;38;5;37"  "          .--'  .------------------------.    /'--.          "
+  paint_line "1;38;5;204" "       .-'   .-'  .================.    /  .-'    '-.        "
+  paint_line "1;38;5;208" "     .'    .'   .-'  .----------.  /  .' .'          '.      "
+  paint_line "1;38;5;220" "    /     /   .'   .'  .----.   \/  /  /              \\    "
+  paint_line "1;38;5;208" "   |     |   /    /   / .--. \\   ${scar} |  |                |   "
+  paint_line "1;38;5;94"  "   |     |  |    |   | / ${core} \\ |     |  |                |   "
+  paint_line "1;38;5;208" "   |     |   \\    \\   \\ '--' /   / |  |                |   "
+  paint_line "1;38;5;220" "    \\     \\   '.   '.  '----'  .'  \\  \\              /    "
+  paint_line "1;38;5;208" "     '.    '.   '-.  '--------'  .-' '. '.          .'      "
+  paint_line "1;38;5;204" "       '-.   '-.   '============'   .-'   '-.___.-'        "
+  paint_line "1;38;5;37"  "          '--.  '------------------'   .--'              "
+  paint_line "1;38;5;24"  "              '========================'                  "
+  paint_line "1;38;5;24"  "                    Tree Ring Memory                       "
+  paint_line "38;5;244"   "              fresh rings -> scars -> heartwood             "
+}
+
+tree_ring_animation() {
+  frame_lines=15
+  printed=0
+
+  # Hide the cursor during the short installer splash. The trap restores it if
+  # the install is interrupted before the final frame is printed.
+  printf '\033[?25l'
+  trap 'printf "\033[?25h"; exit 1' INT TERM
+  trap 'printf "\033[?25h"' EXIT
+
+  for frame in 0 1 2 3 2 1 0; do
+    if [ "$printed" = "1" ]; then
+      clear_ring_frame "$frame_lines"
+    fi
+    ring_frame "$frame"
+    printed=1
+    sleep_tick
+  done
+
+  printf '\033[?25h'
+  trap - INT TERM EXIT
   line ""
 }
 
 intro() {
-  if [ "$RUN_ONBOARDING" != "1" ]; then
-    ring_frame
+  if can_animate; then
+    tree_ring_animation
+  else
+    ring_frame 3
     line ""
   fi
+
   paint "1" "Tree Ring Memory"
   line " installer"
   line "Framework-agnostic local memory for AI agents."
