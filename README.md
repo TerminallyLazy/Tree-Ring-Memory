@@ -45,23 +45,28 @@ suite, Python smoke script, PyO3 crate, or CPython extension.
 Global user install:
 
 ```bash
-tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp"
+installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer"
 ```
 
 Project-local install with first-run initialization:
 
 ```bash
-tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp" --project --init
+installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer" --project --init
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
 a short terminal onboarding screen with ASCII rings and the next useful
-commands. It does not initialize memory unless `--init` is passed.
+commands. For global installs, it also adds the install bin directory to your
+shell profile when that directory is not already on `PATH`. It does not
+initialize memory unless `--init` is passed.
 
-The installer command intentionally downloads the script to a temporary file
-before running it. Avoid `curl ... | sh` here: if the download fails before
-producing script content, the shell can still exit successfully after running
-empty input, which looks like a silent no-op.
+The installer command intentionally downloads only the installer script to a
+temporary file before running it. It does not put memory in a temporary
+location. Persistent memory lives in the configured memory root, normally
+`.tree-ring` for project-local use or whatever path you pass with `--root`.
+Avoid `curl ... | sh` here: if the download fails before producing script
+content, the shell can still exit successfully after running empty input, which
+looks like a silent no-op.
 
 Initialization creates the SQLite store and non-destructive agent-awareness
 files in the memory root:
@@ -83,6 +88,7 @@ sh install.sh --help
 sh install.sh --project --init
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation
+sh install.sh --no-path-update
 sh install.sh --archive-url https://example/tree-ring-memory-0.11.0-macos-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
@@ -105,7 +111,9 @@ tree-ring tui
 ```
 
 If your shell cannot find `tree-ring` after a global install, run it directly or
-add the install bin directory to `PATH`:
+add the install bin directory to the current terminal. The installer can update
+future shell sessions through your shell profile, but a child installer process
+cannot rewrite the already-running parent shell environment:
 
 ```bash
 $HOME/.local/bin/tree-ring tui

@@ -12,6 +12,8 @@ MEMORY_ROOT=${TREE_RING_ROOT:-".tree-ring"}
 RUN_INIT=${TREE_RING_INIT:-"0"}
 RUN_ONBOARDING=${TREE_RING_ONBOARDING:-"1"}
 ANIMATION=${TREE_RING_ANIMATION:-"1"}
+UPDATE_PATH=${TREE_RING_UPDATE_PATH:-"1"}
+PATH_PROFILE_UPDATED=""
 
 if [ ! -t 1 ] || [ "${NO_COLOR:-}" != "" ]; then
   COLOR=0
@@ -29,8 +31,8 @@ usage() {
 Tree Ring Memory installer
 
 Usage:
-  tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp"
-  tmp=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$tmp" && sh "$tmp" --project --init
+  installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer"
+  installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer" --project --init
 
 Options:
   --global              Install to $HOME/.local/bin (default).
@@ -39,6 +41,7 @@ Options:
   --no-init             Do not initialize memory after install (default).
   --no-animation        Print stable output without animated rings.
   --no-onboarding       Skip tree-ring welcome after install.
+  --no-path-update      Do not append the global install bin dir to a shell profile.
   --install-dir DIR     Override install prefix. Binary goes in DIR/bin.
   --root DIR            Memory root used by onboarding/init (default .tree-ring).
   --repo URL            Git repository used by cargo install.
@@ -60,6 +63,7 @@ Environment:
   TREE_RING_INIT=1
   TREE_RING_ANIMATION=0
   TREE_RING_ONBOARDING=0
+  TREE_RING_UPDATE_PATH=0
 EOF
 }
 
@@ -82,6 +86,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-onboarding)
       RUN_ONBOARDING=0
+      ;;
+    --no-path-update)
+      UPDATE_PATH=0
       ;;
     --install-dir)
       shift
@@ -268,6 +275,65 @@ path_contains() {
   esac
 }
 
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+shell_profile_path() {
+  [ "${HOME:-}" != "" ] || return 1
+  shell_name=$(basename "${SHELL:-}")
+  case "$shell_name" in
+    zsh)
+      [ -f "$HOME/.zshrc" ] && { printf '%s' "$HOME/.zshrc"; return 0; }
+      [ -f "$HOME/.zprofile" ] && { printf '%s' "$HOME/.zprofile"; return 0; }
+      printf '%s' "$HOME/.zshrc"
+      ;;
+    bash)
+      [ -f "$HOME/.bashrc" ] && { printf '%s' "$HOME/.bashrc"; return 0; }
+      [ -f "$HOME/.bash_profile" ] && { printf '%s' "$HOME/.bash_profile"; return 0; }
+      printf '%s' "$HOME/.bashrc"
+      ;;
+    *)
+      [ -f "$HOME/.profile" ] && { printf '%s' "$HOME/.profile"; return 0; }
+      [ -f "$HOME/.zshrc" ] && { printf '%s' "$HOME/.zshrc"; return 0; }
+      [ -f "$HOME/.bashrc" ] && { printf '%s' "$HOME/.bashrc"; return 0; }
+      printf '%s' "$HOME/.profile"
+      ;;
+  esac
+}
+
+update_shell_path() {
+  prefix_bin=$1
+  [ "$INSTALL_SCOPE" = "global" ] || return 0
+  [ "$UPDATE_PATH" = "1" ] || return 0
+  path_contains "$prefix_bin" && return 0
+  [ "${HOME:-}" != "" ] || return 0
+  [ -d "$HOME" ] || mkdir -p "$HOME" || return 0
+
+  profile=$(shell_profile_path) || return 0
+  marker="# >>> Tree Ring Memory PATH >>>"
+  if [ -f "$profile" ] && grep -F "$marker" "$profile" >/dev/null 2>&1; then
+    PATH_PROFILE_UPDATED=$profile
+    return 0
+  fi
+
+  quoted_prefix_bin=$(shell_quote "$prefix_bin")
+  if {
+    printf '\n%s\n' "$marker"
+    printf 'TREE_RING_BIN_DIR=%s\n' "$quoted_prefix_bin"
+    printf 'case ":$PATH:" in\n'
+    printf '  *":$TREE_RING_BIN_DIR:"*) ;;\n'
+    printf '  *) export PATH="$TREE_RING_BIN_DIR:$PATH" ;;\n'
+    printf 'esac\n'
+    printf '# <<< Tree Ring Memory PATH <<<\n'
+  } >> "$profile"
+  then
+    PATH_PROFILE_UPDATED=$profile
+  fi
+}
+
 intro
 require_cargo
 
@@ -275,6 +341,7 @@ PREFIX=$(install_prefix)
 BIN="$PREFIX/bin/tree-ring"
 
 install_binary "$PREFIX"
+update_shell_path "$PREFIX/bin"
 
 [ -x "$BIN" ] || die "expected installed binary at $BIN"
 "$BIN" --help >/dev/null || die "installed binary did not run"
@@ -297,7 +364,12 @@ fi
 
 line ""
 if [ "$INSTALL_SCOPE" = "global" ] && ! path_contains "$PREFIX/bin"; then
-  line "Add this to your shell profile if tree-ring is not found:"
+  if [ "$PATH_PROFILE_UPDATED" != "" ] && [ "$UPDATE_PATH" = "1" ]; then
+    line "Updated shell profile: $PATH_PROFILE_UPDATED"
+    line "Open a new terminal, or run this now:"
+  else
+    line "Add this to your shell profile if tree-ring is not found:"
+  fi
   line "  export PATH=\"$PREFIX/bin:\$PATH\""
 fi
 if [ "$INSTALL_SCOPE" = "project" ]; then
