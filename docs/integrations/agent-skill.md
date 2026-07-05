@@ -39,26 +39,6 @@ tree-ring forget mem_example --mode redact --reason "remove sensitive detail"
 tree-ring maintain
 ```
 
-## Minimal Python Flow
-
-This flow requires the Rust native PyO3 binding.
-
-```python
-from tree_ring_memory import TreeRingMemory
-
-memory = TreeRingMemory.open(".tree-ring")
-event = memory.remember(
-    summary="Use project-scoped recall before changing release behavior.",
-    event_type="lesson",
-    scope="project",
-    project="example",
-    tags=["release", "workflow"],
-)
-
-results = memory.recall("release behavior", project="example")
-maintenance = memory.maintain()
-```
-
 ## Safety Rule
 
 When in doubt, do not store the memory.

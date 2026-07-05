@@ -24,7 +24,7 @@ tree-ring-memory/
 │   ├── tree-ring-memory-sqlite/    # SQLite/FTS storage backend
 │   └── tree-ring-memory-cli/       # native CLI
 ├── bindings/
-│   ├── python/                     # optional Python package wrapper
+│   ├── python/                     # optional Rust-built CPython extension
 │   └── node/                       # optional Node package wrapper
 ├── skills/
 ├── templates/
@@ -38,7 +38,7 @@ tree-ring-memory/
    evidence.
 2. Keep Rust as the runtime owner for schema, sensitivity, storage, recall,
    forget, import/export, audit, consolidation, maintenance, CLI, and TUI.
-3. Keep Python as a thin PyO3 binding package plus model conversion objects.
+3. Keep host bindings as optional Rust-built artifacts, not runtime owners.
 4. Add optional Node bindings after the Rust API stabilizes.
 
 ## Rust Core Requirements
@@ -68,13 +68,16 @@ keeps sensitive payloads out of generated summaries.
 
 v0.7 implements Rust-owned maintenance. It plans expired-memory deletion,
 secret-like redaction, protected-memory review, invalid-expiry review, and
-SQLite FTS drift repair. Apply/repair behavior is explicit and Rust-owned; the
-public `TreeRingMemory.open()` facade requires the native Rust binding.
+SQLite FTS drift repair. Apply/repair behavior is explicit and Rust-owned.
 Adapter-specific sync remains a future extension point.
 
 v0.8 removes Python-owned runtime behavior. Python remains useful for agent
 workflows through the native binding, but no durable behavior is implemented in
 Python.
+
+v0.9 removes tracked Python source, tests, and smoke scripts from the canonical
+repository. The optional CPython extension remains under `bindings/python`, but
+it is built from Rust and is not the public runtime owner.
 
 ## Non-Goals
 
@@ -88,4 +91,4 @@ The Rust rewrite should not:
 ## Decision
 
 The framework direction is Rust-native runtime, adapter-friendly edges.
-Python is a binding surface, not a runtime owner.
+Host bindings are integration edges, not runtime owners.
