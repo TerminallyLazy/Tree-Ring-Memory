@@ -4,10 +4,17 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+from typing import Any
 
 from tree_ring_memory.models import MemoryEvent
+from tree_ring_memory.models import now_utc
+from tree_ring_memory.sensitivity import SensitivityGuard
 
 
+EXPORT_RECORD_TYPE = "tree_ring_memory_export"
+MEMORY_EVENT_RECORD_TYPE = "memory_event"
+EXPORT_SCHEMA_VERSION = 1
+PLUGIN_VERSION = "0.4.0"
 _PLAIN_TEXT_TERM_RE = re.compile(r"\w+")
 _SEARCH_FILLER_TERMS = {
     "a",
@@ -177,6 +184,59 @@ class SQLiteMemoryStore:
             self.connection.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             self.connection.execute("DELETE FROM memory_fts WHERE id = ?", (memory_id,))
 
+    def export_jsonl(self, *, include_sensitive: bool = False, include_superseded: bool = False) -> str:
+        events = [
+            event
+            for event in self.list_all(include_superseded=include_superseded)
+            if include_sensitive or event.sensitivity == "normal"
+        ]
+        header = {
+            "type": EXPORT_RECORD_TYPE,
+            "schema_version": EXPORT_SCHEMA_VERSION,
+            "plugin_version": PLUGIN_VERSION,
+            "created_at": now_utc().isoformat(),
+            "memory_count": len(events),
+            "sensitive_included": include_sensitive,
+        }
+        records = [header]
+        records.extend({"type": MEMORY_EVENT_RECORD_TYPE, "memory": event.to_dict()} for event in events)
+        return "".join(f"{json.dumps(record, sort_keys=True)}\n" for record in records)
+
+    def import_jsonl(
+        self,
+        data: str,
+        *,
+        dry_run: bool = False,
+        replace_existing: bool = False,
+    ) -> dict[str, Any]:
+        events = _normalize_import_events(_decode_jsonl(data))
+        report = {
+            "valid_count": len(events),
+            "inserted_count": 0,
+            "replaced_count": 0,
+            "skipped_duplicate_count": 0,
+            "dry_run": dry_run,
+        }
+        if dry_run:
+            return report
+
+        for event in events:
+            if self.get(event.id) is None:
+                self.put(event)
+                self._apply_supersedes(event)
+                report["inserted_count"] += 1
+            elif replace_existing:
+                self.put(event)
+                self._apply_supersedes(event)
+                report["replaced_count"] += 1
+            else:
+                report["skipped_duplicate_count"] += 1
+        return report
+
+    def _apply_supersedes(self, event: MemoryEvent) -> None:
+        for old_id in event.supersedes:
+            self.supersede(old_id, event.id)
+
     def close(self) -> None:
         self.connection.close()
 
@@ -192,3 +252,100 @@ def _format_plain_text_fts_query(query: str) -> str:
         if term.casefold() not in _SEARCH_FILLER_TERMS
     ]
     return " AND ".join(f'"{term}"' for term in terms)
+
+
+def _decode_jsonl(data: str) -> list[MemoryEvent]:
+    events: list[MemoryEvent] = []
+    for index, line in enumerate(data.splitlines(), start=1):
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        try:
+            value = json.loads(trimmed)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"line {index}: invalid json: {exc}") from exc
+
+        record_type = value.get("type") if isinstance(value, dict) else None
+        try:
+            if record_type == EXPORT_RECORD_TYPE:
+                _validate_export_header(value)
+                continue
+            if record_type == MEMORY_EVENT_RECORD_TYPE:
+                events.append(MemoryEvent.from_dict(value.get("memory") or {}))
+                continue
+            events.append(MemoryEvent.from_dict(value))
+        except Exception as exc:
+            raise ValueError(f"line {index}: {exc}") from exc
+    return events
+
+
+def _validate_export_header(value: dict[str, Any]) -> None:
+    required = {
+        "type",
+        "schema_version",
+        "plugin_version",
+        "created_at",
+        "memory_count",
+        "sensitive_included",
+    }
+    missing = sorted(required.difference(value))
+    if missing:
+        raise ValueError(f"missing export header fields: {', '.join(missing)}")
+    schema_version = value.get("schema_version")
+    if schema_version != EXPORT_SCHEMA_VERSION:
+        raise ValueError(f"unsupported export schema version {schema_version}")
+    if not isinstance(value.get("plugin_version"), str) or not value["plugin_version"]:
+        raise ValueError("plugin_version must be a non-empty string")
+    if not isinstance(value.get("created_at"), str) or not value["created_at"]:
+        raise ValueError("created_at must be a non-empty string")
+    if not isinstance(value.get("memory_count"), int) or value["memory_count"] < 0:
+        raise ValueError("memory_count must be a non-negative integer")
+    if not isinstance(value.get("sensitive_included"), bool):
+        raise ValueError("sensitive_included must be a boolean")
+
+
+def _normalize_import_events(events: list[MemoryEvent]) -> list[MemoryEvent]:
+    return [_normalize_import_event(event) for event in events]
+
+
+def _normalize_import_event(event: MemoryEvent) -> MemoryEvent:
+    guard = SensitivityGuard()
+    detected = "normal"
+    for value in _event_text_values(event):
+        result = guard.check_or_raise(value or "")
+        if detected == "normal" and result.sensitivity != "normal":
+            detected = result.sensitivity
+    if event.sensitivity == "normal" and detected != "normal":
+        event.sensitivity = detected
+    event.validate()
+    return event
+
+
+def _event_text_values(event: MemoryEvent) -> list[str | None]:
+    values: list[str | None] = [
+        event.id,
+        event.created_at.isoformat(),
+        event.updated_at.isoformat(),
+        event.project,
+        event.agent_profile,
+        event.scope,
+        event.ring,
+        event.event_type,
+        event.summary,
+        event.details,
+        event.source.type,
+        event.source.ref,
+        event.source.quote,
+        event.sensitivity,
+        event.retention,
+        event.expires_at.isoformat() if event.expires_at else None,
+        event.superseded_by,
+        event.review.review_reason,
+        event.review.reviewed_at,
+        event.review.reviewed_by,
+    ]
+    values.extend(event.tags)
+    values.extend(event.supersedes)
+    for link in event.links:
+        values.extend([link.type, link.target])
+    return values

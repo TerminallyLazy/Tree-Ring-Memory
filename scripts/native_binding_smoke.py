@@ -60,6 +60,15 @@ def main() -> int:
                     "event = memory.remember(summary='Native default facade works.', event_type='lesson'); "
                     "results = memory.recall('native facade'); "
                     "assert results and results[0].memory.id == event.id; "
+                    "jsonl = memory.export_jsonl(); "
+                    "assert 'tree_ring_memory_export' in jsonl; "
+                    "target = TreeRingMemory.open(Path(tempfile.mkdtemp()) / '.tree-ring'); "
+                    "preview = target.import_jsonl(jsonl, dry_run=True); "
+                    "assert preview['valid_count'] == 1 and preview['inserted_count'] == 0; "
+                    "report = target.import_jsonl(jsonl); "
+                    "assert report['inserted_count'] == 1; "
+                    "imported = target.recall('native facade'); "
+                    "assert imported and imported[0].memory.id == event.id; "
                     "print(native.native_version())"
                 ),
             ]

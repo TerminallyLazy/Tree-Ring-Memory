@@ -10,7 +10,7 @@ import pytest
 from tree_ring_memory import TreeRingMemory
 import tree_ring_memory.native_backend as native_backend
 from tree_ring_memory.native_backend import NativeTreeRingMemory
-from tree_ring_memory.models import MemoryLink, MemoryReview, MemorySource
+from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource
 from tree_ring_memory.store import SQLiteMemoryStore
 from tree_ring_memory.rust_backend import RustCliTreeRingMemory
 
@@ -167,6 +167,148 @@ def test_rust_cli_json_contract_for_init_remember_recall_and_forget(tmp_path):
     assert forgotten.returncode == 0, forgotten.stderr
     forget_payload = json.loads(forgotten.stdout)
     assert forget_payload == {"ok": True, "memory_id": memory_payload["id"]}
+
+
+def test_rust_cli_export_import_jsonl_round_trip(tmp_path):
+    source_root = tmp_path / "source" / ".tree-ring"
+    target_root = tmp_path / "target" / ".tree-ring"
+    export_path = tmp_path / "memories.jsonl"
+
+    remembered = run_rust_cli(
+        source_root,
+        "--json",
+        "remember",
+        "Exported Rust memory survives import.",
+        "--event-type",
+        "lesson",
+        "--project",
+        "compat",
+        "--tag",
+        "export",
+    )
+    assert remembered.returncode == 0, remembered.stderr
+    memory_payload = json.loads(remembered.stdout)
+
+    exported = run_rust_cli(source_root, "--json", "export", "--output", str(export_path))
+    assert exported.returncode == 0, exported.stderr
+    export_report = json.loads(exported.stdout)
+    assert export_report["memory_count"] == 1
+    assert export_path.exists()
+    exported_lines = [json.loads(line) for line in export_path.read_text().splitlines()]
+    assert exported_lines[0]["type"] == "tree_ring_memory_export"
+    assert exported_lines[0]["schema_version"] == 1
+    assert exported_lines[0]["plugin_version"] == "0.4.0"
+    assert exported_lines[1]["type"] == "memory_event"
+
+    preview = run_rust_cli(target_root, "--json", "import", str(export_path), "--dry-run")
+    assert preview.returncode == 0, preview.stderr
+    preview_report = json.loads(preview.stdout)
+    assert preview_report["valid_count"] == 1
+    assert preview_report["inserted_count"] == 0
+    assert not target_root.exists()
+
+    imported = run_rust_cli(target_root, "--json", "import", str(export_path))
+    assert imported.returncode == 0, imported.stderr
+    import_report = json.loads(imported.stdout)
+    assert import_report["inserted_count"] == 1
+    assert import_report["skipped_duplicate_count"] == 0
+
+    recalled = run_rust_cli(target_root, "--json", "recall", "survives import", "--project", "compat")
+    assert recalled.returncode == 0, recalled.stderr
+    recall_payload = json.loads(recalled.stdout)
+    assert recall_payload[0]["memory"]["id"] == memory_payload["id"]
+
+
+def test_rust_cli_export_excludes_sensitive_by_default(tmp_path):
+    root = tmp_path / ".tree-ring"
+    normal = run_rust_cli(
+        root,
+        "--json",
+        "remember",
+        "Normal export memory.",
+        "--event-type",
+        "lesson",
+    )
+    assert normal.returncode == 0, normal.stderr
+    sensitive = run_rust_cli(
+        root,
+        "--json",
+        "remember",
+        "Private diagnosis should require explicit export.",
+        "--event-type",
+        "lesson",
+    )
+    assert sensitive.returncode == 0, sensitive.stderr
+
+    default_export = run_rust_cli(root, "export")
+    assert default_export.returncode == 0, default_export.stderr
+    assert "Normal export memory." in default_export.stdout
+    assert "Private diagnosis" not in default_export.stdout
+
+    sensitive_export = run_rust_cli(root, "export", "--include-sensitive")
+    assert sensitive_export.returncode == 0, sensitive_export.stderr
+    assert "Private diagnosis" in sensitive_export.stdout
+
+
+def test_rust_cli_import_skips_duplicates_by_default(tmp_path):
+    source_root = tmp_path / "source" / ".tree-ring"
+    target_root = tmp_path / "target" / ".tree-ring"
+    export_path = tmp_path / "memories.jsonl"
+
+    remembered = run_rust_cli(
+        source_root,
+        "--json",
+        "remember",
+        "Duplicate import should skip existing id.",
+        "--event-type",
+        "lesson",
+    )
+    assert remembered.returncode == 0, remembered.stderr
+    run_rust_cli(source_root, "export", "--output", str(export_path))
+
+    first = run_rust_cli(target_root, "--json", "import", str(export_path))
+    second = run_rust_cli(target_root, "--json", "import", str(export_path))
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    first_report = json.loads(first.stdout)
+    second_report = json.loads(second.stdout)
+    assert first_report["inserted_count"] == 1
+    assert second_report["inserted_count"] == 0
+    assert second_report["skipped_duplicate_count"] == 1
+
+
+def test_rust_cli_import_dry_run_blocks_secret_without_creating_root(tmp_path):
+    target_root = tmp_path / "target" / ".tree-ring"
+    export_path = tmp_path / "secret.jsonl"
+    secret = MemoryEvent.new(
+        summary="Imported secret sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 must fail.",
+        event_type="lesson",
+    )
+    export_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "tree_ring_memory_export",
+                        "schema_version": 1,
+                        "plugin_version": "0.4.0",
+                        "created_at": "2026-07-05T00:00:00+00:00",
+                        "memory_count": 1,
+                        "sensitive_included": True,
+                    }
+                ),
+                json.dumps({"type": "memory_event", "memory": secret.to_dict()}),
+            ]
+        )
+        + "\n"
+    )
+
+    preview = run_rust_cli(target_root, "--json", "import", str(export_path), "--dry-run")
+
+    assert preview.returncode == 2
+    assert "blocked" in preview.stderr
+    assert not target_root.exists()
 
 
 def test_python_written_rich_memory_is_rust_recall_json_readable(tmp_path):

@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::MemoryEvent;
+use tree_ring_memory_core::{decode_jsonl, normalize_import_events};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod tui;
@@ -54,6 +56,23 @@ enum Command {
         #[arg(long)]
         reason: String,
     },
+    #[command(about = "export memories as portable JSONL")]
+    Export {
+        #[arg(long, help = "write JSONL export to a file instead of stdout")]
+        output: Option<PathBuf>,
+        #[arg(long, help = "include sensitive memories in the export")]
+        include_sensitive: bool,
+        #[arg(long, help = "include superseded memories in the export")]
+        include_superseded: bool,
+    },
+    #[command(about = "import memories from portable JSONL")]
+    Import {
+        path: PathBuf,
+        #[arg(long, help = "validate the import without writing memories")]
+        dry_run: bool,
+        #[arg(long, help = "replace existing memories with matching ids")]
+        replace_existing: bool,
+    },
     #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
     Tui {
         #[arg(long, help = "optional JSONL event stream to light rings in real time")]
@@ -95,6 +114,37 @@ fn run(cli: Cli) -> Result<(), String> {
             return Err("--json is not supported with the interactive TUI".to_string());
         }
         return tui::run(cli.root, event_stream, tick_ms);
+    }
+
+    if let Command::Import {
+        path,
+        dry_run: true,
+        replace_existing: _,
+    } = cli.command
+    {
+        let input = fs::read_to_string(&path).map_err(|err| err.to_string())?;
+        let decoded = decode_jsonl(&input).map_err(|err| err.to_string())?;
+        let events = normalize_import_events(decoded.events).map_err(|err| err.to_string())?;
+        if cli.json {
+            println!(
+                "{}",
+                json!({
+                    "ok": true,
+                    "path": path,
+                    "valid_count": events.len(),
+                    "inserted_count": 0,
+                    "replaced_count": 0,
+                    "skipped_duplicate_count": 0,
+                    "dry_run": true,
+                })
+            );
+        } else {
+            println!(
+                "Tree Ring Memory import complete: valid={} inserted=0 replaced=0 skipped_duplicates=0 dry_run=true",
+                events.len()
+            );
+        }
+        return Ok(());
     }
 
     let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
@@ -212,6 +262,76 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("{}", json!({"ok": true, "memory_id": memory_id}));
             } else {
                 println!("Tree Ring Memory forget complete: {memory_id}");
+            }
+        }
+        Command::Export {
+            output,
+            include_sensitive,
+            include_superseded,
+        } => {
+            let (jsonl, report) = store
+                .export_jsonl(include_sensitive, include_superseded)
+                .map_err(|err| err.to_string())?;
+            if let Some(output) = output {
+                if let Some(parent) = output.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+                    }
+                }
+                fs::write(&output, jsonl).map_err(|err| err.to_string())?;
+                if cli.json {
+                    println!(
+                        "{}",
+                        json!({
+                            "ok": true,
+                            "path": output,
+                            "memory_count": report.memory_count,
+                            "sensitive_included": report.sensitive_included,
+                            "superseded_included": report.superseded_included,
+                        })
+                    );
+                } else {
+                    println!(
+                        "Tree Ring Memory export complete: {} memories -> {}",
+                        report.memory_count,
+                        output.display()
+                    );
+                }
+            } else {
+                print!("{jsonl}");
+            }
+        }
+        Command::Import {
+            path,
+            dry_run,
+            replace_existing,
+        } => {
+            let input = fs::read_to_string(&path).map_err(|err| err.to_string())?;
+            let report = store
+                .import_jsonl(&input, dry_run, replace_existing)
+                .map_err(|err| err.to_string())?;
+            if cli.json {
+                println!(
+                    "{}",
+                    json!({
+                        "ok": true,
+                        "path": path,
+                        "valid_count": report.valid_count,
+                        "inserted_count": report.inserted_count,
+                        "replaced_count": report.replaced_count,
+                        "skipped_duplicate_count": report.skipped_duplicate_count,
+                        "dry_run": report.dry_run,
+                    })
+                );
+            } else {
+                println!(
+                    "Tree Ring Memory import complete: valid={} inserted={} replaced={} skipped_duplicates={} dry_run={}",
+                    report.valid_count,
+                    report.inserted_count,
+                    report.replaced_count,
+                    report.skipped_duplicate_count,
+                    report.dry_run
+                );
             }
         }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),

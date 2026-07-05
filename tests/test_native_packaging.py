@@ -12,6 +12,6 @@ def test_native_binding_pyproject_is_extension_only():
     maturin = pyproject["tool"]["maturin"]
 
     assert pyproject["project"]["name"] == "tree-ring-memory-native"
-    assert pyproject["project"]["version"] == "0.3.0"
+    assert pyproject["project"]["version"] == "0.4.0"
     assert maturin["module-name"] == "tree_ring_memory._tree_ring_memory_native"
     assert maturin["python-source"] == "python"
