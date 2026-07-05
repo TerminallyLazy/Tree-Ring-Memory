@@ -46,6 +46,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         AppMode::Search => "search",
         AppMode::Stream => "stream",
         AppMode::Watch => "watch",
+        AppMode::Integrations => "integrations",
     };
     let header = Paragraph::new(Line::from(vec![
         Span::styled("TREE RING MEMORY", theme::brand()),
@@ -144,6 +145,10 @@ fn render_ring_hud(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    if app.mode == AppMode::Integrations {
+        render_integrations(frame, area, app);
+        return;
+    }
     let title = if app.search_query.is_empty() {
         "Memories".to_string()
     } else {
@@ -188,6 +193,48 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(list, area);
 }
 
+fn render_integrations(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let items = app
+        .integration_report
+        .as_ref()
+        .map(|report| {
+            report
+                .integrations
+                .iter()
+                .map(|integration| {
+                    let detected =
+                        integration.status == crate::integrations::IntegrationStatus::Detected;
+                    let marker = if detected { "*" } else { " " };
+                    let style = if detected {
+                        theme::selected()
+                    } else {
+                        theme::dim()
+                    };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(marker, theme::secondary_accent()),
+                        Span::styled(format!(" {:<18}", integration.name), style),
+                        Span::styled(
+                            format!(" {:?} {:.2}", integration.status, integration.confidence),
+                            theme::dim(),
+                        ),
+                    ]))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| {
+            vec![ListItem::new(Line::from(Span::styled(
+                "Run /integrations to scan.",
+                theme::dim(),
+            )))]
+        });
+    let title = app
+        .integration_report
+        .as_ref()
+        .map(|report| format!("Agent Frameworks: {} detected", report.detected_count))
+        .unwrap_or_else(|| "Agent Frameworks".to_string());
+    frame.render_widget(List::new(items).block(theme::panel(title)), area);
+}
+
 fn memory_item<'a>(
     index: usize,
     selected: usize,
@@ -227,7 +274,31 @@ fn memory_item<'a>(
 
 fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let mut lines = Vec::new();
-    if let Some(memory) = app.selected_memory() {
+    if app.mode == AppMode::Integrations {
+        if let Some(report) = &app.integration_report {
+            lines.push(Line::from(vec![
+                Span::styled("root ", theme::dim()),
+                Span::raw(report.root.display().to_string()),
+            ]));
+            lines.push(Line::from(""));
+            for integration in report.integrations.iter().take(6) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{} ", integration.name), theme::brand()),
+                    Span::styled(format!("{:?}", integration.status), theme::dim()),
+                ]));
+                lines.push(Line::from(truncate(integration.next_step, 140)));
+                if !integration.markers.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        truncate(&format!("markers: {}", integration.markers.join(", ")), 140),
+                        theme::dim(),
+                    )));
+                }
+                lines.push(Line::from(""));
+            }
+        } else {
+            lines.push(Line::from("Run /integrations to scan local agent markers."));
+        }
+    } else if let Some(memory) = app.selected_memory() {
         let details = if memory.sensitivity == "normal" || app.include_sensitive {
             truncate(&memory.details, 220)
         } else {

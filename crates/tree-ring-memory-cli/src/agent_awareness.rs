@@ -27,6 +27,9 @@ tree-ring evidence "Aggressive caching caused stale multi-chat state." --outcome
 tree-ring forget mem_example --mode redact --reason "remove sensitive detail"
 tree-ring consolidate --period-type manual --dry-run
 tree-ring maintain
+tree-ring dox sync --source-root . --dry-run
+tree-ring revolve sync --source-root revolve --dry-run
+tree-ring integrations scan --source-root .
 tree-ring tui
 ```
 

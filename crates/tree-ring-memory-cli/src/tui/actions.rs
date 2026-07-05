@@ -1,10 +1,28 @@
+use std::path::PathBuf;
+
+use tree_ring_memory_core::ConsolidationRequest;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionKind {
     Delete,
     Redact,
-    ChangeRing { ring: String, event_type: String },
-    Supersede { old_id: String, new_id: String },
-    Placeholder { command: String },
+    ChangeRing {
+        ring: String,
+        event_type: String,
+    },
+    Supersede {
+        old_id: String,
+        new_id: String,
+    },
+    Consolidate {
+        request: ConsolidationRequest,
+    },
+    Export {
+        output: PathBuf,
+        include_sensitive: bool,
+        include_superseded: bool,
+    },
+    Sync,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,13 +72,47 @@ impl PendingAction {
         }
     }
 
-    pub fn placeholder(command: &str) -> Self {
+    pub fn consolidate(request: ConsolidationRequest) -> Self {
         Self {
-            kind: ActionKind::Placeholder {
-                command: command.to_string(),
+            summary: format!(
+                "Run {} consolidation{}",
+                request.period_type,
+                if request.force { " with force" } else { "" }
+            ),
+            kind: ActionKind::Consolidate { request },
+            memory_id: None,
+        }
+    }
+
+    pub fn export(output: PathBuf, include_sensitive: bool, include_superseded: bool) -> Self {
+        let mut warnings = Vec::new();
+        if include_sensitive {
+            warnings.push("including sensitive memory");
+        }
+        if include_superseded {
+            warnings.push("including superseded memory");
+        }
+        let suffix = if warnings.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", warnings.join(", "))
+        };
+        Self {
+            summary: format!("Export memory to {}{suffix}", output.display()),
+            kind: ActionKind::Export {
+                output,
+                include_sensitive,
+                include_superseded,
             },
             memory_id: None,
-            summary: format!("Run {command} maintenance flow"),
+        }
+    }
+
+    pub fn sync_placeholder() -> Self {
+        Self {
+            kind: ActionKind::Sync,
+            memory_id: None,
+            summary: "Run integration sync".to_string(),
         }
     }
 

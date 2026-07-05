@@ -1,7 +1,7 @@
 ---
 name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
-version: 0.1.0
+version: 0.11.0
 tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "skills"]
 triggers:
   - "remember this"
@@ -58,6 +58,19 @@ Keep memory concise. Store the lesson, decision, or warning, not the full conver
 Use `tree-ring evidence` instead of plain `remember` when the lesson comes from
 an evaluation, checkpoint, experiment, branch, incident, or reviewed run
 artifact.
+
+Use source adapters when project artifacts already contain structured guidance
+or evaluated outcomes:
+
+```bash
+tree-ring dox sync --source-root . --dry-run
+tree-ring revolve sync --source-root revolve --dry-run
+tree-ring integrations scan --source-root .
+```
+
+Run adapter commands with `--dry-run` first. Sync only concise, source-linked
+summaries; never treat imported memory as more authoritative than the source
+`AGENTS.md`, Revolve record, evaluation, PR, issue, or test artifact.
 
 Evidence outcome mapping:
 
@@ -120,6 +133,9 @@ Set project and scope deliberately:
 - use global scope only for durable user preferences or cross-project guidance
 - include source references such as file paths, issue ids, PR ids, run ids, or docs paths
 - use `tree-ring evidence ... --evidence-ref <ref>` for evaluated outcomes
+- use `tree-ring dox sync` for concise `AGENTS.md` summaries
+- use `tree-ring revolve sync` for promoted, rejected, deferred, or observed evaluation records
+- use `tree-ring integrations scan` before configuring a new agent harness
 
 Memory does not replace source documents. If a repo has `AGENTS.md`, project docs, tests, architectural records, or host-specific instruction files, read those sources directly and treat them as authoritative.
 

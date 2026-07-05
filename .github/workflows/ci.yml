@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Cargo test
+        run: cargo test --workspace --locked
+
+      - name: Installer syntax
+        run: sh -n install.sh
+
+      - name: Installer help
+        run: sh install.sh --help
+
+      - name: CLI smoke
+        run: |
+          cargo run -p tree-ring-memory-cli -- --help
+          cargo run -p tree-ring-memory-cli -- welcome --no-animation
+          cargo run -p tree-ring-memory-cli -- integrations scan --source-root .
+          cargo run -p tree-ring-memory-cli -- dox sync --source-root . --dry-run
+
+      - name: Performance smoke
+        run: cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000

@@ -1,12 +1,12 @@
 # Rust Core Status
 
-Tree Ring Memory has moved from an early Python prototype to a Rust-owned
-runtime. This page tracks the v0.2 Rust
-core, v0.3 native Python binding work, the Rust-native Ratatui terminal
-console, the v0.4 Rust-owned JSONL import/export path, and v0.5 deterministic
-audit checks, the v0.6 deterministic consolidation path, the v0.7 Rust-owned
-maintenance lifecycle, v0.8 Python-runtime removal, v0.9 removal of tracked
-Python source from the canonical repo, and v0.10 installer/onboarding work.
+Tree Ring Memory has moved from an early prototype to a Rust-owned runtime.
+This page tracks the v0.2 Rust core, the Rust-native Ratatui terminal console,
+the v0.4 Rust-owned JSONL import/export path, v0.5 deterministic audit checks,
+v0.6 deterministic consolidation, v0.7 Rust-owned maintenance, v0.8
+Python-runtime removal, v0.9 removal of tracked Python source and optional
+CPython bindings from the canonical repo, v0.10 installer/onboarding work, and
+v0.11 Rust-native source adapters plus framework discovery.
 
 ## Current Status
 
@@ -16,13 +16,8 @@ Python source from the canonical repo, and v0.10 installer/onboarding work.
 - Rust SQLite crate owns schema-compatible SQLite/FTS storage.
 - Rust CLI can initialize, remember, recall, and forget local memory.
 - Rust CLI has JSON output for machine-readable adapter use.
-- `bindings/python` remains an optional Rust-built CPython extension crate.
 - The repository no longer tracks a root Python package, Python wrapper layer,
-  pytest suite, or Python smoke scripts.
-- The v0.3 native backend supports the full public `remember()` and `recall()`
-  contracts, including details, source metadata, agent profile, scores,
-  retention, expiry, links, review metadata, supersession, recall filters,
-  superseded-memory inclusion, and ranking explanations.
+  pytest suite, Python smoke scripts, PyO3 crate, or CPython extension.
 - The v0.4 Rust core and SQLite store own portable JSONL import/export.
   Exports exclude sensitive and superseded memories by default; import validates
   events, supports dry-run previews, skips duplicate ids by default, and only
@@ -46,6 +41,11 @@ Python source from the canonical repo, and v0.10 installer/onboarding work.
   gates for destructive or authority-changing actions.
 - The repository includes `install.sh` for one-line global or project-local
   installs, plus `tree-ring welcome` for first-run terminal onboarding.
+- The Rust CLI includes `tree-ring dox sync` and `tree-ring revolve sync` as
+  source adapters that produce concise, source-linked memory events without
+  replacing DOX contracts or Revolve evidence records.
+- The Rust CLI and TUI include read-only agent-framework discovery for DOX,
+  Revolve, Codex, Claude Code, Agent Zero/A0, Goose, OpenCode, Hermes, and Pi.
 
 ## Build Commands
 
@@ -60,15 +60,11 @@ cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
 cargo run -p tree-ring-memory-cli -- maintain --help
-cargo build -p tree-ring-memory-python --features extension-module
+cargo run -p tree-ring-memory-cli -- dox sync --help
+cargo run -p tree-ring-memory-cli -- revolve sync --help
+cargo run -p tree-ring-memory-cli -- integrations scan --help
 cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000
 ```
-
-## Optional CPython Extension
-
-`bindings/python` builds a CPython extension from Rust through PyO3. It is an
-adapter artifact for host runtimes that need it, not a Python implementation and
-not the canonical public runtime.
 
 ## Smoke Coverage
 
@@ -76,13 +72,12 @@ not the canonical public runtime.
   SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
   import/export filtering and duplicate handling, deterministic audit checks,
   deterministic consolidation planning, maintenance planning/application, FTS
-  repair, and basic concurrent writes. Rust PyO3 tests cover native JSON
-  remember/recall round-trip, forget validation, JSONL import/export, audit,
-  consolidation, and maintenance.
+  repair, and basic concurrent writes.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
   JSONL import/export/audit/consolidate commands plus the Ratatui TUI model,
   stream reader, slash-command parser, store-watch refresh, confirmation-gated
-  actions, CLI parsing, and render-buffer smoke.
+  actions, DOX/Revolve sync commands, framework discovery, CLI parsing, and
+  render-buffer smoke.
 - `crates/tree-ring-memory-sqlite/examples/performance_smoke.rs` provides an
   operator-run local insert and recall timing check. It fails if expected
   recalls are empty, emits a stable `METRICS_JSON=` line, and enforces

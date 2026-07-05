@@ -10,7 +10,7 @@ Rust fits the long-term shape of Tree Ring Memory because the framework should b
 - fast for local recall and consolidation
 - safe around privacy-sensitive local data
 - predictable under concurrent CLI, server, and tool access
-- portable across Python, Node, CLI, desktop, and sidecar deployments
+- portable across CLI, desktop, sidecar, and agent-harness deployments
 - strict about schema boundaries and invalid state
 
 SQLite and FTS remain the right default storage layer. Rust should own the lifecycle logic around it.
@@ -23,9 +23,6 @@ tree-ring-memory/
 │   ├── tree-ring-memory-core/      # models, validation, privacy, recall ranking
 │   ├── tree-ring-memory-sqlite/    # SQLite/FTS storage backend
 │   └── tree-ring-memory-cli/       # native CLI
-├── bindings/
-│   ├── python/                     # optional Rust-built CPython extension
-│   └── node/                       # optional Node package wrapper
 ├── skills/
 ├── templates/
 ├── schemas/
@@ -38,8 +35,8 @@ tree-ring-memory/
    evidence.
 2. Keep Rust as the runtime owner for schema, sensitivity, storage, recall,
    forget, import/export, audit, consolidation, maintenance, CLI, and TUI.
-3. Keep host bindings as optional Rust-built artifacts, not runtime owners.
-4. Add optional Node bindings after the Rust API stabilizes.
+3. Keep host integrations outside the runtime core unless they are Rust-native
+   adapters maintained with the same lifecycle guarantees.
 
 ## Rust Core Requirements
 
@@ -55,12 +52,12 @@ The Rust core must support:
 - JSON import/export compatibility with the published schemas
 
 v0.4 implements the JSONL import/export baseline in Rust and exposes it through
-the CLI and Python backends. Markdown exports, SQLite backups, and signed
-bundles remain future extension points.
+the CLI. Markdown exports, SQLite backups, and signed bundles remain future
+extension points.
 
 v0.5 implements deterministic local audit checks in Rust and exposes them
-through SQLite, CLI, and native Python surfaces. Consolidation and automatic
-repair remain future extension points.
+through SQLite and CLI surfaces. Consolidation and automatic repair remain
+future extension points.
 
 v0.6 implements deterministic consolidation in Rust. It creates source-linked
 summary memories without LLMs, persists idempotent consolidation records, and
@@ -71,13 +68,16 @@ secret-like redaction, protected-memory review, invalid-expiry review, and
 SQLite FTS drift repair. Apply/repair behavior is explicit and Rust-owned.
 Adapter-specific sync remains a future extension point.
 
-v0.8 removes Python-owned runtime behavior. Python remains useful for agent
-workflows through the native binding, but no durable behavior is implemented in
-Python.
+v0.8 removes Python-owned runtime behavior.
 
-v0.9 removes tracked Python source, tests, and smoke scripts from the canonical
-repository. The optional CPython extension remains under `bindings/python`, but
-it is built from Rust and is not the public runtime owner.
+v0.9 removes tracked Python source, tests, smoke scripts, and the optional
+CPython extension from the canonical repository.
+
+v0.10 adds one-line installer onboarding and the Rust-native terminal welcome
+flow.
+
+v0.11 adds Rust-native DOX and Revolve source adapters, TUI export and
+consolidation backend actions, and read-only agent-framework discovery.
 
 ## Non-Goals
 
@@ -90,5 +90,5 @@ The Rust rewrite should not:
 
 ## Decision
 
-The framework direction is Rust-native runtime, adapter-friendly edges.
-Host bindings are integration edges, not runtime owners.
+The framework direction is Rust-native runtime, adapter-friendly CLI and local
+protocol edges. Host integrations are coordination edges, not runtime owners.
