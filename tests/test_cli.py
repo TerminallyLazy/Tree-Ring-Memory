@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tree_ring_memory import TreeRingMemory
+from tree_ring_memory import PythonTreeRingMemory, TreeRingMemory
 import tree_ring_memory.native_backend as native_backend
 from tree_ring_memory.native_backend import NativeTreeRingMemory
 from tree_ring_memory.models import MemoryEvent, MemoryLink, MemoryReview, MemorySource
@@ -54,37 +54,40 @@ def run_rust_cli(root, *args):
 
 
 def test_cli_init_creates_store(tmp_path):
-    result = run_cli("init", cwd=tmp_path)
+    root = tmp_path / ".tree-ring"
+    result = run_rust_cli(root, "init")
 
     assert result.returncode == 0
-    assert (tmp_path / ".tree-ring" / "memory.sqlite").exists()
+    assert (root / "memory.sqlite").exists()
     assert "Tree Ring Memory initialized" in result.stdout
 
 
 def test_cli_remember_and_recall(tmp_path):
-    init = run_cli("init", cwd=tmp_path)
+    root = tmp_path / ".tree-ring"
+    init = run_rust_cli(root, "init")
     assert init.returncode == 0
 
-    remembered = run_cli("remember", "Use protocol-first design.", "--event-type", "decision", cwd=tmp_path)
+    remembered = run_rust_cli(root, "remember", "Use protocol-first design.", "--event-type", "decision")
     assert remembered.returncode == 0
     assert "mem_" in remembered.stdout
 
-    recalled = run_cli("recall", "protocol", cwd=tmp_path)
+    recalled = run_rust_cli(root, "recall", "protocol")
     assert recalled.returncode == 0
     assert "Use protocol-first design." in recalled.stdout
 
 
 def test_cli_remember_secret_tag_returns_policy_error(tmp_path):
     secret_token = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
+    root = tmp_path / ".tree-ring"
 
-    remembered = run_cli(
+    remembered = run_rust_cli(
+        root,
         "remember",
         "Facade should guard indexed tags.",
         "--event-type",
         "lesson",
         "--tag",
         secret_token,
-        cwd=tmp_path,
     )
 
     assert remembered.returncode == 2
@@ -93,7 +96,7 @@ def test_cli_remember_secret_tag_returns_policy_error(tmp_path):
 
 
 def test_cli_forget_blank_reason_returns_controlled_error(tmp_path):
-    forgotten = run_cli("forget", "mem_missing", "--reason", "   ", cwd=tmp_path)
+    forgotten = run_rust_cli(tmp_path / ".tree-ring", "forget", "mem_missing", "--reason", "   ")
 
     assert forgotten.returncode == 2
     assert "forget reason is required" in forgotten.stderr
@@ -197,7 +200,7 @@ def test_rust_cli_export_import_jsonl_round_trip(tmp_path):
     exported_lines = [json.loads(line) for line in export_path.read_text().splitlines()]
     assert exported_lines[0]["type"] == "tree_ring_memory_export"
     assert exported_lines[0]["schema_version"] == 1
-    assert exported_lines[0]["plugin_version"] == "0.6.0"
+    assert exported_lines[0]["plugin_version"] == "0.7.0"
     assert exported_lines[1]["type"] == "memory_event"
 
     preview = run_rust_cli(target_root, "--json", "import", str(export_path), "--dry-run")
@@ -335,7 +338,7 @@ def test_rust_cli_audit_json_reports_sensitive_memory(tmp_path):
 
 def test_python_written_rich_memory_is_rust_recall_json_readable(tmp_path):
     root = tmp_path / ".tree-ring"
-    memory = TreeRingMemory.open(root)
+    memory = PythonTreeRingMemory.open(root)
     event = memory.remember(
         summary="Python writes rich memory for Rust recall.",
         details="Rust should preserve source refs and details.",
@@ -409,6 +412,24 @@ def test_default_facade_does_not_fallback_when_native_extension_is_broken(tmp_pa
 
     with pytest.raises(ImportError, match="dlopen failed"):
         TreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_default_facade_does_not_fallback_when_native_extension_is_missing(tmp_path):
+    with pytest.raises(ImportError, match="native bindings are not installed"):
+        TreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_default_facade_rejects_python_backend_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("TREE_RING_MEMORY_BACKEND", "python")
+
+    with pytest.raises(ValueError, match="PythonTreeRingMemory.open"):
+        TreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_python_reference_backend_does_not_own_maintenance(tmp_path):
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
+
+    assert not hasattr(memory, "maintain")
 
 
 def test_default_facade_uses_native_backend_when_extension_is_available(tmp_path, monkeypatch):
@@ -528,6 +549,62 @@ def test_native_backend_recall_sends_full_filter_contract(tmp_path):
         "limit": 3,
         "explain_ranking": True,
     }
+
+
+def test_native_backend_maintain_delegates_to_binding(tmp_path):
+    class FakeNativeStore:
+        def __init__(self):
+            self.args = None
+
+        def maintain_json(
+            self,
+            project,
+            include_superseded,
+            apply_expired,
+            apply_secret_redactions,
+            repair_fts,
+        ):
+            self.args = (
+                project,
+                include_superseded,
+                apply_expired,
+                apply_secret_redactions,
+                repair_fts,
+            )
+            return json.dumps(
+                {
+                    "id": "maint_test",
+                    "generated_at": "2026-07-05T00:00:00Z",
+                    "memory_count": 3,
+                    "planned_action_count": 1,
+                    "applied_action_count": 1,
+                    "dry_run": False,
+                    "status": "applied",
+                    "actions": [],
+                    "fts": {
+                        "memory_rows": 3,
+                        "fts_rows": 3,
+                        "missing_fts_rows": 0,
+                        "orphan_fts_rows": 0,
+                        "repaired": True,
+                    },
+                }
+            )
+
+    fake_native = FakeNativeStore()
+    memory = NativeTreeRingMemory(fake_native, tmp_path / ".tree-ring")
+
+    report = memory.maintain(
+        project="core",
+        include_superseded=True,
+        apply_expired=True,
+        apply_secret_redactions=True,
+        repair_fts=True,
+    )
+
+    assert fake_native.args == ("core", True, True, True, True)
+    assert report["status"] == "applied"
+    assert report["fts"]["repaired"] is True
 
 
 def test_rust_cli_backend_prefers_configured_binary(tmp_path, monkeypatch):

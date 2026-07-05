@@ -4,11 +4,13 @@ Tree Ring Memory has moved from a Python-owned reference implementation toward
 a Rust-first core with Python compatibility. This page tracks the v0.2 Rust
 core, v0.3 native Python binding work, the Rust-native Ratatui terminal
 console, the v0.4 Rust-owned JSONL import/export path, and v0.5 deterministic
-audit checks, and the v0.6 deterministic consolidation path.
+audit checks, the v0.6 deterministic consolidation path, and the v0.7
+Rust-owned maintenance lifecycle.
 
 ## Current Status
 
-- Python remains the stable public API surface.
+- The public runtime is Rust-native through the Rust CLI and optional PyO3
+  native binding.
 - Rust workspace exists under `crates/`.
 - Rust core owns model validation, sensitivity checks, and recall scoring.
 - Rust SQLite crate owns schema-compatible SQLite/FTS storage.
@@ -17,9 +19,8 @@ audit checks, and the v0.6 deterministic consolidation path.
 - Python has an explicit `RustCliTreeRingMemory` compatibility adapter.
 - Python has an explicit `NativeTreeRingMemory` wrapper backed by the optional
   PyO3 module in `bindings/python`.
-- The public `TreeRingMemory.open()` facade is Rust-first when the native module
-  is installed. It falls back to the explicit `PythonTreeRingMemory` reference
-  backend in source checkouts unless native is required by configuration.
+- The public `TreeRingMemory.open()` facade requires the native Rust module and
+  no longer silently falls back to `PythonTreeRingMemory`.
 - The v0.2 adapter is intentionally limited: `remember` supports summary,
   event type, ring, scope, project, and tags; `recall` supports query, project,
   limit, and sensitive-memory inclusion. Unsupported Python facade fields raise
@@ -43,6 +44,10 @@ audit checks, and the v0.6 deterministic consolidation path.
   consolidation create source-linked summary memories, persist idempotent
   consolidation records, and avoid copying sensitive payload text into
   generated summaries.
+- The v0.7 Rust core owns maintenance planning for expired memory, secret-like
+  memory redaction, protected-memory review, invalid expiry review, and SQLite
+  FTS drift reporting. SQLite and CLI can apply eligible expiry deletion,
+  secret redaction, and FTS rebuild only through explicit apply/repair flags.
 - The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
   always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
@@ -59,6 +64,7 @@ cargo run -p tree-ring-memory-cli -- export --help
 cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
+cargo run -p tree-ring-memory-cli -- maintain --help
 python3 scripts/rust_performance_smoke.py --count 1000
 cargo build -p tree-ring-memory-python --features extension-module
 python3 scripts/native_binding_smoke.py --install-maturin
@@ -91,6 +97,7 @@ jsonl = memory.export_jsonl()
 preview = memory.import_jsonl(jsonl, dry_run=True)
 audit_report = memory.audit()
 consolidation_report = memory.consolidate(period_type="manual", dry_run=True)
+maintenance_report = memory.maintain()
 ```
 
 `NativeTreeRingMemory` requires the optional PyO3 extension module. Build it
@@ -101,30 +108,29 @@ clear `ImportError` with that build hint.
 
 Backend controls:
 
-- `TREE_RING_MEMORY_BACKEND=auto`: use Rust native when available, otherwise
-  Python reference fallback.
-- `TREE_RING_MEMORY_BACKEND=native` or `TREE_RING_MEMORY_REQUIRE_NATIVE=1`:
-  require Rust native bindings.
-- `TREE_RING_MEMORY_BACKEND=python`: force the reference backend.
+- `TREE_RING_MEMORY_BACKEND=auto`, `native`, `rust`, and `rust-native`: use the
+  native Rust binding and fail if it is missing.
+- `TREE_RING_MEMORY_BACKEND=python`: rejected by `TreeRingMemory.open()`; use
+  `PythonTreeRingMemory.open()` explicitly for reference-backend parity work.
 
 ## Smoke Coverage
 
 - Rust unit tests cover model validation, sensitivity checks, recall scoring,
   SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
   import/export filtering and duplicate handling, deterministic audit checks,
-  deterministic consolidation planning, and basic concurrent writes. Rust
-  binding tests cover native JSON
-  remember/recall round-trip, forget validation, JSONL import/export, and
-  audit.
+  deterministic consolidation planning, maintenance planning/application, FTS
+  repair, and basic concurrent writes. Rust binding tests cover native JSON
+  remember/recall round-trip, forget validation, JSONL import/export, audit,
+  consolidation, and maintenance.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
   JSONL import/export/audit/consolidate commands plus the Ratatui TUI model,
   stream reader, slash-command parser, store-watch refresh, confirmation-gated
   actions, CLI parsing, and render-buffer smoke.
 - Python tests cover the existing reference backend, Rust CLI database
   compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
-  native selection, full native wrapper argument marshalling, and clean
-  missing-extension behavior. They also cover Python reference and native
-  wrapper JSONL import/export parity and audit parity.
+  native selection without Python fallback, full native wrapper argument
+  marshalling, and clean missing-extension behavior. They also cover Python
+  reference and native wrapper JSONL import/export parity and audit parity.
 - `scripts/rust_performance_smoke.py` provides an operator-run local insert and
   recall timing check. It fails if expected recalls are empty, emits a stable
   `METRICS_JSON=` line, and enforces conservative synthetic-workload thresholds

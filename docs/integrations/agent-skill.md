@@ -36,9 +36,13 @@ tree-ring init
 tree-ring recall "project startup warnings"
 tree-ring remember "Use protocol-first design." --event-type decision --scope project --tag architecture
 tree-ring forget mem_example --mode redact --reason "remove sensitive detail"
+tree-ring maintain
 ```
 
 ## Minimal Python Flow
+
+This flow requires the Rust native PyO3 binding. For reference-backend parity
+testing, import `PythonTreeRingMemory` explicitly instead.
 
 ```python
 from tree_ring_memory import TreeRingMemory
@@ -53,6 +57,7 @@ event = memory.remember(
 )
 
 results = memory.recall("release behavior", project="example")
+maintenance = memory.maintain()
 ```
 
 ## Safety Rule

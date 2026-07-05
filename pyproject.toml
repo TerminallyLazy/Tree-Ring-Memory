@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tree-ring-memory"
-version = "0.6.0"
+version = "0.7.0"
 description = "Framework-agnostic tree-ring memory for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,9 +26,6 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-
-[project.scripts]
-tree-ring = "tree_ring_memory.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
