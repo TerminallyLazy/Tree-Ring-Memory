@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -9,7 +10,9 @@ from tree_ring_memory.sensitivity import SensitivityGuard, SensitivityResult
 from tree_ring_memory.store import SQLiteMemoryStore
 
 
-class TreeRingMemory:
+class PythonTreeRingMemory:
+    backend_name = "python-reference"
+
     def __init__(self, root: Path, store: SQLiteMemoryStore) -> None:
         self.root = root
         self.store = store
@@ -17,7 +20,7 @@ class TreeRingMemory:
         self._sensitivity_guard = SensitivityGuard()
 
     @classmethod
-    def open(cls, root: str | Path) -> TreeRingMemory:
+    def open(cls, root: str | Path) -> PythonTreeRingMemory:
         root = Path(root)
         root.mkdir(parents=True, exist_ok=True)
         return cls(root, SQLiteMemoryStore.open(root / "memory.sqlite"))
@@ -154,6 +157,35 @@ class TreeRingMemory:
 
     def _check_public_text_fields(self, *values: str | None) -> list[SensitivityResult]:
         return [self._sensitivity_guard.check_or_raise(value or "") for value in values]
+
+
+class TreeRingMemory:
+    """Rust-first public facade.
+
+    Python remains available as a source-checkout fallback when the optional
+    native extension is not installed. Set `TREE_RING_MEMORY_BACKEND=python` to
+    force the reference path, or `TREE_RING_MEMORY_REQUIRE_NATIVE=1` to fail
+    instead of falling back.
+    """
+
+    @classmethod
+    def open(cls, root: str | Path):
+        backend = os.environ.get("TREE_RING_MEMORY_BACKEND", "auto").casefold()
+        if backend == "python":
+            return PythonTreeRingMemory.open(root)
+        if backend not in {"auto", "native", "rust", "rust-native"}:
+            raise ValueError(f"unsupported Tree Ring Memory backend: {backend}")
+
+        try:
+            from tree_ring_memory.native_backend import NativeBindingNotInstalled, NativeTreeRingMemory
+
+            return NativeTreeRingMemory.open(root)
+        except NativeBindingNotInstalled:
+            if backend in {"native", "rust", "rust-native"} or os.environ.get(
+                "TREE_RING_MEMORY_REQUIRE_NATIVE"
+            ) == "1":
+                raise
+            return PythonTreeRingMemory.open(root)
 
 
 def _detected_sensitivity(*results: SensitivityResult) -> str:

@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from tree_ring_memory import TreeRingMemory
 import tree_ring_memory.native_backend as native_backend
 from tree_ring_memory.native_backend import NativeTreeRingMemory
-from tree_ring_memory.models import MemorySource
+from tree_ring_memory.models import MemoryLink, MemoryReview, MemorySource
 from tree_ring_memory.store import SQLiteMemoryStore
 from tree_ring_memory.rust_backend import RustCliTreeRingMemory
 
@@ -233,6 +234,136 @@ def test_native_backend_preserves_broken_extension_import_error(tmp_path, monkey
 
     with pytest.raises(ImportError, match="dlopen failed"):
         NativeTreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_default_facade_does_not_fallback_when_native_extension_is_broken(tmp_path, monkeypatch):
+    def broken_import(name):
+        assert name == "tree_ring_memory._tree_ring_memory_native"
+        raise ImportError("dlopen failed")
+
+    monkeypatch.setattr(native_backend.importlib, "import_module", broken_import)
+
+    with pytest.raises(ImportError, match="dlopen failed"):
+        TreeRingMemory.open(tmp_path / ".tree-ring")
+
+
+def test_default_facade_uses_native_backend_when_extension_is_available(tmp_path, monkeypatch):
+    class FakeNativeStore:
+        @staticmethod
+        def open(root):
+            return {"root": root}
+
+    fake_module = types.SimpleNamespace(TreeRingMemoryNative=FakeNativeStore)
+    monkeypatch.setattr(
+        native_backend.importlib,
+        "import_module",
+        lambda name: fake_module if name == "tree_ring_memory._tree_ring_memory_native" else None,
+    )
+
+    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+
+    assert isinstance(memory, NativeTreeRingMemory)
+    assert memory.backend_name == "rust-native"
+
+
+def test_native_backend_remember_sends_full_facade_contract(tmp_path):
+    class FakeNativeStore:
+        def __init__(self):
+            self.request = None
+
+        def remember_event_json(self, request_json):
+            self.request = json.loads(request_json)
+            return json.dumps(
+                {
+                    "id": "mem_native",
+                    "created_at": "2026-07-05T00:00:00+00:00",
+                    "updated_at": "2026-07-05T00:00:00+00:00",
+                    "project": self.request["project"],
+                    "agent_profile": self.request["agent_profile"],
+                    "scope": self.request["scope"],
+                    "ring": self.request["ring"],
+                    "event_type": self.request["event_type"],
+                    "summary": self.request["summary"],
+                    "details": self.request["details"],
+                    "source": self.request["source"],
+                    "tags": self.request["tags"],
+                    "salience": self.request["salience"],
+                    "confidence": self.request["confidence"],
+                    "sensitivity": self.request["sensitivity"],
+                    "retention": self.request["retention"],
+                    "expires_at": self.request["expires_at"],
+                    "supersedes": self.request["supersedes"],
+                    "superseded_by": None,
+                    "links": self.request["links"],
+                    "review": self.request["review"],
+                }
+            )
+
+    fake_native = FakeNativeStore()
+    memory = NativeTreeRingMemory(fake_native, tmp_path / ".tree-ring")
+
+    event = memory.remember(
+        summary="Rust owns wrapper contract.",
+        details="Full detail",
+        event_type="decision",
+        scope="project",
+        ring="heartwood",
+        project="migration",
+        agent_profile="default",
+        source=MemorySource(type="file", ref="README.md"),
+        tags=["rust"],
+        salience=0.7,
+        confidence=0.8,
+        sensitivity="private",
+        retention="durable",
+        supersedes=["mem_old"],
+        links=[MemoryLink(type="file", target="README.md")],
+        review=MemoryReview(needs_review=True, review_reason="parity"),
+    )
+
+    assert event.id == "mem_native"
+    assert fake_native.request["details"] == "Full detail"
+    assert fake_native.request["source"]["ref"] == "README.md"
+    assert fake_native.request["links"] == [{"type": "file", "target": "README.md"}]
+    assert fake_native.request["review"]["needs_review"] is True
+
+
+def test_native_backend_recall_sends_full_filter_contract(tmp_path):
+    class FakeNativeStore:
+        def __init__(self):
+            self.request = None
+
+        def recall_query_json(self, request_json):
+            self.request = json.loads(request_json)
+            return "[]"
+
+    fake_native = FakeNativeStore()
+    memory = NativeTreeRingMemory(fake_native, tmp_path / ".tree-ring")
+
+    assert memory.recall(
+        "migration",
+        project="tree-ring",
+        agent_profile="default",
+        scope="project",
+        rings=["heartwood"],
+        event_types=["decision"],
+        include_sensitive=True,
+        include_superseded=True,
+        limit=3,
+        explain_ranking=True,
+    ) == []
+    assert fake_native.request == {
+        "query": "migration",
+        "project": "tree-ring",
+        "agent_profile": "default",
+        "scope": "project",
+        "rings": ["heartwood"],
+        "event_types": ["decision"],
+        "include_sensitive": True,
+        "include_superseded": True,
+        "limit": 3,
+        "explain_ranking": True,
+    }
 
 
 def test_rust_cli_backend_prefers_configured_binary(tmp_path, monkeypatch):

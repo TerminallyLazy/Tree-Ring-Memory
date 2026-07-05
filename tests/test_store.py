@@ -129,11 +129,11 @@ def test_search_text_does_not_treat_or_as_boolean_operator(tmp_path):
     assert store.search_text("cache OR SQLite") == []
 
 
-from tree_ring_memory import TreeRingMemory
+from tree_ring_memory import PythonTreeRingMemory
 
 
 def test_facade_remember_recall_and_forget(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     event = memory.remember(summary="Facade stores memory.", event_type="lesson", tags=["facade"])
 
     results = memory.recall("facade")
@@ -144,7 +144,7 @@ def test_facade_remember_recall_and_forget(tmp_path):
 
 
 def test_facade_blocks_secret_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     try:
         memory.remember(summary="token = sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", event_type="lesson")
@@ -155,7 +155,7 @@ def test_facade_blocks_secret_by_default(tmp_path):
 
 
 def test_facade_blocks_secret_tag_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     with pytest.raises(ValueError, match="blocked"):
         memory.remember(
@@ -166,7 +166,7 @@ def test_facade_blocks_secret_tag_by_default(tmp_path):
 
 
 def test_facade_blocks_secret_source_ref_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     with pytest.raises(ValueError, match="blocked"):
         memory.remember(
@@ -177,7 +177,7 @@ def test_facade_blocks_secret_source_ref_by_default(tmp_path):
 
 
 def test_facade_blocks_secret_link_target_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     with pytest.raises(ValueError, match="blocked"):
         memory.remember(
@@ -188,7 +188,7 @@ def test_facade_blocks_secret_link_target_by_default(tmp_path):
 
 
 def test_facade_blocks_secret_supersedes_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     with pytest.raises(ValueError, match="blocked"):
         memory.remember(
@@ -207,7 +207,7 @@ def test_facade_blocks_secret_supersedes_by_default(tmp_path):
     ],
 )
 def test_facade_blocks_secret_review_fields_by_default(tmp_path, review):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
 
     with pytest.raises(ValueError, match="blocked"):
         memory.remember(
@@ -218,7 +218,7 @@ def test_facade_blocks_secret_review_fields_by_default(tmp_path, review):
 
 
 def test_facade_supersedes_hides_old_memory_by_default(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     old = memory.remember(summary="Use polling invalidation.", event_type="decision")
     new = memory.remember(
         summary="Use snapshot invalidation.",
@@ -232,7 +232,7 @@ def test_facade_supersedes_hides_old_memory_by_default(tmp_path):
 
 
 def test_facade_redact_clears_secret_source_ref_from_storage_and_recall(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     secret_ref = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
     event = MemoryEvent.new(
         summary="Legacy memory with source ref.",
@@ -260,7 +260,7 @@ def test_facade_redact_clears_secret_source_ref_from_storage_and_recall(tmp_path
 
 
 def test_facade_redact_clears_secret_metadata_from_storage_and_recall(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
     event = MemoryEvent.new(
         summary="Legacy memory with secret metadata.",
@@ -303,7 +303,7 @@ def test_facade_redact_clears_secret_metadata_from_storage_and_recall(tmp_path):
 
 
 def test_facade_redact_clears_secret_superseded_by_from_storage(tmp_path):
-    memory = TreeRingMemory.open(tmp_path / ".tree-ring")
+    memory = PythonTreeRingMemory.open(tmp_path / ".tree-ring")
     secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"
     old = MemoryEvent.new(summary="Legacy superseded memory.", event_type="lesson")
     memory.store.put(old)

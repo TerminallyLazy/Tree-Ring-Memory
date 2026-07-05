@@ -1,24 +1,31 @@
 # Rust Core Status
 
-Tree Ring Memory is moving from a Python reference package toward a Rust-first core with Python compatibility. This page tracks the v0.2 Rust core and v0.3 native Python binding work.
+Tree Ring Memory has moved from a Python-owned reference implementation toward
+a Rust-first core with Python compatibility. This page tracks the v0.2 Rust core
+and v0.3 native Python binding work.
 
 ## Current Status
 
-- Python remains the stable public reference implementation.
+- Python remains the stable public API surface.
 - Rust workspace exists under `crates/`.
 - Rust core owns model validation, sensitivity checks, and recall scoring.
 - Rust SQLite crate owns schema-compatible SQLite/FTS storage.
 - Rust CLI can initialize, remember, recall, and forget local memory.
 - Rust CLI has JSON output for machine-readable adapter use.
 - Python has an explicit `RustCliTreeRingMemory` compatibility adapter.
-- Python also has an explicit `NativeTreeRingMemory` preview wrapper backed by
-  the optional PyO3 module in `bindings/python`.
+- Python has an explicit `NativeTreeRingMemory` wrapper backed by the optional
+  PyO3 module in `bindings/python`.
+- The public `TreeRingMemory.open()` facade is Rust-first when the native module
+  is installed. It falls back to the explicit `PythonTreeRingMemory` reference
+  backend in source checkouts unless native is required by configuration.
 - The v0.2 adapter is intentionally limited: `remember` supports summary,
   event type, ring, scope, project, and tags; `recall` supports query, project,
   limit, and sensitive-memory inclusion. Unsupported Python facade fields raise
   `NotImplementedError`.
-- The default `TreeRingMemory` facade remains Python-backed until native parity
-  is broader.
+- The v0.3 native backend supports the full public `remember()` and `recall()`
+  contracts, including details, source metadata, agent profile, scores,
+  retention, expiry, links, review metadata, supersession, recall filters,
+  superseded-memory inclusion, and ranking explanations.
 
 ## Build Commands
 
@@ -46,12 +53,12 @@ database/schema compatibility and Python return-object compatibility for the
 supported v0.2 subset while keeping the stable Python reference implementation
 unchanged.
 
-## Python Native Binding Preview
+## Python Native Backend
 
 ```python
-from tree_ring_memory import NativeTreeRingMemory
+from tree_ring_memory import TreeRingMemory
 
-memory = NativeTreeRingMemory.open(".tree-ring")
+memory = TreeRingMemory.open(".tree-ring")
 event = memory.remember(summary="Native Rust path works.", event_type="lesson")
 results = memory.recall("Rust path")
 ```
@@ -62,15 +69,24 @@ binding package is extension-only and does not package or own the public
 `tree_ring_memory` Python package. If the module is absent, the wrapper raises a
 clear `ImportError` with that build hint.
 
+Backend controls:
+
+- `TREE_RING_MEMORY_BACKEND=auto`: use Rust native when available, otherwise
+  Python reference fallback.
+- `TREE_RING_MEMORY_BACKEND=native` or `TREE_RING_MEMORY_REQUIRE_NATIVE=1`:
+  require Rust native bindings.
+- `TREE_RING_MEMORY_BACKEND=python`: force the reference backend.
+
 ## Smoke Coverage
 
 - Rust unit tests cover model validation, sensitivity checks, recall scoring,
   SQLite/FTS storage, transactional row/FTS consistency, redaction, and basic
   concurrent writes. Rust binding tests cover native JSON remember/recall
   round-trip and forget validation.
-- Python tests cover the existing reference package, Rust CLI database
-  compatibility, the opt-in `RustCliTreeRingMemory` adapter, and the clean
-  missing-extension path for `NativeTreeRingMemory`.
+- Python tests cover the existing reference backend, Rust CLI database
+  compatibility, the opt-in `RustCliTreeRingMemory` adapter, default facade
+  native selection, full native wrapper argument marshalling, and clean
+  missing-extension behavior.
 - `scripts/rust_performance_smoke.py` provides an operator-run local insert and
   recall timing check. It fails if expected recalls are empty, emits a stable
   `METRICS_JSON=` line, and enforces conservative synthetic-workload thresholds
@@ -78,11 +94,13 @@ clear `ImportError` with that build hint.
 
 Latest local smoke on July 5, 2026 with `--count 10000`:
 
-- Inserted 10,000 memories in 4,595.5 ms.
-- Insert throughput: 2,176.0 inserts/sec.
-- Recall average latency: 8.706 ms.
-- Recall max latency: 17.211 ms.
+- Inserted 10,000 memories in 4,598.8 ms.
+- Insert throughput: 2,174.5 inserts/sec.
+- Recall average latency: 8.142 ms.
+- Recall max latency: 15.017 ms.
 
 ## Compatibility Rule
 
-Rust must read and write the same SQLite shape and JSON memory event payloads as the Python reference until an explicit migration exists.
+Rust must read and write the same SQLite shape and JSON memory event payloads as
+the Python reference. Python reference code is compatibility scaffolding, not
+the target behavioral owner.
