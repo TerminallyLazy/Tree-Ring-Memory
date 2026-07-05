@@ -9,3 +9,6 @@ build/
 *.egg-info/
 .tree-ring/
 target/
+bindings/python/python/tree_ring_memory/*.abi3.so
+bindings/python/python/tree_ring_memory/*.so
+bindings/python/python/tree_ring_memory/*.pyd

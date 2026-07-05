@@ -100,14 +100,14 @@ fn run(cli: Cli) -> Result<(), String> {
             tags,
         } => {
             let guard = SensitivityGuard::default();
-            for value in [&summary, &event_type, &ring, &scope]
+            let values = [&summary, &event_type, &ring, &scope]
                 .into_iter()
                 .chain(project.iter())
                 .chain(tags.iter())
-            {
-                guard.check_or_raise(value).map_err(|err| err.to_string())?;
-            }
-            let detected_sensitivity = guard.inspect(&summary).sensitivity;
+                .map(String::as_str);
+            let detected_sensitivity = guard
+                .detect_text_sensitivity(values)
+                .map_err(|err| err.to_string())?;
             let mut event = MemoryEvent::new(summary, event_type).map_err(|err| err.to_string())?;
             event.ring = ring;
             event.scope = scope;
@@ -273,5 +273,57 @@ mod tests {
             },
         })
         .unwrap();
+    }
+
+    #[test]
+    fn remember_classifies_sensitive_metadata_before_default_recall() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        run(Cli {
+            root: root.clone(),
+            json: false,
+            command: Command::Remember {
+                summary: "Rust CLI classifies metadata.".to_string(),
+                event_type: "lesson".to_string(),
+                ring: "cambium".to_string(),
+                scope: "global".to_string(),
+                project: None,
+                tags: vec!["private diagnosis".to_string()],
+            },
+        })
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let hidden = MemoryRetriever::new(&store)
+            .recall(
+                "classifies metadata",
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                8,
+                false,
+            )
+            .unwrap();
+        let visible = MemoryRetriever::new(&store)
+            .recall(
+                "classifies metadata",
+                None,
+                None,
+                None,
+                None,
+                None,
+                true,
+                false,
+                8,
+                false,
+            )
+            .unwrap();
+
+        assert!(hidden.is_empty());
+        assert_eq!(visible[0].memory.sensitivity, "health");
     }
 }
