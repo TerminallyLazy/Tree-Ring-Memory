@@ -1,0 +1,17 @@
+{
+  "id": "mem_sparse",
+  "created_at": "2026-07-05T12:00:00+00:00",
+  "updated_at": "2026-07-05T12:00:00+00:00",
+  "scope": "project",
+  "ring": "cambium",
+  "event_type": "lesson",
+  "summary": "Sparse schema-valid memories can be read by both Python and Rust.",
+  "source": {
+    "type": "manual"
+  },
+  "tags": [],
+  "salience": 0.5,
+  "confidence": 0.5,
+  "sensitivity": "normal",
+  "retention": "normal"
+}

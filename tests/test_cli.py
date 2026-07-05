@@ -1,10 +1,19 @@
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from tree_ring_memory import TreeRingMemory
+from tree_ring_memory.models import MemorySource
+from tree_ring_memory.store import SQLiteMemoryStore
+from tree_ring_memory.rust_backend import RustCliTreeRingMemory
+
 
 PROJECT_SRC = Path(__file__).resolve().parents[1] / "src"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_cli(*args, cwd):
@@ -15,6 +24,26 @@ def run_cli(*args, cwd):
         [sys.executable, "-m", "tree_ring_memory.cli", *args],
         cwd=cwd,
         env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def run_rust_cli(root, *args):
+    return subprocess.run(
+        [
+            "cargo",
+            "run",
+            "-q",
+            "-p",
+            "tree-ring-memory-cli",
+            "--",
+            "--root",
+            str(root),
+            *args,
+        ],
+        cwd=PROJECT_ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -66,3 +95,123 @@ def test_cli_forget_blank_reason_returns_controlled_error(tmp_path):
     assert forgotten.returncode == 2
     assert "forget reason is required" in forgotten.stderr
     assert "Traceback" not in forgotten.stderr
+
+
+def test_rust_cli_written_memory_is_python_readable(tmp_path):
+    cargo = run_rust_cli(
+        tmp_path / ".tree-ring",
+        "remember",
+        "Rust writes schema-compatible memory.",
+        "--event-type",
+        "lesson",
+        "--project",
+        "compat",
+    )
+    assert cargo.returncode == 0, cargo.stderr
+    memory_id = cargo.stdout.strip()
+
+    store = SQLiteMemoryStore.open(tmp_path / ".tree-ring" / "memory.sqlite")
+    event = store.get(memory_id)
+
+    assert event is not None
+    assert event.summary == "Rust writes schema-compatible memory."
+    assert event.project == "compat"
+
+
+def test_rust_cli_json_contract_for_init_remember_recall_and_forget(tmp_path):
+    root = tmp_path / ".tree-ring"
+
+    init = run_rust_cli(root, "--json", "init")
+    assert init.returncode == 0, init.stderr
+    init_payload = json.loads(init.stdout)
+    assert init_payload["ok"] is True
+    assert init_payload["message"] == "Tree Ring Memory initialized"
+
+    remembered = run_rust_cli(
+        root,
+        "--json",
+        "remember",
+        "Use JSON bridge contract.",
+        "--event-type",
+        "lesson",
+        "--project",
+        "compat",
+        "--tag",
+        "json",
+    )
+    assert remembered.returncode == 0, remembered.stderr
+    memory_payload = json.loads(remembered.stdout)
+    assert memory_payload["id"].startswith("mem_")
+    assert memory_payload["source"]["ref"] == ""
+    assert "ref_" not in memory_payload["source"]
+
+    recalled = run_rust_cli(root, "--json", "recall", "JSON bridge", "--project", "compat")
+    assert recalled.returncode == 0, recalled.stderr
+    recall_payload = json.loads(recalled.stdout)
+    assert recall_payload[0]["memory"]["id"] == memory_payload["id"]
+    assert recall_payload[0]["score"] > 0
+
+    forgotten = run_rust_cli(
+        root,
+        "--json",
+        "forget",
+        memory_payload["id"],
+        "--mode",
+        "delete",
+        "--reason",
+        "test cleanup",
+    )
+    assert forgotten.returncode == 0, forgotten.stderr
+    forget_payload = json.loads(forgotten.stdout)
+    assert forget_payload == {"ok": True, "memory_id": memory_payload["id"]}
+
+
+def test_python_written_rich_memory_is_rust_recall_json_readable(tmp_path):
+    root = tmp_path / ".tree-ring"
+    memory = TreeRingMemory.open(root)
+    event = memory.remember(
+        summary="Python writes rich memory for Rust recall.",
+        details="Rust should preserve source refs and details.",
+        event_type="lesson",
+        project="compat",
+        source=MemorySource(type="file", ref="README.md", quote=""),
+        tags=["python", "rust"],
+    )
+
+    recalled = run_rust_cli(root, "--json", "recall", "rich memory", "--project", "compat")
+    assert recalled.returncode == 0, recalled.stderr
+    payload = json.loads(recalled.stdout)
+
+    assert payload[0]["memory"]["id"] == event.id
+    assert payload[0]["memory"]["details"] == "Rust should preserve source refs and details."
+    assert payload[0]["memory"]["source"]["ref"] == "README.md"
+
+
+def test_rust_cli_backend_preserves_python_facade_shapes(tmp_path):
+    memory = RustCliTreeRingMemory.open(tmp_path / ".tree-ring")
+
+    event = memory.remember(
+        summary="Rust backend preserves Python shapes.",
+        event_type="lesson",
+        project="compat",
+        tags=["rust"],
+    )
+    results = memory.recall("Python shapes", project="compat")
+
+    assert event.summary == "Rust backend preserves Python shapes."
+    assert results[0].memory.id == event.id
+    assert results[0].memory.tags == ["rust"]
+
+    memory.forget(event.id, mode="delete", reason="test cleanup")
+    assert memory.recall("Python shapes", project="compat") == []
+
+
+def test_rust_cli_backend_rejects_unsupported_python_facade_fields(tmp_path):
+    memory = RustCliTreeRingMemory.open(tmp_path / ".tree-ring")
+
+    with pytest.raises(NotImplementedError, match="details"):
+        memory.remember(
+            summary="Unsupported details should fail explicitly.",
+            details="not yet supported by the Rust CLI bridge",
+            event_type="lesson",
+        )

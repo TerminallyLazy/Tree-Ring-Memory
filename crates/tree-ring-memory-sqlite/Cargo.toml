@@ -1,0 +1,15 @@
+[package]
+name = "tree-ring-memory-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+serde_json.workspace = true
+tree-ring-memory-core = { path = "../tree-ring-memory-core" }
+
+[dev-dependencies]
+tempfile.workspace = true

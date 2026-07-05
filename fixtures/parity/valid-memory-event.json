@@ -1,0 +1,32 @@
+{
+  "id": "mem_fixed",
+  "created_at": "2026-07-05T00:00:00+00:00",
+  "updated_at": "2026-07-05T00:00:00+00:00",
+  "project": "tree-ring-memory",
+  "agent_profile": null,
+  "scope": "project",
+  "ring": "heartwood",
+  "event_type": "decision",
+  "summary": "Use Rust for the long-term Tree Ring Memory core.",
+  "details": "",
+  "source": {
+    "type": "manual",
+    "ref": "docs/architecture/rust-core-roadmap.md",
+    "quote": ""
+  },
+  "tags": ["rust", "core"],
+  "salience": 0.82,
+  "confidence": 0.91,
+  "sensitivity": "normal",
+  "retention": "durable",
+  "expires_at": null,
+  "supersedes": [],
+  "superseded_by": null,
+  "links": [],
+  "review": {
+    "needs_review": false,
+    "review_reason": null,
+    "reviewed_at": null,
+    "reviewed_by": null
+  }
+}
