@@ -1,7 +1,9 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use crate::ring_mark::{ring_mark_rows, RingMarkCell, RingMarkLayer};
+use crate::ring_mark::{
+    ring_mark_rows_with_activity, RingMarkActivity, RingMarkCell, RingMarkLayer,
+};
 
 use super::model::{DashboardStats, RingStats};
 use super::theme;
@@ -45,7 +47,7 @@ pub fn ambient_corner_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'
         Span::styled(" total ", theme::dim()),
         Span::styled(format!("{:>3}", dashboard.total), theme::title()),
     ])];
-    lines.extend(ascii_ring_lines(
+    lines.extend(terminal_ring_lines(
         cambium, outer, inner, heartwood, scar, tick,
     ));
     lines.push(count_line([
@@ -155,7 +157,7 @@ fn ring_offset(ring: &str) -> u64 {
     }
 }
 
-fn ascii_ring_lines(
+fn terminal_ring_lines(
     cambium: &RingStats,
     outer: &RingStats,
     inner: &RingStats,
@@ -163,13 +165,39 @@ fn ascii_ring_lines(
     scar: &RingStats,
     tick: u64,
 ) -> Vec<Line<'static>> {
-    ring_mark_rows(23, 7, tick as usize)
-        .into_iter()
-        .map(|row| ring_mark_line(row, cambium, outer, inner, heartwood, scar, tick))
-        .collect()
+    ring_mark_rows_with_activity(
+        23,
+        7,
+        tick as usize,
+        ring_activity(cambium, outer, inner, heartwood, scar),
+    )
+    .into_iter()
+    .map(|row| ring_mark_line(row, cambium, outer, inner, heartwood, scar, tick))
+    .collect()
 }
 
-fn ascii_ring_style(stats: &RingStats, tick: u64) -> Style {
+fn ring_activity(
+    cambium: &RingStats,
+    outer: &RingStats,
+    inner: &RingStats,
+    heartwood: &RingStats,
+    scar: &RingStats,
+) -> RingMarkActivity {
+    RingMarkActivity {
+        cambium: activity_level(cambium),
+        outer: activity_level(outer),
+        inner: activity_level(inner),
+        heartwood: activity_level(heartwood),
+        scar: activity_level(scar),
+    }
+}
+
+fn activity_level(stats: &RingStats) -> f64 {
+    let baseline = if stats.total > 0 { 0.16 } else { 0.03 };
+    (baseline + stats.pulse_level * 0.84).clamp(0.0, 1.0)
+}
+
+fn terminal_ring_style(stats: &RingStats, tick: u64) -> Style {
     Style::default()
         .fg(animated_color(
             &stats.ring,
@@ -197,19 +225,54 @@ fn ring_mark_line(
         row.into_iter()
             .map(|cell| {
                 let text = cell.ch.to_string();
-                match cell.layer {
-                    Some(layer) => Span::styled(
-                        text,
-                        ascii_ring_style(
-                            layer_stats(layer, cambium, outer, inner, heartwood, scar),
-                            tick,
-                        ),
-                    ),
-                    None => Span::raw(text),
-                }
+                Span::styled(
+                    text,
+                    terminal_cell_style(cell, cambium, outer, inner, heartwood, scar, tick),
+                )
             })
             .collect::<Vec<_>>(),
     )
+}
+
+fn terminal_cell_style(
+    cell: RingMarkCell,
+    cambium: &RingStats,
+    outer: &RingStats,
+    inner: &RingStats,
+    heartwood: &RingStats,
+    scar: &RingStats,
+    tick: u64,
+) -> Style {
+    match (cell.upper_layer, cell.lower_layer) {
+        (None, None) => Style::default(),
+        (Some(upper), Some(lower)) if upper == lower => terminal_ring_style(
+            layer_stats(upper, cambium, outer, inner, heartwood, scar),
+            tick,
+        ),
+        (Some(upper), Some(lower)) => {
+            let upper_stats = layer_stats(upper, cambium, outer, inner, heartwood, scar);
+            let lower_stats = layer_stats(lower, cambium, outer, inner, heartwood, scar);
+            let mut style = Style::default()
+                .fg(animated_ring_color(upper_stats, tick))
+                .bg(animated_ring_color(lower_stats, tick));
+            if upper_stats.pulse_level > 0.35 || lower_stats.pulse_level > 0.35 {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            style
+        }
+        (Some(upper), None) => terminal_ring_style(
+            layer_stats(upper, cambium, outer, inner, heartwood, scar),
+            tick,
+        ),
+        (None, Some(lower)) => terminal_ring_style(
+            layer_stats(lower, cambium, outer, inner, heartwood, scar),
+            tick,
+        ),
+    }
+}
+
+fn animated_ring_color(stats: &RingStats, tick: u64) -> Color {
+    animated_color(&stats.ring, Some(stats), tick, ring_offset(&stats.ring))
 }
 
 fn layer_stats<'a>(

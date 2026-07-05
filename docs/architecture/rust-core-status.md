@@ -36,9 +36,14 @@ v0.11 Rust-native source adapters plus framework discovery.
   FTS drift reporting. SQLite and CLI can apply eligible expiry deletion,
   secret redaction, and FTS rebuild only through explicit apply/repair flags.
 - The Rust CLI now includes `tree-ring tui`, a Ratatui operator console with an
-  always-visible animated ASCII tree-ring view, SQLite store-watch refresh,
+  always-visible animated half-block tree-ring view, SQLite store-watch refresh,
   optional JSONL event-stream pulses, search/detail panes, and confirmation
-  gates for destructive or authority-changing actions.
+  gates for destructive or authority-changing actions. Ring visuals now start
+  from backend-independent layer frames with perspective, radius, highlight, and
+  scar-shimmer animation. Store-watch and event-stream pulses feed that frame so
+  the matching ambient ring changes size in real time. The ambient HUD stays
+  portable while richer terminal image protocols can be added for welcome or
+  expanded views without replacing the live HUD renderer.
 - The repository includes `install.sh` for one-line global or project-local
   installs, plus `tree-ring welcome` for first-run terminal onboarding.
 - The Rust CLI includes `tree-ring dox sync` and `tree-ring revolve sync` as

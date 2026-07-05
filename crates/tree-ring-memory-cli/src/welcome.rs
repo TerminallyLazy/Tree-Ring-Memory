@@ -6,7 +6,9 @@ use std::time::Duration;
 use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
 use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
-use crate::ring_mark::{pulse_index, ring_mark_rows, RingMarkCell, RingMarkLayer};
+use crate::ring_mark::{
+    pulse_index, ring_mark_rows_with_activity, RingMarkActivity, RingMarkCell, RingMarkLayer,
+};
 
 const RESET: &str = "\x1b[0m";
 const TEAL: &str = "\x1b[38;2;22;156;166m";
@@ -15,6 +17,16 @@ const ORANGE: &str = "\x1b[38;2;255;125;34m";
 const YELLOW: &str = "\x1b[38;5;220m";
 const CORAL: &str = "\x1b[38;2;255;101;83m";
 const BOLD: &str = "\x1b[1m";
+const TEAL_FG: &str = "38;2;22;156;166";
+const PINK_FG: &str = "38;2;239;65;103";
+const ORANGE_FG: &str = "38;2;255;125;34";
+const YELLOW_FG: &str = "38;5;220";
+const CORAL_FG: &str = "38;2;255;101;83";
+const TEAL_BG: &str = "48;2;22;156;166";
+const PINK_BG: &str = "48;2;239;65;103";
+const ORANGE_BG: &str = "48;2;255;125;34";
+const YELLOW_BG: &str = "48;5;220";
+const CORAL_BG: &str = "48;2;255;101;83";
 
 pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
@@ -137,10 +149,13 @@ fn animate_logo(color: bool) -> Result<(), String> {
 }
 
 fn welcome_logo_frame(frame: usize, color: bool) -> String {
-    let mut lines: Vec<String> = ring_mark_rows(29, 11, frame)
-        .into_iter()
-        .map(|row| welcome_logo_line(row, frame, color))
-        .collect();
+    let mut lines = vec![retro_glow_line(frame, color, true)];
+    lines.extend(
+        ring_mark_rows_with_activity(31, 12, frame, welcome_activity(frame))
+            .into_iter()
+            .map(|row| welcome_logo_line(row, frame, color)),
+    );
+    lines.push(retro_glow_line(frame, color, false));
     lines.push(join([
         span("Tree ", &layer_style(RingMarkLayer::Cambium, frame, color)),
         span("Ring ", &layer_style(RingMarkLayer::Outer, frame, color)),
@@ -153,17 +168,103 @@ fn welcome_logo_frame(frame: usize, color: bool) -> String {
     lines.join("\n")
 }
 
+fn welcome_activity(frame: usize) -> RingMarkActivity {
+    let active = frame % 5;
+    RingMarkActivity {
+        cambium: welcome_layer_activity(active, RingMarkLayer::Cambium),
+        outer: welcome_layer_activity(active, RingMarkLayer::Outer),
+        inner: welcome_layer_activity(active, RingMarkLayer::Inner),
+        heartwood: welcome_layer_activity(active, RingMarkLayer::Heartwood),
+        scar: welcome_layer_activity(active, RingMarkLayer::Scar),
+    }
+}
+
+fn welcome_layer_activity(active: usize, layer: RingMarkLayer) -> f64 {
+    if active == pulse_index(layer) {
+        0.88
+    } else {
+        0.16
+    }
+}
+
+fn retro_glow_line(frame: usize, color: bool, top: bool) -> String {
+    if !color {
+        return String::new();
+    }
+    let layers = [
+        RingMarkLayer::Cambium,
+        RingMarkLayer::Outer,
+        RingMarkLayer::Inner,
+        RingMarkLayer::Heartwood,
+        RingMarkLayer::Scar,
+    ];
+    let first = layers[frame % layers.len()];
+    let second = layers[(frame + 2) % layers.len()];
+    let third = layers[(frame + 4) % layers.len()];
+    if top {
+        join([
+            "       ".to_string(),
+            ansi_span("*", &[fg_code(first)], true),
+            "     .      ".to_string(),
+            ansi_span("*", &[fg_code(second)], false),
+            "       .".to_string(),
+        ])
+    } else {
+        join([
+            "         .     ".to_string(),
+            ansi_span("*", &[fg_code(third)], false),
+            "      .    ".to_string(),
+            ansi_span("*", &[fg_code(first)], true),
+        ])
+    }
+}
+
 fn welcome_logo_line(row: Vec<RingMarkCell>, frame: usize, color: bool) -> String {
     let mut line = String::new();
     for cell in row {
-        let text = cell.ch.to_string();
-        if let Some(layer) = cell.layer {
-            line.push_str(&span(&text, &layer_style(layer, frame, color)));
-        } else {
-            line.push(cell.ch);
-        }
+        line.push_str(&render_logo_cell(cell, frame, color));
     }
     line.trim_end().to_string()
+}
+
+fn render_logo_cell(cell: RingMarkCell, frame: usize, color: bool) -> String {
+    if !color {
+        return cell.ch.to_string();
+    }
+
+    match (cell.upper_layer, cell.lower_layer) {
+        (None, None) => cell.ch.to_string(),
+        (Some(upper), Some(lower)) if upper == lower => ansi_span(
+            &cell.ch.to_string(),
+            &[fg_code(upper)],
+            active(upper, frame),
+        ),
+        (Some(upper), Some(lower)) => ansi_span(
+            &cell.ch.to_string(),
+            &[fg_code(upper), bg_code(lower)],
+            active(upper, frame) || active(lower, frame),
+        ),
+        (Some(upper), None) => ansi_span(
+            &cell.ch.to_string(),
+            &[fg_code(upper)],
+            active(upper, frame),
+        ),
+        (None, Some(lower)) => ansi_span(
+            &cell.ch.to_string(),
+            &[fg_code(lower)],
+            active(lower, frame),
+        ),
+    }
+}
+
+fn ansi_span(text: &str, codes: &[&str], bold: bool) -> String {
+    let mut style = String::from("\x1b[");
+    if bold {
+        style.push_str("1;");
+    }
+    style.push_str(&codes.join(";"));
+    style.push('m');
+    format!("{style}{text}{RESET}")
 }
 
 fn layer_style(layer: RingMarkLayer, frame: usize, color: bool) -> String {
@@ -186,6 +287,30 @@ fn layer_color(layer: RingMarkLayer) -> &'static str {
         RingMarkLayer::Heartwood => YELLOW,
         RingMarkLayer::Scar => CORAL,
     }
+}
+
+fn fg_code(layer: RingMarkLayer) -> &'static str {
+    match layer {
+        RingMarkLayer::Cambium => TEAL_FG,
+        RingMarkLayer::Outer => PINK_FG,
+        RingMarkLayer::Inner => ORANGE_FG,
+        RingMarkLayer::Heartwood => YELLOW_FG,
+        RingMarkLayer::Scar => CORAL_FG,
+    }
+}
+
+fn bg_code(layer: RingMarkLayer) -> &'static str {
+    match layer {
+        RingMarkLayer::Cambium => TEAL_BG,
+        RingMarkLayer::Outer => PINK_BG,
+        RingMarkLayer::Inner => ORANGE_BG,
+        RingMarkLayer::Heartwood => YELLOW_BG,
+        RingMarkLayer::Scar => CORAL_BG,
+    }
+}
+
+fn active(layer: RingMarkLayer, frame: usize) -> bool {
+    frame % 5 == pulse_index(layer)
 }
 
 fn span(text: &str, style: &str) -> String {
@@ -243,18 +368,14 @@ mod tests {
     }
 
     #[test]
-    fn ascii_welcome_logo_is_compact_and_frame_stable() {
+    fn terminal_welcome_logo_is_compact_and_frame_stable() {
         let plain = welcome_logo_frame(0, false);
         let color = welcome_logo_frame(1, true);
 
         assert_eq!(plain.lines().count(), color.lines().count());
-        assert!(plain.lines().count() <= 13);
+        assert!(plain.lines().count() <= 16);
         assert!(plain.contains("Tree Ring Memory"));
-        assert!(plain.contains('#') || plain.contains('@'));
-        assert!(plain.contains('='));
-        assert!(plain.contains('-') || plain.contains('+'));
-        assert!(plain.contains('o') || plain.contains('O'));
-        assert!(plain.contains('/'));
+        assert!(plain.chars().any(|ch| matches!(ch, '█' | '▀' | '▄')));
         assert!(color.contains("\x1b["));
     }
 
@@ -270,11 +391,11 @@ mod tests {
         assert_ne!(outer_frame, inner_frame);
         assert_ne!(inner_frame, heartwood_frame);
         assert_ne!(heartwood_frame, scar_frame);
-        assert!(cambium_frame.contains(&format!("{BOLD}{TEAL}")));
-        assert!(outer_frame.contains(&format!("{BOLD}{PINK}")));
-        assert!(inner_frame.contains(&format!("{BOLD}{ORANGE}")));
-        assert!(heartwood_frame.contains(&format!("{BOLD}{YELLOW}")));
-        assert!(scar_frame.contains(&format!("{BOLD}{CORAL}")));
+        assert!(contains_active_style(&cambium_frame, TEAL, TEAL_FG));
+        assert!(contains_active_style(&outer_frame, PINK, PINK_FG));
+        assert!(contains_active_style(&inner_frame, ORANGE, ORANGE_FG));
+        assert!(contains_active_style(&heartwood_frame, YELLOW, YELLOW_FG));
+        assert!(contains_active_style(&scar_frame, CORAL, CORAL_FG));
     }
 
     #[test]
@@ -301,5 +422,10 @@ mod tests {
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join("SKILL.md").exists());
         assert!(root.join("CLI.md").exists());
+    }
+
+    fn contains_active_style(frame: &str, legacy_color: &str, fg_code: &str) -> bool {
+        frame.contains(&format!("{BOLD}{legacy_color}"))
+            || frame.contains(&format!("\x1b[1;{fg_code}"))
     }
 }

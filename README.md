@@ -25,7 +25,7 @@ Tree Ring Memory is in protocol-preview status.
 - v0.7 makes the public facade Rust-native only and adds Rust-owned maintenance for expiry, secret redaction, and FTS repair.
 - v0.8 removes Python-owned runtime behavior.
 - v0.9 removes tracked Python source, tests, smoke scripts, and the optional CPython extension from the canonical repo.
-- v0.10 adds a one-line installer plus Rust-native terminal onboarding with ASCII tree rings.
+- v0.10 adds a one-line installer plus Rust-native terminal onboarding with animated terminal tree rings.
 - v0.11 makes the repo fully Rust-native, wires TUI export/consolidation actions, adds DOX/Revolve sync adapters, and adds agent-framework discovery.
 - The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
 
@@ -55,7 +55,7 @@ installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLa
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
-one stable terminal onboarding screen with a branded ASCII ring and the next
+one stable terminal onboarding screen with a branded terminal ring and the next
 useful commands. For global installs, it also adds the install bin directory to your
 shell profile when that directory is not already on `PATH`. It does not
 initialize memory unless `--init` is passed.
@@ -261,10 +261,16 @@ cargo run -p tree-ring-memory-cli -- --root .tree-ring remember "Try the TUI wit
 cargo run -p tree-ring-memory-cli -- --root .tree-ring tui
 ```
 
-The console keeps an animated ASCII tree-ring cross-section visible at all
-times. Store-watch polling updates persisted counts from SQLite, while the
-optional event stream lights rings in real time without treating stream events
-as durable truth.
+The console keeps an animated half-block tree-ring cross-section visible at all
+times. The visual layer generates a backend-independent ring frame first, then
+renders that frame into terminal cells for the ambient HUD. Rings subtly change
+radius, perspective, highlight, and scar shimmer on each tick; store-watch and
+event-stream pulses increase the matching ring geometry in real time. That keeps
+the always-on animation cheap and portable while leaving room for richer
+Kitty/iTerm2 image-protocol rendering in welcome or expanded views later.
+Store-watch polling updates persisted counts from SQLite, while the optional
+event stream lights rings in real time without treating stream events as durable
+truth.
 
 Useful keys and commands:
 
