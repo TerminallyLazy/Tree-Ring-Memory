@@ -21,62 +21,81 @@ pub fn ring_style(stats: &RingStats) -> Style {
 
 pub fn ambient_tree_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'static>> {
     let phase = if tick % 8 < 4 { "*" } else { "+" };
-    let fallback = RingStats::empty("unknown");
-    let heartwood = dashboard.ring("heartwood").unwrap_or(&fallback);
-    let inner = dashboard.ring("inner").unwrap_or(&fallback);
-    let outer = dashboard.ring("outer").unwrap_or(&fallback);
-    let cambium = dashboard.ring("cambium").unwrap_or(&fallback);
-    let scar = dashboard.ring("scar").unwrap_or(&fallback);
-    let seed = dashboard.ring("seed").unwrap_or(&fallback);
+    let empty_heartwood = RingStats::empty("heartwood");
+    let empty_inner = RingStats::empty("inner");
+    let empty_outer = RingStats::empty("outer");
+    let empty_cambium = RingStats::empty("cambium");
+    let empty_scar = RingStats::empty("scar");
+    let empty_seed = RingStats::empty("seed");
+    let heartwood = dashboard.ring("heartwood").unwrap_or(&empty_heartwood);
+    let inner = dashboard.ring("inner").unwrap_or(&empty_inner);
+    let outer = dashboard.ring("outer").unwrap_or(&empty_outer);
+    let cambium = dashboard.ring("cambium").unwrap_or(&empty_cambium);
+    let scar = dashboard.ring("scar").unwrap_or(&empty_scar);
+    let seed = dashboard.ring("seed").unwrap_or(&empty_seed);
 
     vec![
-        Line::from(Span::styled(
-            format!("        .-=================-.        {phase}"),
-            ring_style(cambium),
-        )),
-        Line::from(Span::styled(
-            format!("     .-'   cambium {:>5}   '-.", cambium.total),
-            ring_style(cambium),
-        )),
-        Line::from(Span::styled(
-            format!("   .'   .--- outer {:>5} ---.   '.", outer.total),
-            ring_style(outer),
-        )),
-        Line::from(Span::styled(
-            format!("  /   .'   .-- inner {:>5} --.   '.  \\", inner.total),
-            ring_style(inner),
-        )),
         Line::from(vec![
-            Span::styled(" |   /   .'", ring_style(inner)),
+            Span::styled("          .", theme::title()),
+            Span::styled("------------------------", ring_style(cambium)),
+            Span::styled(". ", theme::title()),
+            Span::styled(phase.to_string(), theme::live()),
+        ]),
+        Line::from(vec![
+            Span::styled("       .-' ", theme::title()),
+            Span::styled(format!("cambium {:>3}", cambium.total), ring_style(cambium)),
+            Span::styled(" fresh detail  /'-.     ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("     .'  .", theme::title()),
+            Span::styled("---------------------", ring_style(outer)),
+            Span::styled(". /  '.   ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("    /  .' ", theme::title()),
+            Span::styled(format!("outer {:>3}", outer.total), ring_style(outer)),
+            Span::styled(" detailed ring  / '.  \\  ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("   |  /  .", theme::title()),
+            Span::styled("-----------------", ring_style(inner)),
+            Span::styled(". /  |   | ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("   | |  | ", theme::title()),
+            Span::styled(format!("inner {:>3}", inner.total), ring_style(inner)),
+            Span::styled(" compressed | |  |   | ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("   | |  | ", theme::title()),
             Span::styled(
-                format!(" heartwood {:>5} ", heartwood.total),
+                format!("heartwood {:>3}", heartwood.total),
                 ring_style(heartwood),
             ),
-            Span::styled("'.   \\   |", ring_style(inner)),
+            Span::styled(" core | |  |   | ", theme::title()),
         ]),
-        Line::from(Span::styled(
-            format!(
-                "  \\   '.   scars {:>4} seeds {:>4} .'   /",
-                scar.total, seed.total
-            ),
-            if scar.total > 0 {
-                ring_style(scar)
-            } else {
-                ring_style(seed)
-            },
-        )),
-        Line::from(Span::styled(
-            "   '.   '---.          .---'   .'".to_string(),
-            ring_style(outer),
-        )),
-        Line::from(Span::styled(
-            "     '-.       '------'       .-'".to_string(),
-            ring_style(cambium),
-        )),
-        Line::from(Span::styled(
-            "        '==================='".to_string(),
-            ring_style(cambium),
-        )),
+        Line::from(vec![
+            Span::styled("   |  \\  ' ", theme::title()),
+            Span::styled(format!("scars {:>2}", scar.total), ring_style(scar)),
+            Span::styled(" + ", theme::dim()),
+            Span::styled(format!("seeds {:>2}", seed.total), ring_style(seed)),
+            Span::styled(" ' /   |   | ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("    \\  '. ", theme::title()),
+            Span::styled("evidence rings", ring_style(inner)),
+            Span::styled(" .'  /   ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("      '-. '", theme::title()),
+            Span::styled("===============", ring_style(cambium)),
+            Span::styled("' .-'      ", theme::title()),
+        ]),
+        Line::from(vec![
+            Span::styled("          '", theme::title()),
+            Span::styled("-----------------", ring_style(cambium)),
+            Span::styled("'        ", theme::title()),
+        ]),
     ]
 }
 
@@ -157,5 +176,7 @@ mod tests {
         assert!(joined.contains("outer"));
         assert!(joined.contains("inner"));
         assert!(joined.contains("heartwood"));
+        assert!(joined.contains("scars"));
+        assert!(joined.contains("seeds"));
     }
 }

@@ -55,8 +55,8 @@ installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLa
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
-a short terminal onboarding screen with ASCII rings and the next useful
-commands. For global installs, it also adds the install bin directory to your
+one stable terminal onboarding screen with a branded ASCII ring and the next
+useful commands. For global installs, it also adds the install bin directory to your
 shell profile when that directory is not already on `PATH`. It does not
 initialize memory unless `--init` is passed.
 
@@ -87,7 +87,7 @@ Useful installer options:
 sh install.sh --help
 sh install.sh --project --init
 sh install.sh --global --install-dir "$HOME/.local"
-sh install.sh --no-animation
+sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
 sh install.sh --archive-url https://example/tree-ring-memory-0.11.0-macos-arm64.tar.gz --archive-sha256 <sha256>
 ```

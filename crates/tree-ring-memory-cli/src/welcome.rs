@@ -1,8 +1,6 @@
 use serde_json::json;
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::path::Path;
-use std::thread;
-use std::time::Duration;
 use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
 use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
@@ -15,7 +13,7 @@ const YELLOW: &str = "\x1b[38;5;220m";
 const BLUE: &str = "\x1b[38;5;33m";
 const BOLD: &str = "\x1b[1m";
 
-pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
+pub fn run(root: &Path, init: bool, _no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
     let (initialized, awareness) = if init {
         let awareness = ensure_agent_awareness(root)?;
@@ -42,23 +40,7 @@ pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Re
     }
 
     let color = io::stdout().is_terminal();
-    if color && !no_animation {
-        animate_intro()?;
-    }
     print_static_welcome(root, initialized, init, awareness.as_ref(), color);
-    Ok(())
-}
-
-fn animate_intro() -> Result<(), String> {
-    let mut stdout = io::stdout();
-    for frame in 0..8 {
-        write!(stdout, "\x1b[2J\x1b[H").map_err(|err| err.to_string())?;
-        for line in ring_frame(frame, true) {
-            writeln!(stdout, "{line}").map_err(|err| err.to_string())?;
-        }
-        stdout.flush().map_err(|err| err.to_string())?;
-        thread::sleep(Duration::from_millis(90));
-    }
     Ok(())
 }
 
@@ -69,7 +51,7 @@ fn print_static_welcome(
     awareness: Option<&AgentAwarenessReport>,
     color: bool,
 ) {
-    for line in ring_frame(7, color) {
+    for line in ring_frame(color) {
         println!("{line}");
     }
     println!();
@@ -133,18 +115,26 @@ fn shell_path(path: &Path) -> String {
     }
 }
 
-fn ring_frame(frame: usize, color: bool) -> Vec<String> {
-    let pulse = if frame % 2 == 0 { "*" } else { "+" };
+fn ring_frame(color: bool) -> Vec<String> {
     vec![
-        paint("        .-=================-.        ", TEAL, color) + pulse,
-        paint("     .-'   cambium  fresh   '-.     ", PINK, color),
-        paint("   .'   .--- outer  detailed ---.   '.", ORANGE, color),
-        paint("  /   .'   .-- inner  compressed --.  \\", YELLOW, color),
-        paint(" |   /   .' heartwood durable '.   | ", BLUE, color),
-        paint("  \\   '.   scars visible seeds   .'  /", PINK, color),
-        paint("   '.   '---.          .---'   .'   ", ORANGE, color),
-        paint("     '-.       '------'       .-'    ", TEAL, color),
-        paint("        '==================='        ", BLUE, color),
+        paint(
+            "          .------------------------.          ",
+            BLUE,
+            color,
+        ),
+        paint("       .-'  cambium  fresh detail  /'-.      ", TEAL, color),
+        paint("     .'  .---------------------. /   '.     ", PINK, color),
+        paint(
+            "    /  .' outer detailed ring  / '.   \\    ",
+            ORANGE,
+            color,
+        ),
+        paint("   |  /  .-----------------. /  |    |   ", YELLOW, color),
+        paint("   | |  | heartwood core | |   |    |   ", BLUE, color),
+        paint("   |  \\  ' scars + seeds ' /   |    |   ", PINK, color),
+        paint("    \\  '. inner compressed .'  /   ", ORANGE, color),
+        paint("      '-. '==============='  .-'       ", TEAL, color),
+        paint("          '-----------------'          ", BLUE, color),
     ]
 }
 

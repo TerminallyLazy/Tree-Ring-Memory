@@ -11,7 +11,7 @@ ARCHIVE_SHA256=${TREE_RING_ARCHIVE_SHA256:-""}
 MEMORY_ROOT=${TREE_RING_ROOT:-".tree-ring"}
 RUN_INIT=${TREE_RING_INIT:-"0"}
 RUN_ONBOARDING=${TREE_RING_ONBOARDING:-"1"}
-ANIMATION=${TREE_RING_ANIMATION:-"1"}
+ANIMATION=${TREE_RING_ANIMATION:-"0"}
 UPDATE_PATH=${TREE_RING_UPDATE_PATH:-"1"}
 PATH_PROFILE_UPDATED=""
 
@@ -155,38 +155,33 @@ line() {
 }
 
 ring_frame() {
-  pulse=$1
-  paint "38;5;37" "        .-=================-.        "
-  line "$pulse"
-  paint "38;5;204" "     .-'   cambium  fresh   '-.     "
+  paint "38;5;33" "          .------------------------.          "
   line ""
-  paint "38;5;208" "   .'   .--- outer  detailed ---.   '."
+  paint "38;5;37" "       .-'  cambium  fresh detail  /'-.      "
   line ""
-  paint "38;5;220" "  /   .'   .-- inner compressed --.  \\"
+  paint "38;5;204" "     .'  .---------------------. /   '.     "
   line ""
-  paint "38;5;33" " |   /   .' heartwood durable '.   | "
+  paint "38;5;208" "    /  .' outer detailed ring  / '.   \\    "
   line ""
-  paint "38;5;204" "  \\   '.   scars visible seeds   .'  /"
+  paint "38;5;220" "   |  /  .-----------------. /  |    |   "
   line ""
-  paint "38;5;208" "   '.   '---.          .---'   .'   "
+  paint "38;5;33" "   | |  | heartwood core | |   |    |   "
   line ""
-  paint "38;5;37" "     '-.       '------'       .-'    "
+  paint "38;5;204" "   |  \\  ' scars + seeds ' /   |    |   "
   line ""
-  paint "38;5;33" "        '==================='        "
+  paint "38;5;208" "    \\  '. inner compressed .'  /   "
+  line ""
+  paint "38;5;37" "      '-. '==============='  .-'       "
+  line ""
+  paint "38;5;33" "          '-----------------'          "
   line ""
 }
 
 intro() {
-  if [ "$ANIMATION" = "1" ] && [ "$COLOR" = "1" ]; then
-    for pulse in "*" "+" "*" "+"; do
-      printf '\033[2J\033[H'
-      ring_frame "$pulse"
-      sleep 0.08 2>/dev/null || :
-    done
-  else
-    ring_frame "*"
+  if [ "$RUN_ONBOARDING" != "1" ]; then
+    ring_frame
+    line ""
   fi
-  line ""
   paint "1" "Tree Ring Memory"
   line " installer"
   line "Framework-agnostic local memory for AI agents."

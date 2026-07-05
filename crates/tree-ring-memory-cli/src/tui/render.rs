@@ -15,6 +15,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
         render_compact(frame, area, app);
         return;
     }
+    if area.width < 104 {
+        render_narrow(frame, area, app);
+        return;
+    }
 
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -33,6 +37,40 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
         render_confirmation(
             frame,
             centered_rect(70, 22, area),
+            &pending.confirmation_prompt(),
+        );
+    }
+}
+
+fn render_narrow(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(13),
+            Constraint::Min(5),
+            Constraint::Length(3),
+        ])
+        .split(area);
+
+    render_header(frame, vertical[0], app);
+    if app.mode == AppMode::Exploded {
+        render_exploded(frame, vertical[1], app);
+    } else {
+        render_ambient(frame, vertical[1], app);
+    }
+    let lower = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+        .split(vertical[2]);
+    render_ring_hud(frame, lower[0], app);
+    render_results(frame, lower[1], app);
+    render_footer(frame, vertical[3], app);
+
+    if let Some(pending) = &app.pending_action {
+        render_confirmation(
+            frame,
+            centered_rect(78, 30, area),
             &pending.confirmation_prompt(),
         );
     }
@@ -381,12 +419,19 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let text = format!(
-        "q quit | / command | s search | r rings | i sensitive:{} | u superseded:{} | {}",
-        app.include_sensitive,
-        app.include_superseded,
-        command_help()
-    );
+    let text = if area.width < 104 {
+        format!(
+            "q quit | / cmd | s search | r rings | i sens:{} | u super:{}",
+            app.include_sensitive, app.include_superseded
+        )
+    } else {
+        format!(
+            "q quit | / command | s search | r rings | i sensitive:{} | u superseded:{} | {}",
+            app.include_sensitive,
+            app.include_superseded,
+            command_help()
+        )
+    };
     let footer = Paragraph::new(text)
         .style(theme::accent())
         .block(theme::panel("Actions"))
@@ -476,5 +521,21 @@ mod tests {
         assert!(output.contains("Ambient Rings"));
         assert!(output.contains("Actions"));
         assert!(output.contains("cambium"));
+    }
+
+    #[test]
+    fn render_narrow_buffer_keeps_ring_and_footer_visible() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/remember Use Rust TUI").unwrap();
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("Ambient Rings"));
+        assert!(output.contains("heartwood"));
+        assert!(output.contains("u super:false"));
     }
 }
