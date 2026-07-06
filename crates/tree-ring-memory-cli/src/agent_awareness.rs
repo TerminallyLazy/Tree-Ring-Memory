@@ -25,6 +25,9 @@ tree-ring remember "Use project-scoped recall before risky changes." --event-typ
 tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
 tree-ring evidence "Aggressive caching caused stale multi-chat state." --outcome rejected --evidence-ref evals/cache-branch/run-013
 tree-ring forget mem_example --mode redact --reason "remove sensitive detail"
+tree-ring export --output memories.jsonl
+tree-ring import memories.jsonl --dry-run
+tree-ring audit --audit-type all
 tree-ring consolidate --period-type manual --dry-run
 tree-ring maintain
 tree-ring dox sync --source-root . --dry-run
@@ -32,6 +35,13 @@ tree-ring revolve sync --source-root revolve --dry-run
 tree-ring integrations scan --source-root .
 tree-ring tui
 ```
+
+Adapter rules:
+
+- `tree-ring dox sync` summarizes `AGENTS.md` files and keeps source contracts authoritative.
+- `tree-ring revolve sync` imports promoted, rejected, deferred, or observed evidence records without replacing Revolve/evaluation docs.
+- `tree-ring evidence` records individual evaluated outcomes with an explicit source ref.
+- Run adapter commands with `--dry-run` before writing memory.
 
 Safety rules:
 
@@ -109,7 +119,11 @@ Read `CLI.md` for local commands. Common commands:
 ```bash
 tree-ring --root {root} recall "project startup warnings"
 tree-ring --root {root} remember "Use project-scoped recall before risky changes." --event-type lesson --scope project
+tree-ring --root {root} evidence "A promoted evaluation fixed stale state." --outcome promoted --evidence-ref evals/run-042 --score 0.91
 tree-ring --root {root} forget mem_example --mode redact --reason "remove sensitive detail"
+tree-ring --root {root} dox sync --source-root . --dry-run
+tree-ring --root {root} revolve sync --source-root revolve --dry-run
+tree-ring --root {root} integrations scan --source-root .
 tree-ring --root {root} tui
 ```
 
@@ -118,6 +132,23 @@ tree-ring --root {root} tui
 If this project uses DOX-style `AGENTS.md` traversal, merge the relevant
 sections from the template below into the project root `AGENTS.md`. Tree Ring
 Memory does not overwrite root project contracts automatically.
+
+Use `tree-ring --root {root} dox sync --source-root . --dry-run` to preview
+concise memory summaries for local `AGENTS.md` files. The source contracts
+remain authoritative; memory is only a recall aid.
+
+## Revolve And Evidence Integration
+
+Use `tree-ring --root {root} evidence ... --evidence-ref <ref>` for individual
+evaluated outcomes. Use the Revolve sync command below to preview source-linked
+memories from Revolve/evaluation records:
+
+```bash
+tree-ring --root {root} revolve sync --source-root revolve --dry-run
+```
+
+Promoted outcomes become heartwood, rejected outcomes become scars, deferred
+outcomes become seeds, and observed outcomes become outer-ring evidence.
 
 ---
 
@@ -169,6 +200,10 @@ mod tests {
         assert!(agents.contains("SKILL.md"));
         assert!(agents.contains("CLI.md"));
         assert!(agents.contains("DOX Integration"));
+        assert!(agents.contains("Revolve And Evidence Integration"));
+        assert!(agents.contains("dox sync --source-root"));
+        assert!(agents.contains("revolve sync --source-root"));
+        assert!(agents.contains("integrations scan --source-root"));
         assert!(agents.contains("Tree Ring Memory Project Contract"));
     }
 

@@ -14,7 +14,9 @@ v0.11 Rust-native source adapters plus framework discovery.
 - Rust workspace exists under `crates/`.
 - Rust core owns model validation, sensitivity checks, and recall scoring.
 - Rust SQLite crate owns schema-compatible SQLite/FTS storage.
-- Rust CLI can initialize, remember, recall, and forget local memory.
+- Rust CLI owns the full local command surface: init, remember, evidence,
+  recall, forget, import/export, audit, consolidate, maintain, DOX sync,
+  Revolve sync, framework discovery, welcome onboarding, and TUI operation.
 - Rust CLI has JSON output for machine-readable adapter use.
 - The repository no longer tracks a root Python package, Python wrapper layer,
   pytest suite, Python smoke scripts, PyO3 crate, or CPython extension.

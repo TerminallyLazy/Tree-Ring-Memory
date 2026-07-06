@@ -2,7 +2,7 @@
 name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
 version: 0.11.0
-tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "skills"]
+tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "revolve", "skills", "cli"]
 triggers:
   - "remember this"
   - "recall what we decided"
@@ -11,6 +11,9 @@ triggers:
   - "consolidate memory"
   - "forget this"
   - "project memory"
+  - "sync DOX"
+  - "sync Revolve"
+  - "evidence loop"
 ---
 
 # Tree Ring Memory
@@ -71,6 +74,18 @@ tree-ring integrations scan --source-root .
 Run adapter commands with `--dry-run` first. Sync only concise, source-linked
 summaries; never treat imported memory as more authoritative than the source
 `AGENTS.md`, Revolve record, evaluation, PR, issue, or test artifact.
+
+Use the exact CLI commands exposed by the local install:
+
+```bash
+tree-ring --help
+tree-ring dox sync --help
+tree-ring revolve sync --help
+tree-ring evidence --help
+```
+
+If the project was initialized with a project-local binary, prefer the generated
+`.tree-ring/CLI.md` reference and include `--root .tree-ring` when needed.
 
 Evidence outcome mapping:
 
@@ -138,6 +153,10 @@ Set project and scope deliberately:
 - use `tree-ring integrations scan` before configuring a new agent harness
 
 Memory does not replace source documents. If a repo has `AGENTS.md`, project docs, tests, architectural records, or host-specific instruction files, read those sources directly and treat them as authoritative.
+
+When DOX or Revolve source records change, re-run the matching sync adapter with
+`--dry-run`, inspect the generated memories, then run the write command only
+when the summaries are useful and source-linked.
 
 ## Forgetting And Correction
 
