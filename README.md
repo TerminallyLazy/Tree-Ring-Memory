@@ -45,23 +45,13 @@ suite, Python smoke script, PyO3 crate, or CPython extension.
 Global user install:
 
 ```bash
-(
-  installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT INT TERM &&
-  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
-  sh "$installer"
-)
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
 ```
 
 Project-local install with first-run initialization:
 
 ```bash
-(
-  installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT INT TERM &&
-  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
-  sh "$installer" --project --init
-)
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
@@ -70,16 +60,11 @@ useful commands. For global installs, it also adds the install bin directory to 
 shell profile when that directory is not already on `PATH`. It does not
 initialize memory unless `--init` is passed.
 
-The installer command intentionally downloads only the installer script to a new
-temporary file before running it. The subshell cleanup trap removes that
-temporary script when the command finishes or receives `INT`/`TERM`. It does
-not put memory in a temporary location and it does not remove `.tree-ring`,
+The installer command streams only the installer script into `sh`. It does not
+put memory in a temporary location and it does not remove `.tree-ring`,
 installed binaries, Cargo caches, source checkouts, or shell profiles.
 Persistent memory lives in the configured memory root, normally `.tree-ring`
-for project-local use or whatever path you pass with `--root`. Avoid
-`curl ... | sh` here: if the download fails before producing script content,
-the shell can still exit successfully after running empty input, which looks
-like a silent no-op.
+for project-local use or whatever path you pass with `--root`.
 
 Initialization creates the SQLite store and non-destructive agent-awareness
 files in the memory root:
