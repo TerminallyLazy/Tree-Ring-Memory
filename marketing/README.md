@@ -119,6 +119,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome AI Coding Agent Tools PR: `https://github.com/namphuongtran/awesome-ai-coding-agent-tools/pull/27`
 - Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
 - EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
+- Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
 - Milisp Awesome Codex CLI PR: `https://github.com/milisp/awesome-codex-cli/pull/63`
 - JQueryScript Awesome Claude Code PR: `https://github.com/jqueryscript/awesome-claude-code/pull/483`
 - RoggeOhta Awesome Codex CLI PR: `https://github.com/RoggeOhta/awesome-codex-cli/pull/132`
