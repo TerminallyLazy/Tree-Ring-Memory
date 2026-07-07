@@ -55,12 +55,8 @@ pub fn ambient_corner_lines(dashboard: &DashboardStats, tick: u64) -> Vec<Line<'
         ("O", outer),
         ("I", inner),
         ("H", heartwood),
-    ]));
-    lines.push(count_line([
         ("!", scar),
         ("?", seed),
-        ("", &empty_seed),
-        ("", &empty_seed),
     ]));
     lines
 }
@@ -166,8 +162,8 @@ fn terminal_ring_lines(
     tick: u64,
 ) -> Vec<Line<'static>> {
     ring_mark_rows_with_activity(
-        23,
-        7,
+        31,
+        10,
         tick as usize,
         ring_activity(cambium, outer, inner, heartwood, scar),
     )
@@ -197,14 +193,9 @@ fn activity_level(stats: &RingStats) -> f64 {
     (baseline + stats.pulse_level * 0.84).clamp(0.0, 1.0)
 }
 
-fn terminal_ring_style(stats: &RingStats, tick: u64) -> Style {
+fn terminal_ring_style(stats: &RingStats, tick: u64, brightness: u8) -> Style {
     Style::default()
-        .fg(animated_color(
-            &stats.ring,
-            Some(stats),
-            tick,
-            ring_offset(&stats.ring),
-        ))
+        .fg(lit_color(stats, tick, brightness))
         .add_modifier(if stats.total > 0 && stats.pulse_level > 0.35 {
             Modifier::BOLD
         } else {
@@ -248,12 +239,13 @@ fn terminal_cell_style(
         (Some(upper), Some(lower)) if upper == lower => terminal_ring_style(
             layer_stats(upper, cambium, outer, inner, heartwood, scar),
             tick,
+            cell.brightness,
         ),
         (Some(upper), Some(lower)) => {
             let upper_stats = layer_stats(upper, cambium, outer, inner, heartwood, scar);
             let lower_stats = layer_stats(lower, cambium, outer, inner, heartwood, scar);
             let mut style = Style::default()
-                .fg(animated_ring_color(upper_stats, tick))
+                .fg(lit_color(upper_stats, tick, cell.brightness))
                 .bg(animated_ring_color(lower_stats, tick));
             if upper_stats.pulse_level > 0.35 || lower_stats.pulse_level > 0.35 {
                 style = style.add_modifier(Modifier::BOLD);
@@ -263,16 +255,28 @@ fn terminal_cell_style(
         (Some(upper), None) => terminal_ring_style(
             layer_stats(upper, cambium, outer, inner, heartwood, scar),
             tick,
+            cell.brightness,
         ),
         (None, Some(lower)) => terminal_ring_style(
             layer_stats(lower, cambium, outer, inner, heartwood, scar),
             tick,
+            cell.brightness,
         ),
     }
 }
 
 fn animated_ring_color(stats: &RingStats, tick: u64) -> Color {
     animated_color(&stats.ring, Some(stats), tick, ring_offset(&stats.ring))
+}
+
+fn lit_color(stats: &RingStats, tick: u64, brightness: u8) -> Color {
+    let base = animated_ring_color(stats, tick);
+    let amount = brightness as f64 / 255.0;
+    if amount < 0.48 {
+        dim_color(base, 0.38 + amount * 0.85)
+    } else {
+        brighten_color(base, (amount - 0.48) * 0.46)
+    }
 }
 
 fn layer_stats<'a>(

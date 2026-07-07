@@ -15,6 +15,7 @@ pub struct RingMarkCell {
     pub layer: Option<RingMarkLayer>,
     pub upper_layer: Option<RingMarkLayer>,
     pub lower_layer: Option<RingMarkLayer>,
+    pub brightness: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -43,7 +44,7 @@ impl RingMarkActivity {
 pub struct RingMarkFrame {
     width: usize,
     height: usize,
-    pixels: Vec<Option<RingMarkLayer>>,
+    pixels: Vec<RingMarkCell>,
 }
 
 impl RingMarkFrame {
@@ -53,36 +54,9 @@ impl RingMarkFrame {
         frame: usize,
         activity: RingMarkActivity,
     ) -> Self {
-        let width = width_cells.max(17) | 1;
-        let height_cells = height_cells.max(7) | 1;
-        let height = height_cells * 2;
-        let center_x = (width as f64 - 1.0) / 2.0;
-        let center_y = (height as f64 - 1.0) / 2.0;
-        let radius = width.min(height) as f64 * 0.47;
-        let phase = frame as f64 * 0.28;
-        let perspective = 0.86 + phase.sin() * 0.050;
-        let shear = phase.cos() * 0.055;
-        let highlight_angle = normalize_angle(phase * 0.84 - 0.40);
-        let pixels = (0..height)
-            .flat_map(|row| {
-                (0..width).map(move |col| {
-                    sample_pixel(
-                        PixelSample {
-                            col,
-                            row,
-                            center_x,
-                            center_y,
-                            radius_scale: radius,
-                            perspective,
-                            shear,
-                            highlight_angle,
-                        },
-                        frame,
-                        activity,
-                    )
-                })
-            })
-            .collect();
+        let width = width_cells.max(23) | 1;
+        let height = height_cells.max(7);
+        let pixels = sample_tree_rings(width, height, frame, activity);
 
         Self {
             width,
@@ -95,19 +69,14 @@ impl RingMarkFrame {
         if col >= self.width || row >= self.height {
             return None;
         }
-        self.pixels[row * self.width + col]
+        self.pixels[row * self.width + col].layer
     }
 
     pub fn half_block_rows(&self) -> Vec<Vec<RingMarkCell>> {
-        (0..self.height / 2)
+        (0..self.height)
             .map(|row| {
                 (0..self.width)
-                    .map(|col| {
-                        RingMarkCell::halves(
-                            self.layer_at(col, row * 2),
-                            self.layer_at(col, row * 2 + 1),
-                        )
-                    })
+                    .map(|col| self.pixels[row * self.width + col])
                     .collect()
             })
             .collect()
@@ -121,22 +90,17 @@ impl RingMarkCell {
             layer: None,
             upper_layer: None,
             lower_layer: None,
+            brightness: 0,
         }
     }
 
-    fn halves(upper_layer: Option<RingMarkLayer>, lower_layer: Option<RingMarkLayer>) -> Self {
-        let ch = match (upper_layer, lower_layer) {
-            (None, None) => return Self::blank(),
-            (Some(upper), Some(lower)) if upper == lower => '█',
-            (Some(_), Some(_)) | (Some(_), None) => '▀',
-            (None, Some(_)) => '▄',
-        };
-
+    fn solid(ch: char, layer: RingMarkLayer, brightness: u8) -> Self {
         Self {
             ch,
-            layer: upper_layer.or(lower_layer),
-            upper_layer,
-            lower_layer,
+            layer: Some(layer),
+            upper_layer: Some(layer),
+            lower_layer: Some(layer),
+            brightness,
         }
     }
 }
@@ -146,28 +110,59 @@ struct Band {
     layer: RingMarkLayer,
     radius: f64,
     half_width: f64,
+    spin_direction: f64,
+    spin_speed: f64,
+    spin_offset: f64,
 }
 
 const BANDS: &[Band] = &[
     Band {
         layer: RingMarkLayer::Heartwood,
-        radius: 0.12,
-        half_width: 0.10,
+        radius: 0.15,
+        half_width: 0.075,
+        spin_direction: 1.0,
+        spin_speed: 1.00,
+        spin_offset: 0.20,
     },
     Band {
         layer: RingMarkLayer::Inner,
-        radius: 0.42,
-        half_width: 0.06,
+        radius: 0.33,
+        half_width: 0.040,
+        spin_direction: -1.0,
+        spin_speed: 1.22,
+        spin_offset: 1.10,
+    },
+    Band {
+        layer: RingMarkLayer::Inner,
+        radius: 0.47,
+        half_width: 0.034,
+        spin_direction: -1.0,
+        spin_speed: 1.08,
+        spin_offset: 2.00,
     },
     Band {
         layer: RingMarkLayer::Outer,
-        radius: 0.67,
-        half_width: 0.06,
+        radius: 0.61,
+        half_width: 0.034,
+        spin_direction: 1.0,
+        spin_speed: 0.92,
+        spin_offset: 2.80,
+    },
+    Band {
+        layer: RingMarkLayer::Outer,
+        radius: 0.75,
+        half_width: 0.031,
+        spin_direction: 1.0,
+        spin_speed: 0.78,
+        spin_offset: 3.60,
     },
     Band {
         layer: RingMarkLayer::Cambium,
-        radius: 0.925,
-        half_width: 0.075,
+        radius: 0.91,
+        half_width: 0.046,
+        spin_direction: -1.0,
+        spin_speed: 0.70,
+        spin_offset: 4.40,
     },
 ];
 
@@ -181,86 +176,229 @@ pub fn ring_mark_rows_with_activity(
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PixelSample {
+struct SubPixelHit {
+    layer: RingMarkLayer,
+    brightness: u8,
+}
+
+fn sample_tree_rings(
+    width: usize,
+    height: usize,
+    frame: usize,
+    activity: RingMarkActivity,
+) -> Vec<RingMarkCell> {
+    let phase = frame as f64 * 0.22;
+    let mut cells = Vec::with_capacity(width * height);
+
+    for row in 0..height {
+        for col in 0..width {
+            cells.push(sample_cell(col, row, width, height, phase, activity));
+        }
+    }
+
+    cells
+}
+
+fn sample_cell(
     col: usize,
     row: usize,
-    center_x: f64,
-    center_y: f64,
-    radius_scale: f64,
-    perspective: f64,
-    shear: f64,
-    highlight_angle: f64,
-}
-
-fn sample_pixel(
-    sample: PixelSample,
-    frame: usize,
+    width: usize,
+    height: usize,
+    phase: f64,
     activity: RingMarkActivity,
-) -> Option<RingMarkLayer> {
-    let dx = sample.col as f64 - sample.center_x;
-    let dy = sample.row as f64 - sample.center_y;
-    let x = dx / sample.radius_scale;
-    let y = (dy + dx * sample.shear) / (sample.radius_scale * sample.perspective);
-    let radius = (x * x + y * y).sqrt();
-    let angle = y.atan2(x);
-
-    if radius > 1.10 {
-        return None;
-    }
-    if scar_stroke(angle, radius, frame, activity) {
-        return Some(RingMarkLayer::Scar);
-    }
-    if cut_gap(angle, radius) {
-        return None;
-    }
-    band_for_radius(radius, angle, sample.highlight_angle, frame, activity)
-}
-
-fn band_for_radius(
-    radius: f64,
-    angle: f64,
-    highlight_angle: f64,
-    frame: usize,
-    activity: RingMarkActivity,
-) -> Option<RingMarkLayer> {
-    BANDS
-        .iter()
-        .find(|band| {
-            let band = **band;
-            let center = animated_radius(band, frame, activity);
-            let mut half_width = band.half_width + activity.layer(band.layer) * 0.030;
-            if angular_distance(angle, highlight_angle) < 0.22 {
-                half_width += 0.016;
+) -> RingMarkCell {
+    let mut pattern = 0u8;
+    let mut brightness_sum = 0usize;
+    let mut layer_counts = [0usize; 5];
+    let mut hits = 0usize;
+    for sub_y in 0..2 {
+        for sub_x in 0..2 {
+            if let Some(hit) =
+                sample_subpixel(col, row, sub_x, sub_y, width, height, phase, activity)
+            {
+                pattern |= quadrant_bit(sub_x, sub_y);
+                brightness_sum += hit.brightness as usize;
+                layer_counts[pulse_index(hit.layer)] += 1;
+                hits += 1;
             }
-            (radius - center).abs() <= half_width
-        })
-        .map(|band| band.layer)
-}
-
-fn animated_radius(band: Band, frame: usize, activity: RingMarkActivity) -> f64 {
-    let offset = pulse_index(band.layer) as f64 * 0.88;
-    let wave = (frame as f64 * 0.34 + offset).sin();
-    let ambient = 0.010 * wave;
-    let live = activity.layer(band.layer) * (0.035 + 0.012 * wave.abs());
-    (band.radius * (1.0 + ambient + live)).min(1.04)
-}
-
-fn scar_stroke(angle: f64, radius: f64, frame: usize, activity: RingMarkActivity) -> bool {
-    let scar_activity = activity.layer(RingMarkLayer::Scar);
-    let shimmer = 0.50 + ((frame as f64 * 0.42).sin() * 0.50);
-    let width = 0.034 + scar_activity * 0.030 + shimmer * 0.010;
-    let upper_edge = radius > 0.20 && radius < 1.05 && angular_distance(angle, -0.61) < width;
-    let lower_edge = radius > 0.46 && radius < 0.94 && angular_distance(angle, 2.30) < width * 0.90;
-    upper_edge || lower_edge
-}
-
-fn cut_gap(angle: f64, radius: f64) -> bool {
-    if radius <= 0.20 {
-        return false;
+        }
     }
-    let upper_gap = radius > 0.22 && angular_distance(angle, -0.78) < 0.15 + radius * 0.03;
-    let lower_gap = radius > 0.46 && angular_distance(angle, 2.35) < 0.085;
-    upper_gap || lower_gap
+
+    if hits == 0 {
+        return RingMarkCell::blank();
+    }
+
+    RingMarkCell::solid(
+        quadrant_char(pattern),
+        dominant_layer(layer_counts),
+        (brightness_sum / hits) as u8,
+    )
+}
+
+fn sample_subpixel(
+    col: usize,
+    row: usize,
+    sub_x: usize,
+    sub_y: usize,
+    width: usize,
+    height: usize,
+    phase: f64,
+    activity: RingMarkActivity,
+) -> Option<SubPixelHit> {
+    let x = normalized_x(col, sub_x, width);
+    let y = normalized_y(row, sub_y, height);
+    let radius = (x * x + y * y).sqrt();
+    if radius > 1.06 {
+        return None;
+    }
+    let angle = normalize_angle(y.atan2(x));
+
+    if let Some(hit) = scar_hit(x, y, radius, phase, activity.layer(RingMarkLayer::Scar)) {
+        return Some(hit);
+    }
+
+    let mut best: Option<(f64, SubPixelHit)> = None;
+    for band in BANDS {
+        let layer_activity = activity.layer(band.layer);
+        let center = animated_radius(*band, phase, layer_activity);
+        let half_width = band.half_width + layer_activity * 0.016;
+        let distance = (radius - center).abs();
+        if distance > half_width {
+            continue;
+        }
+        let brightness = band_brightness(*band, angle, radius, phase, layer_activity, distance);
+        let hit = SubPixelHit {
+            layer: band.layer,
+            brightness,
+        };
+        if best
+            .map(|(best_distance, _)| distance < best_distance)
+            .unwrap_or(true)
+        {
+            best = Some((distance, hit));
+        }
+    }
+
+    best.map(|(_, hit)| hit)
+}
+
+fn normalized_x(col: usize, sub_x: usize, width: usize) -> f64 {
+    let cell = col as f64 + (sub_x as f64 + 0.5) / 2.0;
+    let center = width as f64 * 0.5;
+    (cell - center) / (width as f64 * 0.30)
+}
+
+fn normalized_y(row: usize, sub_y: usize, height: usize) -> f64 {
+    let cell = row as f64 + (sub_y as f64 + 0.5) / 2.0;
+    let center = height as f64 * 0.5;
+    (cell - center) / (height as f64 * 0.52)
+}
+
+fn animated_radius(band: Band, phase: f64, layer_activity: f64) -> f64 {
+    let layer_phase = pulse_index(band.layer) as f64 * 0.81;
+    let breathing = (phase * 1.35 + layer_phase).sin() * 0.007;
+    let pulse = layer_activity * (0.020 + 0.006 * (phase * 2.1 + layer_phase).sin().abs());
+    (band.radius + breathing + pulse).min(1.02)
+}
+
+fn band_brightness(
+    band: Band,
+    angle: f64,
+    radius: f64,
+    phase: f64,
+    layer_activity: f64,
+    distance: f64,
+) -> u8 {
+    let spin =
+        normalize_angle(angle + band.spin_direction * phase * band.spin_speed + band.spin_offset);
+    let moving_light = angular_glow(spin, 0.0, 0.19).max(angular_glow(spin, PI * 1.27, 0.13));
+    let grain = ((angle * 11.0 + radius * 17.0 + band.spin_direction * phase * 0.75).sin() * 0.5
+        + 0.5)
+        * 0.18;
+    let pulse = layer_activity * (0.28 + 0.22 * (phase * 2.8 + band.spin_offset).sin().max(0.0));
+    let edge = 1.0 - (distance / band.half_width.max(0.001)).clamp(0.0, 1.0);
+    let value = 0.30 + edge * 0.18 + grain + moving_light * (0.34 + layer_activity * 0.20) + pulse;
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn scar_hit(x: f64, y: f64, radius: f64, phase: f64, scar_activity: f64) -> Option<SubPixelHit> {
+    if !(0.20..=0.88).contains(&radius) {
+        return None;
+    }
+
+    let upper = (y + x * 0.62 + 0.02).abs();
+    let lower = (y - x * 0.42 - 0.22).abs();
+    let width = 0.026 + scar_activity * 0.020;
+    let in_upper = upper < width && (-0.48..=0.54).contains(&x);
+    let in_lower = lower < width * 0.85 && (-0.16..=0.48).contains(&x);
+    if !in_upper && !in_lower {
+        return None;
+    }
+
+    let shimmer = ((phase * 4.2 + x * 9.0 - y * 6.0).sin() * 0.5 + 0.5) * 0.24;
+    let value = 0.58 + scar_activity * 0.28 + shimmer;
+    Some(SubPixelHit {
+        layer: RingMarkLayer::Scar,
+        brightness: (value.clamp(0.0, 1.0) * 255.0).round() as u8,
+    })
+}
+
+fn angular_glow(angle: f64, target: f64, width: f64) -> f64 {
+    let distance = angular_distance(angle, target);
+    if distance >= width {
+        0.0
+    } else {
+        let t = 1.0 - distance / width;
+        t * t
+    }
+}
+
+fn dominant_layer(layer_counts: [usize; 5]) -> RingMarkLayer {
+    let index = layer_counts
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| **count)
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+    match index {
+        0 => RingMarkLayer::Cambium,
+        1 => RingMarkLayer::Outer,
+        2 => RingMarkLayer::Inner,
+        3 => RingMarkLayer::Heartwood,
+        4 => RingMarkLayer::Scar,
+        _ => RingMarkLayer::Cambium,
+    }
+}
+
+fn quadrant_bit(sub_x: usize, sub_y: usize) -> u8 {
+    match (sub_x, sub_y) {
+        (0, 0) => 0x01,
+        (1, 0) => 0x02,
+        (0, 1) => 0x04,
+        (1, 1) => 0x08,
+        _ => 0,
+    }
+}
+
+fn quadrant_char(pattern: u8) -> char {
+    match pattern {
+        0x01 => '▘',
+        0x02 => '▝',
+        0x03 => '▀',
+        0x04 => '▖',
+        0x05 => '▌',
+        0x06 => '▞',
+        0x07 => '▛',
+        0x08 => '▗',
+        0x09 => '▚',
+        0x0a => '▐',
+        0x0b => '▜',
+        0x0c => '▄',
+        0x0d => '▙',
+        0x0e => '▟',
+        0x0f => '█',
+        _ => ' ',
+    }
 }
 
 fn angular_distance(angle: f64, target: f64) -> f64 {
@@ -304,7 +442,7 @@ mod tests {
             RingMarkLayer::Scar,
         ] {
             assert!(
-                frame.pixels.iter().any(|pixel| *pixel == Some(layer)),
+                frame.pixels.iter().any(|pixel| pixel.layer == Some(layer)),
                 "missing {layer:?}"
             );
         }
@@ -315,14 +453,14 @@ mod tests {
         let frame = RingMarkFrame::with_activity(31, 12, 0, RingMarkActivity::default());
 
         assert_eq!(frame.width, 31);
-        assert_eq!(frame.height, 26);
+        assert_eq!(frame.height, 12);
         assert_eq!(frame.layer_at(usize::MAX, 0), None);
         assert_eq!(frame.layer_at(0, usize::MAX), None);
-        assert_eq!(frame.half_block_rows().len(), 13);
+        assert_eq!(frame.half_block_rows().len(), 12);
     }
 
     #[test]
-    fn mark_uses_terminal_raster_glyphs_instead_of_template_fill() {
+    fn mark_uses_smooth_quadrant_ring_cells_instead_of_noisy_ascii() {
         let rendered = ring_mark_rows_with_activity(31, 12, 0, RingMarkActivity::default())
             .into_iter()
             .flatten()
@@ -330,13 +468,15 @@ mod tests {
             .map(|cell| cell.ch)
             .collect::<String>();
 
-        assert!(rendered.chars().all(is_raster_glyph));
-        assert!(rendered.contains('▀'));
-        assert!(rendered.contains('▄'));
-        assert!(rendered.contains('█'));
+        assert!(rendered.chars().all(is_quadrant_cell));
+        assert!(rendered.contains('█') || rendered.contains('▀') || rendered.contains('▄'));
+        assert!(!rendered.contains('('));
+        assert!(!rendered.contains(')'));
+        assert!(!rendered.contains('/'));
+        assert!(!rendered.contains('\\'));
+        assert!(!rendered.contains('@'));
         assert!(!rendered.contains('#'));
-        assert!(!rendered.contains('='));
-        assert!(!rendered.contains('o'));
+        assert!(!rendered.contains('%'));
     }
 
     #[test]
@@ -365,12 +505,12 @@ mod tests {
         let calm_cambium = calm
             .pixels
             .iter()
-            .filter(|pixel| **pixel == Some(RingMarkLayer::Cambium))
+            .filter(|pixel| pixel.layer == Some(RingMarkLayer::Cambium))
             .count();
         let live_cambium = live
             .pixels
             .iter()
-            .filter(|pixel| **pixel == Some(RingMarkLayer::Cambium))
+            .filter(|pixel| pixel.layer == Some(RingMarkLayer::Cambium))
             .count();
 
         assert!(live_cambium > calm_cambium);
@@ -384,7 +524,23 @@ mod tests {
         assert!(rows.iter().all(|row| row.len() == 23));
     }
 
-    fn is_raster_glyph(ch: char) -> bool {
-        matches!(ch, '█' | '▀' | '▄')
+    fn is_quadrant_cell(ch: char) -> bool {
+        matches!(
+            ch,
+            '▘' | '▝'
+                | '▀'
+                | '▖'
+                | '▌'
+                | '▞'
+                | '▛'
+                | '▗'
+                | '▚'
+                | '▐'
+                | '▜'
+                | '▄'
+                | '▙'
+                | '▟'
+                | '█'
+        )
     }
 }

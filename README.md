@@ -290,13 +290,13 @@ cargo run -p tree-ring-memory-cli -- --root .tree-ring remember "Try the TUI wit
 cargo run -p tree-ring-memory-cli -- --root .tree-ring tui
 ```
 
-The console keeps an animated half-block tree-ring cross-section visible at all
-times. The visual layer generates a backend-independent ring frame first, then
-renders that frame into terminal cells for the ambient HUD. Rings subtly change
-radius, perspective, highlight, and scar shimmer on each tick; store-watch and
-event-stream pulses increase the matching ring geometry in real time. That keeps
-the always-on animation cheap and portable while leaving room for richer
-Kitty/iTerm2 image-protocol rendering in welcome or expanded views later.
+The console keeps an animated straight-on tree-ring face visible at all times.
+The visual layer generates a backend-independent ring frame first, then rasterizes
+that frame into high-resolution terminal cells for the ambient HUD. Individual
+rings carry clockwise or counter-clockwise highlights, pulse with matching memory
+activity, and shimmer through scar marks on each tick. That keeps the always-on
+animation cheap and portable while leaving room for richer Kitty/iTerm2
+image-protocol rendering in welcome or expanded views later.
 Store-watch polling updates persisted counts from SQLite, while the optional
 event stream lights rings in real time without treating stream events as durable
 truth.
