@@ -26,6 +26,8 @@ Launch and outreach materials for Tree Ring Memory.
   community maintainers.
 - `terminal-trove-submission.md`: Terminal Trove submission packet and sent
   email fields.
+- `console-dev-submission.md`: console.dev tool-submission packet and sent
+  email fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -119,6 +121,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Zo Computer Skills PR: `https://github.com/zocomputer/skills/pull/105`
 - Terminal Trove submission: sent to `curator@terminaltrove.com` with
   `marketing/assets/terminal-trove-preview-1200x675.png` attached.
+- console.dev submission: sent to `hello@console.dev` with
+  `marketing/assets/open-graph-1200x675.png` attached.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
