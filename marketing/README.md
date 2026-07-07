@@ -97,6 +97,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Kodus Awesome Agent Skills PR: `https://github.com/kodustech/awesome-agent-skills/pull/51`
 - Skillmatic Awesome Agent Skills PR: `https://github.com/skillmatic-ai/awesome-agent-skills/pull/126`
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
+- Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
