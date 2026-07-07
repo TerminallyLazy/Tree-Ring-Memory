@@ -66,6 +66,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Zo Computer Skills PR | Submitted | https://github.com/zocomputer/skills/pull/105 | Adds Tree Ring Memory as a Community skill with display metadata; local validation passed and GitHub reports no PR checks yet. |
 | Awesome Open Source AI PR | Submitted | https://github.com/suncloudsmoon/awesome-open-source-ai/pull/14 | Adds Tree Ring Memory to Tools in an open-source AI resource list; PR is mergeable and reports no checks. |
 | Awesome AI Agent Tools PR | Submitted | https://github.com/michielhdoteth/awesome-ai-agent-tools/pull/5 | Adds Tree Ring Memory to the Tools catalog under a new Agent Memory category; PR is mergeable and reports no checks. |
+| Nipuna Awesome AI Agents PR | Submitted | https://github.com/NipunaRanasinghe/awesome-ai-agents/pull/153 | Adds Tree Ring Memory to Agent Operations / Memory in a curated AI-agent framework and tooling directory; local `awesome-lint` and GitGuardian passed; PR is mergeable. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
