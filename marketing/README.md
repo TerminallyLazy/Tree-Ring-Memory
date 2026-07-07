@@ -124,6 +124,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
 - Milisp Awesome Codex CLI PR: closed for URL/description format; ask
   maintainer for the expected row style before resubmitting.
+- Milisp Awesome Codex CLI replacement PR:
+  `https://github.com/milisp/awesome-codex-cli/pull/64`
 - JQueryScript Awesome Claude Code PR: `https://github.com/jqueryscript/awesome-claude-code/pull/483`
 - RoggeOhta Awesome Codex CLI PR: `https://github.com/RoggeOhta/awesome-codex-cli/pull/132`
 - Heilcheng Awesome Agent Skills PR: `https://github.com/heilcheng/awesome-agent-skills/pull/331`
@@ -152,6 +154,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
 - Accepted-listings evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908361729`
+- Milisp replacement evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908432595`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
