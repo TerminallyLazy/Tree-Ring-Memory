@@ -74,6 +74,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `rootsong-ai-native-landscape-issue.md`: AI Native Landscape issue-form
   submission packet and evidence notes.
+- `carsteneu-ai-memory-comparison-pr.md`: AI Memory Comparison evidence PR
+  packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -260,6 +262,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/rootsongjc/ai-native-landscape/issues/6`
 - AI Native Landscape evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909862599`
+- AI Memory Comparison PR:
+  `https://github.com/carsteneu/ai-memory-comparison/pull/14`
+- AI Memory Comparison evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909903832`
 - Runaicode Awesome AI Coding Tools PR:
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
