@@ -39,6 +39,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome TUIs PR | Submitted | https://github.com/rothgar/awesome-tuis/pull/751 | Adds Tree Ring Memory to the Development section of a terminal UI directory. |
 | Awesome Ratatui PR | Submitted | https://github.com/ratatui/awesome-ratatui/pull/361 | Adds Tree Ring Memory to Apps / Development Tools in the Ratatui ecosystem list. |
 | Awesome CLI Apps CSV PR | Submitted | https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303 | Adds Tree Ring Memory to the source CSV for a large CLI/TUI index. |
+| Awesome CLI Agents PR | Submitted | https://github.com/phamquiluan/awesome-cli-agents/pull/21 | Adds Tree Ring Memory as a terminal AI-agent memory tool in a current Vim/Neovim/terminal AI list; local diff whitespace passed and the crawler README parser recognizes the row; PR is mergeable and reports no checks. |
 | Awesome DevTools PR | Submitted | https://github.com/devtoolsd/awesome-devtools/pull/299 | Adds Tree Ring Memory to AI Coding Tools in a developer-tool directory. |
 | Awesome Coding Agents PR | Submitted | https://github.com/kailiu42/awesome-coding-agents/pull/12 | Adds Tree Ring Memory to CLI Agent Helpers in a coding-agent directory. |
 | BradAGI Awesome CLI Coding Agents PR | Submitted | https://github.com/bradAGI/awesome-cli-coding-agents/pull/187 | Adds Tree Ring Memory to Agent infrastructure beside local memory/context tools; PR is mergeable and reports no checks. |
