@@ -72,6 +72,9 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Ratatui PR: `https://github.com/ratatui/awesome-ratatui/pull/361`
 - Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`
 - Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
+- Awesome Coding Agents PR: `https://github.com/kailiu42/awesome-coding-agents/pull/12`
+- Command Line Tools PR: `https://github.com/linsa-io/command-line-tools/pull/37`
+- Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
