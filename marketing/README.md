@@ -42,6 +42,8 @@ Launch and outreach materials for Tree Ring Memory.
   accepted endpoint response.
 - `vbwebtools-submission.md`: VB Web AI Tools directory submission packet and
   sent email fallback after the public form rejected the AJAX request.
+- `iaar-awesome-ai-memory-pr.md`: IAAR Awesome AI Memory PR packet, duplicate
+  cleanup, and validation notes.
 - `enterprise-ai-atlas-awesome-ai-coding-agents-pr.md`: Enterprise AI Atlas
   Awesome AI Coding Agents PR packet and validation notes.
 - `devtoollab-submission.md`: DevToolLab editorial fallback submission packet
