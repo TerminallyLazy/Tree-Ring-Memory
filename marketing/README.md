@@ -70,6 +70,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Context Engineering PR: `https://github.com/jihoo-kim/awesome-context-engineering/pull/23`
 - Meirtz Awesome Context Engineering PR: `https://github.com/Meirtz/Awesome-Context-Engineering/pull/89`
 - Yzfly Awesome Context Engineering PR: `https://github.com/yzfly/awesome-context-engineering/pull/20`
+- Rerewang Awesome Context Engineering PR: `https://github.com/rerewang/awesome-context-engineering/pull/5`
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Alan Awesome Local-First PR: `https://github.com/alantriesagain/awesome-local-first/pull/9`
 - Zhongkechen Awesome Local-First PR: `https://github.com/zhongkechen/awesome-local-first/pull/6`
