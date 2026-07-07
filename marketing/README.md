@@ -69,6 +69,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`
 - Awesome Context Engineering PR: `https://github.com/jihoo-kim/awesome-context-engineering/pull/23`
 - Meirtz Awesome Context Engineering PR: `https://github.com/Meirtz/Awesome-Context-Engineering/pull/89`
+- Yzfly Awesome Context Engineering PR: `https://github.com/yzfly/awesome-context-engineering/pull/20`
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Awesome AI SDKs PR: `https://github.com/e2b-dev/awesome-ai-sdks/pull/268`
 - Awesome Command Line Tools PR: `https://github.com/ad-si/awesome-command-line-tools/pull/2`
