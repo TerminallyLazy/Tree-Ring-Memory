@@ -44,8 +44,18 @@ usage() {
 Tree Ring Memory installer
 
 Usage:
-  installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer"
-  installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer" --project --init
+  (
+    installer=$(mktemp) &&
+    trap 'rm -f "$installer"' EXIT INT TERM &&
+    curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
+    sh "$installer"
+  )
+  (
+    installer=$(mktemp) &&
+    trap 'rm -f "$installer"' EXIT INT TERM &&
+    curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
+    sh "$installer" --project --init
+  )
 
 Options:
   --global              Install to $HOME/.local/bin (default).

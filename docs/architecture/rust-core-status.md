@@ -53,6 +53,11 @@ v0.11 Rust-native source adapters plus framework discovery.
   replacing DOX contracts or Revolve evidence records.
 - The Rust CLI and TUI include read-only agent-framework discovery for DOX,
   Revolve, Codex, Claude Code, Agent Zero/A0, Goose, OpenCode, Hermes, and Pi.
+- Project-local agent guidance is generated under `.tree-ring/AGENTS.md`,
+  `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md`. The current bridge-linking
+  design keeps those files canonical, prefers project-level harness bridges,
+  leaves global harness configuration opt-in, and keeps durable memory updates
+  agent-mediated instead of background-recorded.
 
 ## Build Commands
 

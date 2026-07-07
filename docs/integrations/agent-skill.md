@@ -14,6 +14,10 @@ configured memory root:
 
 Existing files are not overwritten.
 
+These generated files are the canonical project-local guidance. Harness-native
+bridge files should point back to them rather than copying memory data or
+duplicating long instructions.
+
 ## Skill Usage
 
 Use the skill in agent runtimes that support local skills or instruction packs.
@@ -121,6 +125,34 @@ generated `.tree-ring/AGENTS.md` guidance into the project root `AGENTS.md`
 when you want agents to see memory rules before entering the memory directory.
 For CLI-only harnesses, include `.tree-ring/CLI.md` in startup context and call
 `tree-ring --help` when command flags are uncertain.
+
+Recommended project-level bridge targets:
+
+- Codex and Gemini-style skill loaders: `.agents/skills/tree-ring-memory/SKILL.md`
+  pointing to `.tree-ring/SKILL.md` and `.tree-ring/CLI.md`.
+- Claude Code: `.claude/skills/tree-ring-memory/SKILL.md` plus a `CLAUDE.md`
+  reference to `.tree-ring/AGENTS.md` and `.tree-ring/CLI.md`.
+- OpenCode and DOX-style agents: a root `AGENTS.md` managed block or manual
+  section that tells the agent to read `.tree-ring/AGENTS.md`,
+  `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md`.
+- Pi: a `.pi/settings.json` resource path that points at the Tree Ring skill or
+  CLI guidance.
+
+Project bridge files are preferred because they stay scoped to the current
+repo. Global bridge files under `~/.agents`, `~/.codex`, `~/.claude`,
+`~/.gemini`, or `~/.pi` affect every project and should be written only through
+an explicit global opt-in flow.
+
+The bridge-linking design is agent-mediated: bridge files teach the active
+agent when to call Tree Ring, but Tree Ring does not run a background recorder
+or autonomously persist chat transcripts. Durable writes happen only when a
+user, agent, adapter, import, TUI action, consolidation command, or explicit
+maintenance command calls the CLI.
+
+`tree-ring integrations scan --source-root .` is read-only today. The planned
+`tree-ring integrations link --scope project --harness auto --dry-run` command
+will preview bridge writes first, then write only missing files or safe managed
+blocks. Until that command is implemented, add the bridge references manually.
 
 ## Safety Rule
 

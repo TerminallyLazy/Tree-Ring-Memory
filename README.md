@@ -45,13 +45,23 @@ suite, Python smoke script, PyO3 crate, or CPython extension.
 Global user install:
 
 ```bash
-installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer"
+(
+  installer=$(mktemp) &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
+  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
+  sh "$installer"
+)
 ```
 
 Project-local install with first-run initialization:
 
 ```bash
-installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" && sh "$installer" --project --init
+(
+  installer=$(mktemp) &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
+  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
+  sh "$installer" --project --init
+)
 ```
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
@@ -60,13 +70,16 @@ useful commands. For global installs, it also adds the install bin directory to 
 shell profile when that directory is not already on `PATH`. It does not
 initialize memory unless `--init` is passed.
 
-The installer command intentionally downloads only the installer script to a
-temporary file before running it. It does not put memory in a temporary
-location. Persistent memory lives in the configured memory root, normally
-`.tree-ring` for project-local use or whatever path you pass with `--root`.
-Avoid `curl ... | sh` here: if the download fails before producing script
-content, the shell can still exit successfully after running empty input, which
-looks like a silent no-op.
+The installer command intentionally downloads only the installer script to a new
+temporary file before running it. The subshell cleanup trap removes that
+temporary script when the command finishes or receives `INT`/`TERM`. It does
+not put memory in a temporary location and it does not remove `.tree-ring`,
+installed binaries, Cargo caches, source checkouts, or shell profiles.
+Persistent memory lives in the configured memory root, normally `.tree-ring`
+for project-local use or whatever path you pass with `--root`. Avoid
+`curl ... | sh` here: if the download fails before producing script content,
+the shell can still exit successfully after running empty input, which looks
+like a silent no-op.
 
 Initialization creates the SQLite store and non-destructive agent-awareness
 files in the memory root:
@@ -242,6 +255,16 @@ It looks for local markers for DOX, Revolve, Codex, Claude Code, Agent Zero/A0,
 Goose, OpenCode, Hermes, and Pi, then suggests next steps without editing those
 tools' configuration.
 
+Agent-mediated bridge linking is the planned next step after read-only
+discovery. The design keeps `.tree-ring` as the canonical memory root while
+adding small project-level bridge files that tell the active agent to read
+`.tree-ring/SKILL.md` and `.tree-ring/CLI.md`. Project bridges are preferred
+because they travel with the repo; global bridges affect every project and must
+remain explicit opt-in. Until `tree-ring integrations link` is implemented, add
+those references manually in the harness startup context or project instruction
+file instead of expecting `tree-ring init` to modify Codex, Claude, Pi,
+OpenCode, or other agent configuration.
+
 `tree-ring export` writes newline-delimited JSON. The first line is a
 `tree_ring_memory_export` header with schema and plugin version metadata; each
 remaining line is a `memory_event` envelope. The command excludes sensitive and
@@ -354,6 +377,8 @@ run the release artifact workflow for Linux and macOS.
 Historical migration and planning documents are retained under `docs/superpowers/`
 and `docs/feature/`. Some of those records describe earlier Python prototype or
 binding options that have since been superseded by the Rust-native runtime.
+The current bridge-linking design is tracked in
+`docs/superpowers/specs/2026-07-06-tree-ring-agent-mediated-bridges-design.md`.
 
 ## Agent Workflow Integration
 
@@ -372,6 +397,20 @@ DOX-aware agents, make sure the project root `AGENTS.md` tells the agent to read
 Tree Ring Memory guidance when memory is initialized. For CLI-driven agents,
 include `.tree-ring/CLI.md` in the harness prompt or startup context so the
 agent knows the exact local commands.
+
+Bridge files should be short discovery pointers, not duplicate memory stores.
+Recommended project-level bridge targets are `.agents/skills/tree-ring-memory/SKILL.md`
+for Codex/Gemini-style skill loaders, `.claude/skills/tree-ring-memory/SKILL.md`
+plus `CLAUDE.md` references for Claude Code, root `AGENTS.md` references for
+OpenCode/DOX-style agents, and `.pi/settings.json` resource references for Pi.
+Global bridge files under home directories are useful only when the user wants
+Tree Ring visible in every project.
+
+Memory updates are agent-mediated. Bridge files tell the active agent when to
+call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
+`tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
+Tree Ring does not scrape transcripts, run a hidden recorder, or turn TUI
+event-stream pulses into durable memory without an explicit write command.
 
 ## Brand Assets
 

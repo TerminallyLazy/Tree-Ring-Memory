@@ -87,6 +87,12 @@ tree-ring evidence --help
 If the project was initialized with a project-local binary, prefer the generated
 `.tree-ring/CLI.md` reference and include `--root .tree-ring` when needed.
 
+If this skill was loaded through a harness-native bridge file, treat that bridge
+as a pointer only. Read the project-local `.tree-ring/SKILL.md` and
+`.tree-ring/CLI.md` when present so commands match the installed project root.
+Do not assume a global Tree Ring setup applies to the current repo unless the
+user explicitly configured it.
+
 Evidence outcome mapping:
 
 - `promoted`: durable heartwood from supported evidence
@@ -157,6 +163,22 @@ Memory does not replace source documents. If a repo has `AGENTS.md`, project doc
 When DOX or Revolve source records change, re-run the matching sync adapter with
 `--dry-run`, inspect the generated memories, then run the write command only
 when the summaries are useful and source-linked.
+
+## Agent-Mediated Updates
+
+Tree Ring Memory does not autonomously scrape chats or write durable memory in
+the background. The active agent is responsible for deciding when a Tree Ring
+command is warranted, then calling the CLI deliberately.
+
+Use bridge files only to discover Tree Ring and its command reference:
+
+- project-level bridges should point to `.tree-ring/SKILL.md` and
+  `.tree-ring/CLI.md`
+- global bridges should be treated as opt-in user configuration
+- TUI event-stream pulses are display signals, not durable memories
+
+Before writing memory, verify the lesson is durable, useful, privacy-safe, and
+grounded in user instruction or source evidence.
 
 ## Forgetting And Correction
 
