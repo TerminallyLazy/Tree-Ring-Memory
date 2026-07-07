@@ -71,6 +71,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Mahseema Awesome AI Tools PR | Submitted | https://github.com/mahseema/awesome-ai-tools/pull/1742 | Adds Tree Ring Memory to Developer tools in a broad AI-tools directory. |
 | EUDK Awesome AI Tools PR | Submitted | https://github.com/eudk/awesome-ai-tools/pull/413 | Adds Tree Ring Memory to AI Agent Tools in a broad AI-tools directory. |
 | Milisp Awesome Codex CLI PR | Submitted | https://github.com/milisp/awesome-codex-cli/pull/63 | Adds Tree Ring Memory to Development Tools in a Codex CLI directory. |
+| Composio Awesome Codex Skills PR | Submitted | https://github.com/ComposioHQ/awesome-codex-skills/pull/163 | Adds Tree Ring Memory as a compact Codex skill for local-first memory lifecycle work; metadata, README entry, ASCII, diff whitespace, and Socket Security checks passed; PR is mergeable. |
 | JQueryScript Awesome Claude Code PR | Submitted | https://github.com/jqueryscript/awesome-claude-code/pull/483 | Adds Tree Ring Memory to Tools & Utilities in a broad Claude Code directory. |
 | LangGPT Awesome Claude Code PR | Submitted | https://github.com/LangGPT/awesome-claude-code/pull/115 | Adds Tree Ring Memory to Development Tools & Utilities across English and Chinese docs; PR is mergeable and reports no checks. |
 | Rohitg00 Claude Code Toolkit PR | Submitted | https://github.com/rohitg00/awesome-claude-code-toolkit/pull/625 | Adds Tree Ring Memory to Ecosystem in a high-visibility Claude Code toolkit directory; PR is mergeable and CodeRabbit passed. |
