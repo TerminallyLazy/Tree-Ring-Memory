@@ -1,5 +1,4 @@
 use std::f64::consts::PI;
-use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RingMarkLayer {
@@ -57,7 +56,7 @@ impl RingMarkFrame {
     ) -> Self {
         let width = width_cells.max(23) | 1;
         let height = height_cells.max(7);
-        let pixels = sample_tree_ring_object(width, height, frame, activity);
+        let pixels = sample_tree_rings(width, height, frame, activity);
 
         Self {
             width,
@@ -95,7 +94,7 @@ impl RingMarkCell {
         }
     }
 
-    fn shaded(ch: char, layer: RingMarkLayer, brightness: u8) -> Self {
+    fn solid(ch: char, layer: RingMarkLayer, brightness: u8) -> Self {
         Self {
             ch,
             layer: Some(layer),
@@ -111,38 +110,59 @@ struct Band {
     layer: RingMarkLayer,
     radius: f64,
     half_width: f64,
+    spin_direction: f64,
+    spin_speed: f64,
+    spin_offset: f64,
 }
 
 const BANDS: &[Band] = &[
     Band {
         layer: RingMarkLayer::Heartwood,
-        radius: 0.16,
-        half_width: 0.052,
+        radius: 0.15,
+        half_width: 0.075,
+        spin_direction: 1.0,
+        spin_speed: 1.00,
+        spin_offset: 0.20,
     },
     Band {
         layer: RingMarkLayer::Inner,
-        radius: 0.34,
-        half_width: 0.044,
+        radius: 0.33,
+        half_width: 0.040,
+        spin_direction: -1.0,
+        spin_speed: 1.22,
+        spin_offset: 1.10,
     },
     Band {
         layer: RingMarkLayer::Inner,
-        radius: 0.49,
-        half_width: 0.036,
+        radius: 0.47,
+        half_width: 0.034,
+        spin_direction: -1.0,
+        spin_speed: 1.08,
+        spin_offset: 2.00,
     },
     Band {
         layer: RingMarkLayer::Outer,
-        radius: 0.64,
-        half_width: 0.038,
+        radius: 0.61,
+        half_width: 0.034,
+        spin_direction: 1.0,
+        spin_speed: 0.92,
+        spin_offset: 2.80,
     },
     Band {
         layer: RingMarkLayer::Outer,
-        radius: 0.78,
-        half_width: 0.035,
+        radius: 0.75,
+        half_width: 0.031,
+        spin_direction: 1.0,
+        spin_speed: 0.78,
+        spin_offset: 3.60,
     },
     Band {
         layer: RingMarkLayer::Cambium,
-        radius: 0.94,
+        radius: 0.91,
         half_width: 0.046,
+        spin_direction: -1.0,
+        spin_speed: 0.70,
+        spin_offset: 4.40,
     },
 ];
 
@@ -161,225 +181,176 @@ struct SubPixelHit {
     brightness: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct PlotPoint {
-    x: f64,
-    y: f64,
-    z: f64,
-    nx: f64,
-    ny: f64,
-    nz: f64,
-    layer: RingMarkLayer,
-    activity: f64,
-}
-
-fn sample_tree_ring_object(
+fn sample_tree_rings(
     width: usize,
     height: usize,
     frame: usize,
     activity: RingMarkActivity,
 ) -> Vec<RingMarkCell> {
-    let sub_width = width * 3;
-    let sub_height = height * 3;
-    let mut hits = vec![None; sub_width * sub_height];
-    let mut z_buffer = vec![f64::NEG_INFINITY; sub_width * sub_height];
-    let phase = frame as f64 * 0.085;
-
-    sample_ring_tubes(
-        sub_width,
-        sub_height,
-        phase,
-        activity,
-        &mut hits,
-        &mut z_buffer,
-    );
-    sample_scar(
-        sub_width,
-        sub_height,
-        phase,
-        activity.layer(RingMarkLayer::Scar),
-        &mut hits,
-        &mut z_buffer,
-    );
-
+    let phase = frame as f64 * 0.22;
     let mut cells = Vec::with_capacity(width * height);
+
     for row in 0..height {
         for col in 0..width {
-            let mut pattern = 0u16;
-            let mut brightness_sum = 0usize;
-            let mut layer_counts = [0usize; 5];
-            for sub_y in 0..3 {
-                for sub_x in 0..3 {
-                    let sx = col * 3 + sub_x;
-                    let sy = row * 3 + sub_y;
-                    let bit = (sub_y * 3 + sub_x) as u16;
-                    if let Some(hit) = hits[sy * sub_width + sx] {
-                        pattern |= 1 << bit;
-                        brightness_sum += hit.brightness as usize;
-                        layer_counts[pulse_index(hit.layer)] += 1;
-                    }
-                }
-            }
-            if pattern == 0 {
-                cells.push(RingMarkCell::blank());
-            } else {
-                let layer = dominant_layer(layer_counts);
-                let brightness = (brightness_sum / pattern.count_ones() as usize) as u8;
-                cells.push(RingMarkCell::shaded(
-                    shape_char_3x3(pattern, brightness),
-                    layer,
-                    brightness,
-                ));
-            }
+            cells.push(sample_cell(col, row, width, height, phase, activity));
         }
     }
+
     cells
 }
 
-fn sample_ring_tubes(
-    sub_width: usize,
-    sub_height: usize,
+fn sample_cell(
+    col: usize,
+    row: usize,
+    width: usize,
+    height: usize,
     phase: f64,
     activity: RingMarkActivity,
-    hits: &mut [Option<SubPixelHit>],
-    z_buffer: &mut [f64],
-) {
-    static THETA: OnceLock<Vec<(f64, f64)>> = OnceLock::new();
-    let theta_table = THETA.get_or_init(|| angle_table(0.070));
-
-    for band in BANDS {
-        let band_activity = activity.layer(band.layer);
-        let radius = animated_radius(*band, phase, band_activity);
-        let tube_radius = band.half_width + band_activity * 0.026;
-        let offset_scales: &[f64] = if band_activity > 0.45 {
-            &[-0.90, 0.0, 0.90]
-        } else {
-            &[0.0]
-        };
-        for &(cos_theta, sin_theta) in theta_table {
-            for &offset_scale in offset_scales {
-                let ring_radius = radius + tube_radius * offset_scale;
-                let point = PlotPoint {
-                    x: ring_radius * cos_theta,
-                    y: ring_radius * sin_theta,
-                    z: 0.020 * (pulse_index(band.layer) as f64 - 2.0),
-                    nx: 0.0,
-                    ny: 0.0,
-                    nz: 1.0,
-                    layer: band.layer,
-                    activity: band_activity,
-                };
-                plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
+) -> RingMarkCell {
+    let mut pattern = 0u8;
+    let mut brightness_sum = 0usize;
+    let mut layer_counts = [0usize; 5];
+    let mut hits = 0usize;
+    for sub_y in 0..2 {
+        for sub_x in 0..2 {
+            if let Some(hit) =
+                sample_subpixel(col, row, sub_x, sub_y, width, height, phase, activity)
+            {
+                pattern |= quadrant_bit(sub_x, sub_y);
+                brightness_sum += hit.brightness as usize;
+                layer_counts[pulse_index(hit.layer)] += 1;
+                hits += 1;
             }
         }
     }
 
-    let side_depth = [-0.28, -0.15, -0.02, 0.11];
-    for &(cos_theta, sin_theta) in theta_table {
-        let bark_wave = (phase * 2.0 + cos_theta * 3.0 + sin_theta * 5.0).sin() * 0.018;
-        let radius = 1.02 + bark_wave;
-        for z in side_depth {
-            let point = PlotPoint {
-                x: radius * cos_theta,
-                y: radius * sin_theta,
-                z,
-                nx: cos_theta,
-                ny: sin_theta,
-                nz: 0.16,
-                layer: RingMarkLayer::Cambium,
-                activity: activity.layer(RingMarkLayer::Cambium),
-            };
-            plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
+    if hits == 0 {
+        return RingMarkCell::blank();
+    }
+
+    RingMarkCell::solid(
+        quadrant_char(pattern),
+        dominant_layer(layer_counts),
+        (brightness_sum / hits) as u8,
+    )
+}
+
+fn sample_subpixel(
+    col: usize,
+    row: usize,
+    sub_x: usize,
+    sub_y: usize,
+    width: usize,
+    height: usize,
+    phase: f64,
+    activity: RingMarkActivity,
+) -> Option<SubPixelHit> {
+    let x = normalized_x(col, sub_x, width);
+    let y = normalized_y(row, sub_y, height);
+    let radius = (x * x + y * y).sqrt();
+    if radius > 1.06 {
+        return None;
+    }
+    let angle = normalize_angle(y.atan2(x));
+
+    if let Some(hit) = scar_hit(x, y, radius, phase, activity.layer(RingMarkLayer::Scar)) {
+        return Some(hit);
+    }
+
+    let mut best: Option<(f64, SubPixelHit)> = None;
+    for band in BANDS {
+        let layer_activity = activity.layer(band.layer);
+        let center = animated_radius(*band, phase, layer_activity);
+        let half_width = band.half_width + layer_activity * 0.016;
+        let distance = (radius - center).abs();
+        if distance > half_width {
+            continue;
+        }
+        let brightness = band_brightness(*band, angle, radius, phase, layer_activity, distance);
+        let hit = SubPixelHit {
+            layer: band.layer,
+            brightness,
+        };
+        if best
+            .map(|(best_distance, _)| distance < best_distance)
+            .unwrap_or(true)
+        {
+            best = Some((distance, hit));
         }
     }
+
+    best.map(|(_, hit)| hit)
+}
+
+fn normalized_x(col: usize, sub_x: usize, width: usize) -> f64 {
+    let cell = col as f64 + (sub_x as f64 + 0.5) / 2.0;
+    let center = width as f64 * 0.5;
+    (cell - center) / (width as f64 * 0.30)
+}
+
+fn normalized_y(row: usize, sub_y: usize, height: usize) -> f64 {
+    let cell = row as f64 + (sub_y as f64 + 0.5) / 2.0;
+    let center = height as f64 * 0.5;
+    (cell - center) / (height as f64 * 0.52)
 }
 
 fn animated_radius(band: Band, phase: f64, layer_activity: f64) -> f64 {
-    let offset = pulse_index(band.layer) as f64 * 0.88;
-    let wave = (phase * 4.0 + offset).sin();
-    let ambient = 0.010 * wave;
-    let live = layer_activity * (0.035 + 0.012 * wave.abs());
-    (band.radius * (1.0 + ambient + live)).min(1.04)
+    let layer_phase = pulse_index(band.layer) as f64 * 0.81;
+    let breathing = (phase * 1.35 + layer_phase).sin() * 0.007;
+    let pulse = layer_activity * (0.020 + 0.006 * (phase * 2.1 + layer_phase).sin().abs());
+    (band.radius + breathing + pulse).min(1.02)
 }
 
-fn sample_scar(
-    sub_width: usize,
-    sub_height: usize,
+fn band_brightness(
+    band: Band,
+    angle: f64,
+    radius: f64,
     phase: f64,
-    scar_activity: f64,
-    hits: &mut [Option<SubPixelHit>],
-    z_buffer: &mut [f64],
-) {
-    let width = 0.026 + scar_activity * 0.034;
-    for index in 0..78 {
-        let t = -0.78 + index as f64 * 0.020;
-        let center_x = 0.18 + t * 0.42 + (t * 6.0 + phase).sin() * 0.030;
-        let center_y = -0.52 * t + (t * 3.2).sin() * 0.075;
-        for side in -2..=2 {
-            let offset = side as f64 * width;
-            let point = PlotPoint {
-                x: center_x + offset,
-                y: center_y - offset * 0.35,
-                z: 0.080 + (t * 5.0 + phase * 2.0).sin() * 0.025,
-                nx: -0.20,
-                ny: 0.15,
-                nz: 0.95,
-                layer: RingMarkLayer::Scar,
-                activity: scar_activity,
-            };
-            plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
-        }
-    }
+    layer_activity: f64,
+    distance: f64,
+) -> u8 {
+    let spin =
+        normalize_angle(angle + band.spin_direction * phase * band.spin_speed + band.spin_offset);
+    let moving_light = angular_glow(spin, 0.0, 0.19).max(angular_glow(spin, PI * 1.27, 0.13));
+    let grain = ((angle * 11.0 + radius * 17.0 + band.spin_direction * phase * 0.75).sin() * 0.5
+        + 0.5)
+        * 0.18;
+    let pulse = layer_activity * (0.28 + 0.22 * (phase * 2.8 + band.spin_offset).sin().max(0.0));
+    let edge = 1.0 - (distance / band.half_width.max(0.001)).clamp(0.0, 1.0);
+    let value = 0.30 + edge * 0.18 + grain + moving_light * (0.34 + layer_activity * 0.20) + pulse;
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-fn plot_point(
-    point: PlotPoint,
-    sub_width: usize,
-    sub_height: usize,
-    phase: f64,
-    hits: &mut [Option<SubPixelHit>],
-    z_buffer: &mut [f64],
-) {
-    let rot_x = -0.82 + (phase * 0.55).sin() * 0.16;
-    let rot_y = phase * 1.25;
-    let rot_z = (phase * 0.35).sin() * 0.24;
-    let (x, y, z) = rotate_xyz(point.x, point.y, point.z, rot_x, rot_y, rot_z);
-    let (nx, ny, nz) = rotate_xyz(point.nx, point.ny, point.nz, rot_x, rot_y, rot_z);
-    let depth = 2.65 + z;
-    if depth <= 0.25 {
-        return;
+fn scar_hit(x: f64, y: f64, radius: f64, phase: f64, scar_activity: f64) -> Option<SubPixelHit> {
+    if !(0.20..=0.88).contains(&radius) {
+        return None;
     }
 
-    let perspective = 1.0 / depth;
-    let center_x = (sub_width as f64 - 1.0) * 0.5;
-    let center_y = (sub_height as f64 - 1.0) * 0.52;
-    let screen_x = center_x + x * sub_width as f64 * 1.02 * perspective;
-    let screen_y = center_y - y * sub_height as f64 * 1.44 * perspective;
-    let sx = screen_x.round() as isize;
-    let sy = screen_y.round() as isize;
-    if sx < 0 || sy < 0 || sx >= sub_width as isize || sy >= sub_height as isize {
-        return;
+    let upper = (y + x * 0.62 + 0.02).abs();
+    let lower = (y - x * 0.42 - 0.22).abs();
+    let width = 0.026 + scar_activity * 0.020;
+    let in_upper = upper < width && (-0.48..=0.54).contains(&x);
+    let in_lower = lower < width * 0.85 && (-0.16..=0.48).contains(&x);
+    if !in_upper && !in_lower {
+        return None;
     }
 
-    let index = sy as usize * sub_width + sx as usize;
-    if z <= z_buffer[index] {
-        return;
-    }
-
-    z_buffer[index] = z;
-    hits[index] = Some(SubPixelHit {
-        layer: point.layer,
-        brightness: shade(nx, ny, nz, z, point.activity),
-    });
+    let shimmer = ((phase * 4.2 + x * 9.0 - y * 6.0).sin() * 0.5 + 0.5) * 0.24;
+    let value = 0.58 + scar_activity * 0.28 + shimmer;
+    Some(SubPixelHit {
+        layer: RingMarkLayer::Scar,
+        brightness: (value.clamp(0.0, 1.0) * 255.0).round() as u8,
+    })
 }
 
-fn shade(nx: f64, ny: f64, nz: f64, z: f64, activity: f64) -> u8 {
-    let light = normalize3(-0.35, 0.72, 1.00);
-    let normal = normalize3(nx, ny, nz);
-    let diffuse = dot(normal, light).max(0.0);
-    let rim = (z + 0.95).clamp(0.0, 1.9) / 1.9;
-    let glow = activity * 0.20;
-    ((0.22 + diffuse * 0.54 + rim * 0.18 + glow).clamp(0.0, 1.0) * 255.0).round() as u8
+fn angular_glow(angle: f64, target: f64, width: f64) -> f64 {
+    let distance = angular_distance(angle, target);
+    if distance >= width {
+        0.0
+    } else {
+        let t = 1.0 - distance / width;
+        t * t
+    }
 }
 
 fn dominant_layer(layer_counts: [usize; 5]) -> RingMarkLayer {
@@ -399,107 +370,51 @@ fn dominant_layer(layer_counts: [usize; 5]) -> RingMarkLayer {
     }
 }
 
-fn shape_char_3x3(pattern: u16, brightness: u8) -> char {
-    let count = pattern.count_ones();
-    if count == 0 {
-        return ' ';
-    }
-
-    let top_l = pattern & (1 << 0) != 0;
-    let top_c = pattern & (1 << 1) != 0;
-    let top_r = pattern & (1 << 2) != 0;
-    let mid_l = pattern & (1 << 3) != 0;
-    let mid_c = pattern & (1 << 4) != 0;
-    let mid_r = pattern & (1 << 5) != 0;
-    let bot_l = pattern & (1 << 6) != 0;
-    let bot_c = pattern & (1 << 7) != 0;
-    let bot_r = pattern & (1 << 8) != 0;
-    let top = top_l as u8 + top_c as u8 + top_r as u8;
-    let mid = mid_l as u8 + mid_c as u8 + mid_r as u8;
-    let bot = bot_l as u8 + bot_c as u8 + bot_r as u8;
-    let left = top_l as u8 + mid_l as u8 + bot_l as u8;
-    let center = top_c as u8 + mid_c as u8 + bot_c as u8;
-    let right = top_r as u8 + mid_r as u8 + bot_r as u8;
-
-    let bright = brightness > 168;
-    let midtone = brightness > 92;
-
-    if count >= 8 {
-        return if bright { '@' } else { '#' };
-    }
-    if top_l && mid_c && bot_r && !top_r && !bot_l {
-        return if midtone { '\\' } else { '.' };
-    }
-    if top_r && mid_c && bot_l && !top_l && !bot_r {
-        return if midtone { '/' } else { '.' };
-    }
-    if mid >= 2 && mid >= top && mid >= bot {
-        return if bright { '=' } else { '-' };
-    }
-    if center >= 2 && center >= left && center >= right {
-        return if midtone { '|' } else { ':' };
-    }
-    if left >= 2 && right == 0 {
-        return if midtone { '(' } else { ':' };
-    }
-    if right >= 2 && left == 0 {
-        return if midtone { ')' } else { ':' };
-    }
-    if top >= 2 && bot == 0 {
-        return if bright { '"' } else { '\'' };
-    }
-    if bot >= 2 && top == 0 {
-        return if bright { '_' } else { '.' };
-    }
-    if count >= 6 {
-        return if bright { '%' } else { '*' };
-    }
-    if count >= 4 {
-        return if midtone { '+' } else { ':' };
-    }
-    if count == 1 && (top_l || top_c || top_r) {
-        return '\'';
-    }
-    if count <= 2 {
-        return if midtone { ':' } else { '.' };
-    }
-    if mid_c {
-        return if bright { 'o' } else { '*' };
-    }
-    if bright {
-        '+'
-    } else {
-        ':'
+fn quadrant_bit(sub_x: usize, sub_y: usize) -> u8 {
+    match (sub_x, sub_y) {
+        (0, 0) => 0x01,
+        (1, 0) => 0x02,
+        (0, 1) => 0x04,
+        (1, 1) => 0x08,
+        _ => 0,
     }
 }
 
-fn angle_table(step: f64) -> Vec<(f64, f64)> {
-    let mut table = Vec::new();
-    let mut angle = 0.0;
-    while angle < PI * 2.0 {
-        table.push((angle.cos(), angle.sin()));
-        angle += step;
+fn quadrant_char(pattern: u8) -> char {
+    match pattern {
+        0x01 => '▘',
+        0x02 => '▝',
+        0x03 => '▀',
+        0x04 => '▖',
+        0x05 => '▌',
+        0x06 => '▞',
+        0x07 => '▛',
+        0x08 => '▗',
+        0x09 => '▚',
+        0x0a => '▐',
+        0x0b => '▜',
+        0x0c => '▄',
+        0x0d => '▙',
+        0x0e => '▟',
+        0x0f => '█',
+        _ => ' ',
     }
-    table
 }
 
-fn rotate_xyz(x: f64, y: f64, z: f64, ax: f64, ay: f64, az: f64) -> (f64, f64, f64) {
-    let (cx, sx) = (ax.cos(), ax.sin());
-    let (cy, sy) = (ay.cos(), ay.sin());
-    let (cz, sz) = (az.cos(), az.sin());
-    let (y1, z1) = (y * cx - z * sx, y * sx + z * cx);
-    let (x2, z2) = (x * cy + z1 * sy, -x * sy + z1 * cy);
-    let (x3, y3) = (x2 * cz - y1 * sz, x2 * sz + y1 * cz);
-    (x3, y3, z2)
+fn angular_distance(angle: f64, target: f64) -> f64 {
+    let mut diff = (angle - target).abs() % (PI * 2.0);
+    if diff > PI {
+        diff = PI * 2.0 - diff;
+    }
+    diff
 }
 
-fn normalize3(x: f64, y: f64, z: f64) -> (f64, f64, f64) {
-    let length = (x * x + y * y + z * z).sqrt().max(f64::EPSILON);
-    (x / length, y / length, z / length)
-}
-
-fn dot(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
-    a.0 * b.0 + a.1 * b.1 + a.2 * b.2
+fn normalize_angle(angle: f64) -> f64 {
+    let mut value = angle % (PI * 2.0);
+    if value < 0.0 {
+        value += PI * 2.0;
+    }
+    value
 }
 
 pub fn pulse_index(layer: RingMarkLayer) -> usize {
@@ -545,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_uses_3d_shading_glyphs_instead_of_template_fill() {
+    fn mark_uses_smooth_quadrant_ring_cells_instead_of_noisy_ascii() {
         let rendered = ring_mark_rows_with_activity(31, 12, 0, RingMarkActivity::default())
             .into_iter()
             .flatten()
@@ -553,18 +468,15 @@ mod tests {
             .map(|cell| cell.ch)
             .collect::<String>();
 
-        assert!(rendered.chars().all(is_3d_glyph));
-        assert!(
-            rendered.contains('┃')
-                || rendered.contains('━')
-                || rendered.contains('|')
-                || rendered.contains('-')
-                || rendered.contains('/')
-                || rendered.contains('\\')
-        );
-        assert!(!rendered.contains('█'));
-        assert!(!rendered.contains('▀'));
-        assert!(!rendered.contains('▄'));
+        assert!(rendered.chars().all(is_quadrant_cell));
+        assert!(rendered.contains('█') || rendered.contains('▀') || rendered.contains('▄'));
+        assert!(!rendered.contains('('));
+        assert!(!rendered.contains(')'));
+        assert!(!rendered.contains('/'));
+        assert!(!rendered.contains('\\'));
+        assert!(!rendered.contains('@'));
+        assert!(!rendered.contains('#'));
+        assert!(!rendered.contains('%'));
     }
 
     #[test]
@@ -612,26 +524,23 @@ mod tests {
         assert!(rows.iter().all(|row| row.len() == 23));
     }
 
-    fn is_3d_glyph(ch: char) -> bool {
+    fn is_quadrant_cell(ch: char) -> bool {
         matches!(
             ch,
-            '.' | ':'
-                | '*'
-                | '+'
-                | 'o'
-                | '@'
-                | '#'
-                | '%'
-                | '='
-                | '-'
-                | '|'
-                | '/'
-                | '\\'
-                | '('
-                | ')'
-                | '"'
-                | '\''
-                | '_'
+            '▘' | '▝'
+                | '▀'
+                | '▖'
+                | '▌'
+                | '▞'
+                | '▛'
+                | '▗'
+                | '▚'
+                | '▐'
+                | '▜'
+                | '▄'
+                | '▙'
+                | '▟'
+                | '█'
         )
     }
 }

@@ -128,7 +128,7 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(12),
+            Constraint::Length(14),
             Constraint::Percentage(45),
             Constraint::Percentage(55),
         ])

@@ -375,26 +375,7 @@ mod tests {
         assert_eq!(plain.lines().count(), color.lines().count());
         assert!(plain.lines().count() <= 16);
         assert!(plain.contains("Tree Ring Memory"));
-        assert!(plain.chars().any(|ch| matches!(
-            ch,
-            '.' | ':'
-                | '*'
-                | '+'
-                | 'o'
-                | '@'
-                | '#'
-                | '%'
-                | '='
-                | '-'
-                | '|'
-                | '/'
-                | '\\'
-                | '('
-                | ')'
-                | '"'
-                | '\''
-                | '_'
-        )));
+        assert!(plain.chars().any(is_quadrant_cell));
         assert!(color.contains("\x1b["));
     }
 
@@ -446,5 +427,25 @@ mod tests {
     fn contains_active_style(frame: &str, legacy_color: &str, fg_code: &str) -> bool {
         frame.contains(&format!("{BOLD}{legacy_color}"))
             || frame.contains(&format!("\x1b[1;{fg_code}"))
+    }
+
+    fn is_quadrant_cell(ch: char) -> bool {
+        matches!(
+            ch,
+            '▘' | '▝'
+                | '▀'
+                | '▖'
+                | '▌'
+                | '▞'
+                | '▛'
+                | '▗'
+                | '▚'
+                | '▐'
+                | '▜'
+                | '▄'
+                | '▙'
+                | '▟'
+                | '█'
+        )
     }
 }

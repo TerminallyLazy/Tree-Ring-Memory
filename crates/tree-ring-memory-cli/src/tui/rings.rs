@@ -163,7 +163,7 @@ fn terminal_ring_lines(
 ) -> Vec<Line<'static>> {
     ring_mark_rows_with_activity(
         31,
-        8,
+        10,
         tick as usize,
         ring_activity(cambium, outer, inner, heartwood, scar),
     )
