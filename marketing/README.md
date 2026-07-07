@@ -31,6 +31,7 @@ Launch and outreach materials for Tree Ring Memory.
 
 - Repository: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
 - Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
+- Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`

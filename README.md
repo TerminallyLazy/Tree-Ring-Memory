@@ -23,6 +23,8 @@ or which framework bridge should come next.
 
 Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
 
+Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
+
 - v0.1 provided the initial local reference implementation with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core.
 - v0.3 explored host bindings during the Rust migration.

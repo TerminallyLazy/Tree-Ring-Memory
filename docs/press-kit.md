@@ -26,6 +26,7 @@ DOX/Revolve adapters, framework discovery, and a terminal TUI.
 - Current version: 0.11.0
 - Website: <https://terminallylazy.github.io/Tree-Ring-Memory/>
 - Repository: <https://github.com/TerminallyLazy/Tree-Ring-Memory>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
 - Feedback: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
 
 ## Primary Message
