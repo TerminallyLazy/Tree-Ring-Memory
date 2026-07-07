@@ -42,6 +42,12 @@ The repo README asks SDKs/frameworks/tools to go to the separate SDKs repo and
 says the agents list is only for AI assistants and agents, so Tree Ring Memory
 should not be misclassified there.
 
+Inspected `best-of-ai/best-of-ai` as a structured directory candidate and held
+it. The contribution guide says not to submit your own tool unless it is
+already well-known in the community. Tree Ring Memory is still in launch-preview
+distribution, so the right follow-up is to revisit after stronger community
+proof or third-party nomination.
+
 ## Evidence
 
 - Launch feedback comment:

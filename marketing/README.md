@@ -329,6 +329,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - e2b Awesome AI Agents: held because the README says SDKs, frameworks, and
   tools belong in the separate SDKs repo and that the agents list is only for
   AI assistants and agents.
+- Best of AI: held because the contribution guide says not to submit your own
+  tool unless it is already well-known in the community.
 
 ## Account-Creation Boundary
 
