@@ -139,9 +139,10 @@ tree-ring --root {root} tui
 ## Harness Bridges
 
 Harness-native bridge files should point back to this directory instead of
-copying memory data. Recommended project bridges include `.agents/skills` for
-Codex/Gemini-style skill loaders, `.claude/skills` plus `CLAUDE.md` references
-for Claude Code, root `AGENTS.md` references for OpenCode/DOX-style agents, and
+copying memory data. Recommended project bridges include
+`.agents/skills/tree-ring-memory/SKILL.md` for Codex/Gemini-style skill loaders,
+`.claude/skills/tree-ring-memory/SKILL.md` plus `CLAUDE.md` references for
+Claude Code, root `AGENTS.md` references for OpenCode/DOX-style agents, and
 `.pi/settings.json` resource references for Pi.
 
 Project-level bridges are preferred because they stay scoped to the current

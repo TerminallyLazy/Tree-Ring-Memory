@@ -47,7 +47,7 @@ Global user install:
 ```bash
 (
   installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
   sh "$installer"
 )
@@ -58,7 +58,7 @@ Project-local install with first-run initialization:
 ```bash
 (
   installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
   sh "$installer" --project --init
 )
@@ -72,13 +72,14 @@ initialize memory unless `--init` is passed.
 
 The installer command intentionally downloads only the installer script to a new
 temporary file before running it. The subshell cleanup trap removes that
-temporary script when the command finishes. It does not put memory in a
-temporary location and it does not remove `.tree-ring`, installed binaries,
-Cargo caches, source checkouts, or shell profiles. Persistent memory lives in
-the configured memory root, normally `.tree-ring` for project-local use or
-whatever path you pass with `--root`. Avoid `curl ... | sh` here: if the
-download fails before producing script content, the shell can still exit
-successfully after running empty input, which looks like a silent no-op.
+temporary script when the command finishes or receives `INT`/`TERM`. It does
+not put memory in a temporary location and it does not remove `.tree-ring`,
+installed binaries, Cargo caches, source checkouts, or shell profiles.
+Persistent memory lives in the configured memory root, normally `.tree-ring`
+for project-local use or whatever path you pass with `--root`. Avoid
+`curl ... | sh` here: if the download fails before producing script content,
+the shell can still exit successfully after running empty input, which looks
+like a silent no-op.
 
 Initialization creates the SQLite store and non-destructive agent-awareness
 files in the memory root:

@@ -36,7 +36,7 @@ Default:
 ```bash
 (
   installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
   sh "$installer"
 )
@@ -47,15 +47,15 @@ Project-local:
 ```bash
 (
   installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT &&
+  trap 'rm -f "$installer"' EXIT INT TERM &&
   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
   sh "$installer" --project --init
 )
 ```
 
 The temporary file holds only the downloaded installer script. The cleanup trap
-removes that script after the subshell exits; persistent memory remains in the
-configured memory root.
+removes that script after the subshell exits or receives `INT`/`TERM`;
+persistent memory remains in the configured memory root.
 
 Emotional arc:
 
