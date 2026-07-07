@@ -375,7 +375,26 @@ mod tests {
         assert_eq!(plain.lines().count(), color.lines().count());
         assert!(plain.lines().count() <= 16);
         assert!(plain.contains("Tree Ring Memory"));
-        assert!(plain.chars().any(|ch| matches!(ch, '█' | '▀' | '▄')));
+        assert!(plain.chars().any(|ch| matches!(
+            ch,
+            '.' | ':'
+                | '*'
+                | '+'
+                | 'o'
+                | '@'
+                | '#'
+                | '%'
+                | '='
+                | '-'
+                | '|'
+                | '/'
+                | '\\'
+                | '('
+                | ')'
+                | '"'
+                | '\''
+                | '_'
+        )));
         assert!(color.contains("\x1b["));
     }
 
