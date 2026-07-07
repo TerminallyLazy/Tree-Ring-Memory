@@ -103,6 +103,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Terminal Trove | Submitted | https://terminaltrove.com/post/ | Submission email sent to `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; await curator response or listing. |
 | console.dev | Submitted | https://console.dev/selection-criteria | Submission email sent to `hello@console.dev` with `marketing/assets/open-graph-1200x675.png` attached; await editor response or newsletter/site inclusion. |
 | DevPages | Submitted | https://devpages.io/submit-a-tool | Submission email sent to `contact@devpages.io` with `marketing/assets/open-graph-1200x675.png` attached after the public submit form was found to only show a local thank-you state. Await review response or listing. |
+| Agentic.ai | Submitted | https://agentic.ai/submit | Submission email sent to `hello@agentic.ai` with `marketing/assets/open-graph-1200x675.png` attached and an explicit caveat that Tree Ring is agent infrastructure, not a standalone autonomous agent. Await review response or listing. |
 
 ## Drafted For Owner Review
 

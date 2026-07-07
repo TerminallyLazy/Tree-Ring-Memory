@@ -30,6 +30,8 @@ Launch and outreach materials for Tree Ring Memory.
   email fields.
 - `devpages-submission.md`: DevPages directory submission packet and sent
   email fields.
+- `agentic-ai-submission.md`: Agentic.ai tool-submission packet and sent email
+  fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -126,6 +128,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - console.dev submission: sent to `hello@console.dev` with
   `marketing/assets/open-graph-1200x675.png` attached.
 - DevPages submission: sent to `contact@devpages.io` with
+  `marketing/assets/open-graph-1200x675.png` attached.
+- Agentic.ai submission: sent to `hello@agentic.ai` with
   `marketing/assets/open-graph-1200x675.png` attached.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
