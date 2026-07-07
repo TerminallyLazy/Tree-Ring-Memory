@@ -50,6 +50,8 @@ Launch and outreach materials for Tree Ring Memory.
   and sent email fields.
 - `alainchen-awesome-mcp-skills-pr.md`: Awesome MCP Skills watchlist PR packet
   and validation notes.
+- `kennethlaw-awesome-llm-knowledge-systems-issue.md`: Awesome LLM Knowledge
+  Systems issue-first editorial suggestion packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -155,6 +157,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
+- Awesome LLM Knowledge Systems issue:
+  `https://github.com/kennethlaw325/awesome-llm-knowledge-systems/issues/48`
 - Zo Computer Skills PR: `https://github.com/zocomputer/skills/pull/105`
 - Terminal Trove submission: sent to `curator@terminaltrove.com` with
   `marketing/assets/terminal-trove-preview-1200x675.png` attached.
