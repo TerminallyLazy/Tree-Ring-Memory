@@ -104,6 +104,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | console.dev | Submitted | https://console.dev/selection-criteria | Submission email sent to `hello@console.dev` with `marketing/assets/open-graph-1200x675.png` attached; await editor response or newsletter/site inclusion. |
 | DevPages | Submitted | https://devpages.io/submit-a-tool | Submission email sent to `contact@devpages.io` with `marketing/assets/open-graph-1200x675.png` attached after the public submit form was found to only show a local thank-you state. Await review response or listing. |
 | Agentic.ai | Submitted | https://agentic.ai/submit | Submission email sent to `hello@agentic.ai` with `marketing/assets/open-graph-1200x675.png` attached and an explicit caveat that Tree Ring is agent infrastructure, not a standalone autonomous agent. Await review response or listing. |
+| Developers Digest | Submitted | https://www.developersdigest.tech/tools | Submission email sent to `developers.digest.ai@gmail.com` with `marketing/assets/open-graph-1200x675.png` attached; await review response or directory listing. |
 
 ## Drafted For Owner Review
 
@@ -126,6 +127,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | ColinEberhardt Awesome AI Developer Tools | Hold | https://github.com/ColinEberhardt/awesome-ai-developer-tools | Scope is explicitly mature AI developer tools; Tree Ring is still a launch-preview project. |
 | AgentMemoryWorld Awesome Agent Memory | Hold | https://github.com/AgentMemoryWorld/Awesome-Agent-Memory | Repository is a survey companion and paper list; Tree Ring does not have a paper citation to add. |
 | OpenDataBox Awesome Agent Memory | Hold | https://github.com/OpenDataBox/awesome-agent-memory | Repository is formatted around papers, methods, and benchmarks with publication metadata; Tree Ring is a tool release without a paper. |
+| Stork AI directory | Hold | https://www.stork.ai/submit-ai-tool-free | Free listing requires a normal Stork badge/link on the public site, otherwise the submission goes through a $49 one-time checkout; no badge/payment decision made. |
+| OpenTools | Hold | https://opentools.ai/submit | Submit page requires Google sign-in from an owner-controlled account session; no submission made. |
 
 ## Ready To Post After Account Verification
 

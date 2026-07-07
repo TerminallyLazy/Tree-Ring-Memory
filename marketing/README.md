@@ -32,6 +32,8 @@ Launch and outreach materials for Tree Ring Memory.
   email fields.
 - `agentic-ai-submission.md`: Agentic.ai tool-submission packet and sent email
   fields.
+- `developers-digest-submission.md`: Developers Digest AI tools directory
+  submission packet and sent email fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -131,6 +133,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `marketing/assets/open-graph-1200x675.png` attached.
 - Agentic.ai submission: sent to `hello@agentic.ai` with
   `marketing/assets/open-graph-1200x675.png` attached.
+- Developers Digest submission: sent to `developers.digest.ai@gmail.com` with
+  `marketing/assets/open-graph-1200x675.png` attached.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
@@ -150,6 +154,10 @@ python3 marketing/scripts/build-campaign-cards.py
 - Topoteretes Awesome AI Memory: held for now because its contribution schema
   requires Storage to be Graph, Vector, or both; Tree Ring currently uses
   project-scoped SQLite/FTS and should not be misclassified.
+- Stork AI directory: held for now because a free listing requires placing a
+  Stork badge/link on the public site, otherwise the listing is a paid checkout.
+- OpenTools: held for now because submission requires Google sign-in from an
+  owner-controlled account session.
 
 ## Account-Creation Boundary
 
