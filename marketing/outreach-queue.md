@@ -9,6 +9,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | --- | --- | --- | --- |
 | Public landing page | Live | https://terminallylazy.github.io/Tree-Ring-Memory/ | Primary campaign URL for posts and profiles. |
 | GitHub repository metadata | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory | Description and topics updated for discovery. |
+| Agent-Skills.md listing | Live | https://agent-skills.md/skills/TerminallyLazy/Tree-Ring-Memory/tree-ring-memory | Indexed the portable Tree Ring Memory skill package; public search also returns the repo and skill. |
 | Tree Ring Memory Cookbook repo | Live | https://github.com/TerminallyLazy/tree-ring-memory-cookbook | Public companion repo with practical recipes, launch demo script, and brand assets for reviewers and social posts. |
 | GitHub launch feedback issue | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26 | Feedback funnel for all launch posts. |
 | GitHub launch discussion | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27 | Public conversation surface for launch feedback. |
@@ -103,6 +104,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Skillmatic Awesome Agent Skills PR | Submitted | https://github.com/skillmatic-ai/awesome-agent-skills/pull/126 | Adds Tree Ring Memory as an Agent Skills developer-tool resource. |
 | Libukai Awesome Agent Skills PR | Submitted | https://github.com/libukai/awesome-agent-skills/pull/96 | Adds Tree Ring Memory to Programming & Development across Chinese, English, and Japanese README mirrors; PR is mergeable and reports no checks. |
 | Ezeafk Awesome Agent Skills PR | Submitted | https://github.com/Ezeafk/awesome-agent-skills/pull/5 | Adds Tree Ring Memory to Coding as a lifecycle-aware project-memory skill for coding agents; diff whitespace and link HTTP checks passed; PR is mergeable with no checks reported. |
+| JayLZhou Awesome Agent Skills PR | Submitted | https://github.com/JayLZhou/Awesome-Agent-Skills/pull/15 | Adds Tree Ring Memory to Ecosystem Platforms and Resources in an agent-skill survey/resource hub; PR is mergeable and reports no checks. |
 | Prat011 Awesome LLM Skills PR | Submitted | https://github.com/Prat011/awesome-llm-skills/pull/169 | Adds Tree Ring Memory as a hosted skill folder and Development & Code Tools README entry; GitGuardian passed and PR is clean. |
 | Composio Awesome Agent CLIs PR | Submitted | https://github.com/ComposioHQ/awesome-agent-clis/pull/19 | Adds Tree Ring Memory under Memory & Context with agent-ready skill instructions; Socket Security checks passed and PR is clean. |
 | Ariestar Awesome Agent CLI PR | Submitted | https://github.com/Ariestar/awesome-agent-cli/pull/5 | Adds Tree Ring Memory as a high-risk agent-context CLI card with regenerated README; PR is mergeable and reports no checks. |

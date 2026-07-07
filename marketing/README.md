@@ -76,6 +76,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
 - Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
 - Homebrew tap: `https://github.com/TerminallyLazy/homebrew-tree-ring`
+- Agent-Skills.md listing:
+  `https://agent-skills.md/skills/TerminallyLazy/Tree-Ring-Memory/tree-ring-memory`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`
@@ -134,6 +136,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Kodus Awesome Agent Skills PR: `https://github.com/kodustech/awesome-agent-skills/pull/51`
 - Skillmatic Awesome Agent Skills PR: `https://github.com/skillmatic-ai/awesome-agent-skills/pull/126`
 - Ezeafk Awesome Agent Skills PR: `https://github.com/Ezeafk/awesome-agent-skills/pull/5`
+- JayLZhou Awesome Agent Skills PR:
+  `https://github.com/JayLZhou/Awesome-Agent-Skills/pull/15`
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
@@ -165,6 +169,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908719870`
 - Ezeafk Awesome Agent Skills evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908796394`
+- Agent-Skills.md listing evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908883051`
+- JayLZhou Awesome Agent Skills evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908940578`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
