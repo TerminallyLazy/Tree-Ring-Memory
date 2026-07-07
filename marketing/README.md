@@ -52,6 +52,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `kennethlaw-awesome-llm-knowledge-systems-issue.md`: Awesome LLM Knowledge
   Systems issue-first editorial suggestion packet and validation notes.
+- `shiyao-awesome-agent-evolution-issue.md`: Awesome Agent Evolution scope-check
+  issue packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -159,6 +161,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
 - Awesome LLM Knowledge Systems issue:
   `https://github.com/kennethlaw325/awesome-llm-knowledge-systems/issues/48`
+- Awesome Agent Evolution scope-check issue:
+  `https://github.com/Shiyao-Huang/awesome-agent-evolution/issues/18`
 - Zo Computer Skills PR: `https://github.com/zocomputer/skills/pull/105`
 - Terminal Trove submission: sent to `curator@terminaltrove.com` with
   `marketing/assets/terminal-trove-preview-1200x675.png` attached.
