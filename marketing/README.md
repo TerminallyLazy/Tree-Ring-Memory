@@ -72,6 +72,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `ainative-ecosystem-pr.md`: AINative Open Source Ecosystem PR packet and
   validation notes.
+- `rootsong-ai-native-landscape-issue.md`: AI Native Landscape issue-form
+  submission packet and evidence notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -254,6 +256,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/AINative-Studio/ainative-ecosystem/pull/21`
 - AINative Ecosystem evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909830328`
+- AI Native Landscape issue:
+  `https://github.com/rootsongjc/ai-native-landscape/issues/6`
+- AI Native Landscape evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909862599`
 - Runaicode Awesome AI Coding Tools PR:
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
