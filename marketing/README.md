@@ -115,6 +115,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Yeaight7 Awesome AI Devtools listing: `https://github.com/yeaight7/awesome-ai-devtools#terminal-agents`
 - Awesome AI Coding Assistants Playbook PR: `https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11`
 - Awesome LLM CLI Apps PR: `https://github.com/jsnyder/awesome-llm-cli-apps/pull/4`
+- Awesome Copilot Agents PR: `https://github.com/Code-and-Sorts/awesome-copilot-agents/pull/73`
 - Awesome Vibe Coding Resources listing: `https://github.com/acvnace/awesome-vibe-coding-resources#command-line-tools`
 - Filipe Awesome Vibe Coding PR: `https://github.com/filipecalegario/awesome-vibe-coding/pull/249`
 - AI-for-Developers Awesome Vibe Coding PR: `https://github.com/ai-for-developers/awesome-vibe-coding/pull/99`
@@ -159,6 +160,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908432595`
 - Deep Insight / Korchasa evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908615878`
+- Awesome Copilot Agents evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908719870`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
