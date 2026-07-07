@@ -70,6 +70,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `arshdeep-ai-tools-manager-pr.md`: AI Tools Manager PR packet and validation
   notes.
+- `ainative-ecosystem-pr.md`: AINative Open Source Ecosystem PR packet and
+  validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -248,6 +250,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ArshdeepGrover/ai-tools-manager/pull/193`
 - Arshdeep AI Tools Manager evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909794080`
+- AINative Ecosystem PR:
+  `https://github.com/AINative-Studio/ainative-ecosystem/pull/21`
+- AINative Ecosystem evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909830328`
 - Runaicode Awesome AI Coding Tools PR:
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
