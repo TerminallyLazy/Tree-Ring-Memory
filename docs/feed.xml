@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-07T08:46:57Z</updated>
+  <updated>2026-07-07T08:56:19Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory submitted to Awesome AI SDKs</title>
+    <id>https://github.com/e2b-dev/awesome-ai-sdks/pull/268</id>
+    <link href="https://github.com/e2b-dev/awesome-ai-sdks/pull/268"/>
+    <updated>2026-07-07T08:56:19Z</updated>
+    <summary>Tree Ring Memory was submitted to the Awesome AI SDKs directory as a framework-agnostic, local-first memory lifecycle layer for AI agents. The PR is open and mergeable, with E2B CLA completion still required.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory submitted to Awesome Local-First</title>

@@ -21,6 +21,7 @@ Product Hunt,4,hold,yes,https://www.producthunt.com/launch,marketing/assets/open
 Rust This Week,3,ready,no,https://this-week-in-rust.org/,none,marketing/newsletter-pitches.md#rust-newsletter-pitch,submit project link,Use short Rust-focused pitch.
 This Week in Rust draft PR,3,submitted,yes,https://github.com/rust-lang/this-week-in-rust/pull/8346,marketing/assets/twir-submission-card-1200x675.png,marketing/newsletter-pitches.md#this-week-in-rust-pr-snippet,monitor PR review and respond if editors request changes,Opened against issue 659 draft with Rust article link.
 Awesome AI Agents lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use framework-agnostic wording.
+Awesome AI SDKs PR #268,3,submitted,yes,https://github.com/e2b-dev/awesome-ai-sdks/pull/268,none,README.md,complete E2B CLA if owner accepts terms,Adds Tree Ring Memory to AI-agent SDK/tooling list; CLA check is currently error.
 Awesome Rust CLI lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use CLI and TUI angle.
 Awesome Local-First PR #42,3,submitted,yes,https://github.com/alexanderop/awesome-local-first/pull/42,none,README.md,monitor maintainer response,Adds Tree Ring Memory to Frameworks & Platforms.
 Discord community,4,hold,yes,https://discord.com/,marketing/assets/social-square-logo-1080x1080.png,marketing/account-setup.md#discord,create only when moderation capacity exists,Do not invite secrets or transcript dumps.

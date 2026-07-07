@@ -16,6 +16,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Rust-native CLI article | Live | https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md | Rust-specific article for newsletters and developer-tool submissions. |
 | This Week in Rust PR | Submitted | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Adds the Rust article to issue 659 Project/Tooling Updates. |
 | Awesome Local-First PR | Submitted | https://github.com/alexanderop/awesome-local-first/pull/42 | Adds Tree Ring Memory to a local-first software directory under Frameworks & Platforms. |
+| Awesome AI SDKs PR | Submitted | https://github.com/e2b-dev/awesome-ai-sdks/pull/268 | Adds Tree Ring Memory to an AI-agent SDK/tooling directory; CLA check needs owner action. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Ready To Post After Account Verification
