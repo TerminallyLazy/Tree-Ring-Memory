@@ -42,6 +42,8 @@ Launch and outreach materials for Tree Ring Memory.
   accepted endpoint response.
 - `vbwebtools-submission.md`: VB Web AI Tools directory submission packet and
   sent email fallback after the public form rejected the AJAX request.
+- `enterprise-ai-atlas-awesome-ai-coding-agents-pr.md`: Enterprise AI Atlas
+  Awesome AI Coding Agents PR packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
