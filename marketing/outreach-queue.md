@@ -40,6 +40,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome CLI Apps CSV PR | Submitted | https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303 | Adds Tree Ring Memory to the source CSV for a large CLI/TUI index. |
 | Awesome DevTools PR | Submitted | https://github.com/devtoolsd/awesome-devtools/pull/299 | Adds Tree Ring Memory to AI Coding Tools in a developer-tool directory. |
 | Awesome Coding Agents PR | Submitted | https://github.com/kailiu42/awesome-coding-agents/pull/12 | Adds Tree Ring Memory to CLI Agent Helpers in a coding-agent directory. |
+| BradAGI Awesome CLI Coding Agents PR | Submitted | https://github.com/bradAGI/awesome-cli-coding-agents/pull/187 | Adds Tree Ring Memory to Agent infrastructure beside local memory/context tools; PR is mergeable and reports no checks. |
 | Command Line Tools listing | Merged | https://github.com/linsa-io/command-line-tools#rust | Lists Tree Ring Memory under Rust CLI tools in a command-line directory. |
 | Awesome AI Agents PR | Submitted | https://github.com/jim-schwoebel/awesome_ai_agents/pull/382 | Adds Tree Ring Memory to Tools in a broad AI-agent directory. |
 | Caramaschi Awesome AI Agents 2026 PR | Submitted | https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418 | Adds Tree Ring Memory to RAG and Knowledge Bases in a broad AI-agent directory; PR is mergeable and reports no checks. |
