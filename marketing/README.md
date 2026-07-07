@@ -36,6 +36,8 @@ Launch and outreach materials for Tree Ring Memory.
   submission packet and sent email fields.
 - `ai-agents-directory-submission.md`: AI Agents Directory submission packet and
   sent email fields.
+- `aisuperhub-submission.md`: AISuperHub AI tools directory free-form
+  submission packet and accepted response.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -139,6 +141,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `marketing/assets/open-graph-1200x675.png` attached.
 - AI Agents Directory submission: sent to `hello@aiagentsdirectory.com` with
   `marketing/assets/open-graph-1200x675.png` attached.
+- AISuperHub submission: accepted through the free AI tool form with HTTP `201`
+  and tool ID `hHS6jZnWHgEOjdqRYUcv`.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
