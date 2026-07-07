@@ -106,6 +106,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
 - Caramaschi Awesome AI Agents 2026 PR: `https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418`
+- Deep Insight Awesome AI Agents PR: `https://github.com/Deep-Insight-Labs/awesome-ai-agents/pull/35`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
@@ -156,6 +157,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908361729`
 - Milisp replacement evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908432595`
+- Deep Insight / Korchasa evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908615878`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
@@ -173,6 +176,13 @@ python3 marketing/scripts/build-campaign-cards.py
 - Topoteretes Awesome AI Memory: held for now because its contribution schema
   requires Storage to be Graph, Vector, or both; Tree Ring currently uses
   project-scoped SQLite/FTS and should not be misclassified.
+- Korchasa Awesome AI Agents: held after creating the correct fork/branch
+  because GitHub PR creation is blocked for that repo through the API and
+  issues are disabled; public compare:
+  `https://github.com/korchasa/awesome-ai-agents/compare/main...TerminallyLazy:add-tree-ring-memory`
+- Zijian Awesome AI Agents 2026: held because its contribution rules require
+  100+ stars, third-party adoption, or a clear official artifact and explicitly
+  flag parallel awesome-list blasts.
 - Stork AI directory: held for now because a free listing requires placing a
   Stork badge/link on the public site, otherwise the listing is a paid checkout.
 - OpenTools: held for now because submission requires Google sign-in from an
