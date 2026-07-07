@@ -80,6 +80,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
 - Awesome AI Coding Assistants Playbook PR: `https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11`
 - Awesome LLM CLI Apps PR: `https://github.com/jsnyder/awesome-llm-cli-apps/pull/4`
+- Awesome Vibe Coding Resources PR: `https://github.com/acvnace/awesome-vibe-coding-resources/pull/39`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`

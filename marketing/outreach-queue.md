@@ -31,6 +31,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome AI DevTools PR | Submitted | https://github.com/jamesmurdza/awesome-ai-devtools/pull/779 | Adds Tree Ring Memory to Configuration & Context Management; corrected PR after template-only closure of `#778`. |
 | Awesome AI Coding Assistants Playbook PR | Submitted | https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11 | Adds Tree Ring Memory to Skills & Config in English and Portuguese docs. |
 | Awesome LLM CLI Apps PR | Submitted | https://github.com/jsnyder/awesome-llm-cli-apps/pull/4 | Adds Tree Ring Memory to Developer Tools in an LLM-agent CLI directory. |
+| Awesome Vibe Coding Resources PR | Submitted | https://github.com/acvnace/awesome-vibe-coding-resources/pull/39 | Adds Tree Ring Memory to Command Line Tools near local memory/context tools. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
