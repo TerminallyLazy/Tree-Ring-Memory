@@ -18,6 +18,11 @@ Default local memory path:
 
 Do not commit local memory databases or exports unless the project explicitly requires sanitized fixtures.
 
+Harness-native bridge files should point agents back to this memory root's
+generated guidance instead of duplicating memory data. Prefer project-level
+bridges for the current repo. Treat global Tree Ring bridges as explicit user
+configuration that affects every project.
+
 ## Recall Rules
 
 Before substantial work, recall project-scoped memory for:
@@ -60,6 +65,14 @@ tree-ring integrations scan --source-root .
 
 Run adapter syncs as previews first. Persist only concise, source-linked
 summaries that help future recall.
+
+## Agent-Mediated Updates
+
+Tree Ring Memory writes durable memories only when a user, agent, adapter,
+import, TUI action, consolidation command, or explicit maintenance command calls
+the CLI. It must not be used as a hidden transcript recorder. Bridge files tell
+the active agent when to call Tree Ring; they do not authorize autonomous
+background capture.
 
 ## Ring Mapping
 

@@ -36,17 +36,26 @@ tree-ring integrations scan --source-root .
 tree-ring tui
 ```
 
+Project bridge files:
+
+- keep `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` canonical
+- point harness-native files at those generated references
+- prefer project-level bridges over global bridges
+- treat global bridges as explicit opt-in user configuration
+
 Adapter rules:
 
 - `tree-ring dox sync` summarizes `AGENTS.md` files and keeps source contracts authoritative.
 - `tree-ring revolve sync` imports promoted, rejected, deferred, or observed evidence records without replacing Revolve/evaluation docs.
 - `tree-ring evidence` records individual evaluated outcomes with an explicit source ref.
 - Run adapter commands with `--dry-run` before writing memory.
+- `tree-ring integrations scan` is read-only; add harness bridge references manually until a link command is available.
 
 Safety rules:
 
 - Do not store secrets, credentials, private keys, or raw chain-of-thought.
 - Prefer concise, source-linked summaries over transcript capture.
+- Do not scrape chats or turn TUI event-stream pulses into durable memory without an explicit write command.
 - Treat local source files, tests, explicit user instructions, and root `AGENTS.md` files as authoritative.
 - When memory and source docs disagree, re-read source docs and update or forget stale memory.
 "#;
@@ -126,6 +135,23 @@ tree-ring --root {root} revolve sync --source-root revolve --dry-run
 tree-ring --root {root} integrations scan --source-root .
 tree-ring --root {root} tui
 ```
+
+## Harness Bridges
+
+Harness-native bridge files should point back to this directory instead of
+copying memory data. Recommended project bridges include `.agents/skills` for
+Codex/Gemini-style skill loaders, `.claude/skills` plus `CLAUDE.md` references
+for Claude Code, root `AGENTS.md` references for OpenCode/DOX-style agents, and
+`.pi/settings.json` resource references for Pi.
+
+Project-level bridges are preferred because they stay scoped to the current
+repo. Global bridges affect every project and should be treated as explicit
+user opt-in configuration.
+
+Tree Ring Memory is agent-mediated. Bridge files tell the active agent when to
+call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
+`tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
+They do not authorize hidden transcript scraping or autonomous durable writes.
 
 ## DOX Integration
 
