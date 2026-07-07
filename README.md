@@ -16,6 +16,11 @@ framework-agnostic and does not replace either protocol.
 
 Tree Ring Memory is in protocol-preview status.
 
+Launch feedback is being collected in
+[GitHub issue #26](https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26):
+try the installer, run the first commands, and report where agent memory breaks
+or which framework bridge should come next.
+
 - v0.1 provided the initial local reference implementation with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core.
 - v0.3 explored host bindings during the Rust migration.

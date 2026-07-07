@@ -1,0 +1,146 @@
+{
+  "brand": {
+    "name": "Tree Ring Memory",
+    "primaryHandle": "TreeRingMemory",
+    "fallbackHandles": [
+      "TreeRingMem",
+      "TreeRingAI",
+      "UseTreeRing",
+      "RingMemoryAI"
+    ],
+    "tagline": "Framework-agnostic memory lifecycle for AI agents.",
+    "repositoryUrl": "https://github.com/TerminallyLazy/Tree-Ring-Memory",
+    "launchFeedbackIssueUrl": "https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26"
+  },
+  "assets": {
+    "profileLogo": "marketing/assets/x-profile-400x400.png",
+    "squareLogo": "marketing/assets/social-square-logo-1080x1080.png",
+    "squareCard": "marketing/assets/social-square-banner-1080x1080.png",
+    "xHeader": "marketing/assets/x-header-1500x500.png",
+    "openGraph": "marketing/assets/open-graph-1200x675.png",
+    "redditCard": "marketing/assets/reddit-link-card-1600x900.png",
+    "youtubeThumbnail": "marketing/assets/youtube-thumbnail-1920x1080.png",
+    "youtubeChannelBanner": "marketing/assets/youtube-channel-banner-2560x1440.png",
+    "sourceLogo": "assets/tree-ring-memory-logo.png",
+    "sourceBanner": "assets/tree-ring-memory-banner.png"
+  },
+  "profiles": [
+    {
+      "platform": "Hacker News",
+      "signupUrl": "https://news.ycombinator.com/login",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing", "RingMemoryAI"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use a maker account if available; disclose affiliation in launch comment."
+    },
+    {
+      "platform": "Reddit",
+      "signupUrl": "https://www.reddit.com/login/",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing", "TreeRingAI"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Username cannot be changed after finalization; follow each subreddit rule before posting."
+    },
+    {
+      "platform": "X",
+      "signupUrl": "https://x.com/i/flow/signup",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "TreeRingAI", "UseTreeRing"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Upload profile logo and x-header assets after verification."
+    },
+    {
+      "platform": "YouTube",
+      "signupUrl": "https://www.youtube.com/",
+      "preferredUsername": "@TreeRingMemory",
+      "fallbackUsernames": ["@TreeRingMem", "@UseTreeRing", "@TreeRingAI"],
+      "publicUrl": "",
+      "status": "Google account and owner verification required",
+      "notes": "Create a channel from account settings, then add name, handle, image, and description."
+    },
+    {
+      "platform": "Bluesky",
+      "signupUrl": "https://bsky.app/",
+      "preferredUsername": "treeringmemory.bsky.social",
+      "fallbackUsernames": ["treeringmem.bsky.social", "usetreering.bsky.social"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use short bio and square logo."
+    },
+    {
+      "platform": "Mastodon",
+      "signupUrl": "https://hachyderm.io/auth/sign_up",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Hachyderm is the recommended developer-audience instance."
+    },
+    {
+      "platform": "LinkedIn",
+      "signupUrl": "https://www.linkedin.com/company/setup/new/",
+      "preferredUsername": "tree-ring-memory",
+      "fallbackUsernames": ["treeringmemory", "use-tree-ring"],
+      "publicUrl": "",
+      "status": "owner/admin verification required",
+      "notes": "Create as a company page from the owner's LinkedIn account."
+    },
+    {
+      "platform": "Product Hunt",
+      "signupUrl": "https://www.producthunt.com/",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Delay product launch until demo video and release artifacts are ready."
+    },
+    {
+      "platform": "Dev.to",
+      "signupUrl": "https://dev.to/enter",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use for technical explainers and Rust/agent workflow posts."
+    },
+    {
+      "platform": "Hashnode",
+      "signupUrl": "https://hashnode.com/onboard",
+      "preferredUsername": "treeringmemory",
+      "fallbackUsernames": ["treeringmem", "usetreering"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use as a durable developer blog mirror."
+    },
+    {
+      "platform": "Medium",
+      "signupUrl": "https://medium.com/",
+      "preferredUsername": "TreeRingMemory",
+      "fallbackUsernames": ["TreeRingMem", "UseTreeRing"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use for manifesto and broader AI tooling essays."
+    },
+    {
+      "platform": "Substack",
+      "signupUrl": "https://substack.com/signup",
+      "preferredUsername": "treeringmemory",
+      "fallbackUsernames": ["treeringmem", "usetreering"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Use for release notes and longer product updates."
+    },
+    {
+      "platform": "Discord",
+      "signupUrl": "https://discord.com/",
+      "preferredUsername": "Tree Ring Memory",
+      "fallbackUsernames": ["TreeRingMemory"],
+      "publicUrl": "",
+      "status": "owner verification required",
+      "notes": "Create server after there is enough public interest to moderate."
+    }
+  ]
+}
