@@ -64,6 +64,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Composio Awesome Agent CLIs PR | Submitted | https://github.com/ComposioHQ/awesome-agent-clis/pull/19 | Adds Tree Ring Memory under Memory & Context with agent-ready skill instructions; Socket Security checks passed and PR is clean. |
 | Composio Awesome Claude Skills PR | Submitted | https://github.com/ComposioHQ/awesome-claude-skills/pull/1252 | Adds Tree Ring Memory to Development & Code Tools; validator passed and `ready-to-merge` label applied. |
 | Zo Computer Skills PR | Submitted | https://github.com/zocomputer/skills/pull/105 | Adds Tree Ring Memory as a Community skill with display metadata; local validation passed and GitHub reports no PR checks yet. |
+| Awesome Open Source AI PR | Submitted | https://github.com/suncloudsmoon/awesome-open-source-ai/pull/14 | Adds Tree Ring Memory to Tools in an open-source AI resource list; PR is mergeable and reports no checks. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
@@ -76,6 +77,10 @@ posted unless the post exists publicly and the URL is recorded here.
 | VoltAgent Awesome Agent Skills | Hold | https://github.com/VoltAgent/awesome-agent-skills | Contribution rules focus on proven community-adopted skills; revisit after adoption grows. |
 | JackyST0 Awesome Agent Skills | Hold | https://github.com/JackyST0/awesome-agent-skills | Contribution rules require community projects to clear a 64-star threshold by default. |
 | Topoteretes Awesome AI Memory | Hold | https://github.com/topoteretes/awesome-ai-memory | Contribution rules require Storage as Graph / Vector / Graph, Vector; Tree Ring uses project-scoped SQLite/FTS, so hold unless maintainers accept keyword/SQLite storage. |
+| OpenShelf | Hold | https://openshelf.dev/submit | Public `POST /api/submit` returned HTTP 500 `Server configuration error`; searches for Tree Ring Memory and TerminallyLazy returned no existing listing. |
+| Rust Unofficial Awesome Rust | Hold | https://github.com/rust-unofficial/awesome-rust | Contribution rules require more than 50 stars or more than 2000 crates.io downloads; Tree Ring had 2 stars and crates were not published when checked. |
+| Agarrharr Awesome CLI Apps | Hold | https://github.com/agarrharr/awesome-cli-apps | Repository-local instructions explicitly forbid creating issues or PRs. |
+| ColinEberhardt Awesome AI Developer Tools | Hold | https://github.com/ColinEberhardt/awesome-ai-developer-tools | Scope is explicitly mature AI developer tools; Tree Ring is still a launch-preview project. |
 
 ## Ready To Post After Account Verification
 
