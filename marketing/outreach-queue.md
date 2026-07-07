@@ -127,6 +127,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Developers Digest | Submitted | https://www.developersdigest.tech/tools | Submission email sent to `developers.digest.ai@gmail.com` with `marketing/assets/open-graph-1200x675.png` attached; await review response or directory listing. |
 | AI Agents Directory | Submitted | https://aiagentsdirectory.com/submit-agent | Submission email sent to `hello@aiagentsdirectory.com` with `marketing/assets/open-graph-1200x675.png` attached and an explicit infrastructure-fit caveat. Await review response or listing. |
 | AISuperHub | Submitted | https://www.aisuperhub.io/ai-tools/submit/free | Free form submission accepted with HTTP `201` and returned tool ID `hHS6jZnWHgEOjdqRYUcv`; review can take 90+ days. |
+| llms.txt Hub PR | Merged | https://github.com/thedaviddias/llms-txt-hub/pull/1306 | Adds Tree Ring Memory as a `developer-tools` llms.txt implementation; targeted frontmatter, landing-page HTTP, llms.txt HTTP, and diff whitespace checks passed. Intake/triage/CodeRabbit passed and the PR was merged by `thedaviddias`; final labels included `area:content`, `lane:mdx-fast`, `needs:manual-review`, and `risk:low`. |
 
 ## Drafted For Owner Review
 

@@ -146,6 +146,7 @@ python3 marketing/scripts/build-campaign-cards.py
   and tool ID `hHS6jZnWHgEOjdqRYUcv`.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
+- llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
