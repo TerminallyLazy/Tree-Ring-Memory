@@ -147,6 +147,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | directory.llmstxt.cloud | Submitted | https://directory.llmstxt.cloud/ | Submitted Tree Ring Memory through the Tally form as a Developer tools `llms.txt` entry using the public hosted `llms.txt` URL and no optional email/X contact fields; Tally confirmation `xVPA80J`; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909576998. Monitor curation approval and listing refresh. |
 | SecretiveShell Awesome llms.txt PR | Submitted | https://github.com/SecretiveShell/Awesome-llms-txt/pull/101 | Adds Tree Ring Memory's hosted `llms.txt` to the index; `python3 scripts/normalize_lists.py --check`, targeted `scripts/check_urls.py`, diff whitespace, and Socket Security checks passed; PR is draft; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909533037. |
 | AIFindr Awesome AI Tools PR | Submitted | https://github.com/kbmjj123/awesome-ai-tools/pull/6 | Adds Tree Ring Memory to Code & Developer / Utilities in the AIFindr-maintained AI tools list; duplicate PR/README search and `git diff --check` passed; PR is draft because the README references a missing `CONTRIBUTING.md` file; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909686225. |
+| Runaicode Awesome AI Coding Tools PR | Submitted | https://github.com/runaicode/awesome-ai-coding-tools/pull/6 | Adds Tree Ring Memory to AI Terminal & CLI Tools; duplicate PR/README search and `git diff --check` passed; PR is draft with affiliation disclosed because Tree Ring is supporting agent-memory infrastructure rather than a general AI chat assistant; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909719736. |
 
 ## Drafted For Owner Review
 
@@ -183,6 +184,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | Submit AI Tools | Hold | https://submitaitools.org/submit-your-ai-tool/ | Submit path is behind human verification; no automated bypass was attempted. |
 | Doforai | Hold | https://doforai.tools/submit | Free submission requires tool name, URL, email, and a public doforai backlink badge or direct doforai.tools link on the submitted site; no owner-approved public contact email or badge decision is in place. |
 | Awesome Developer-First | Hold | https://github.com/agamm/awesome-developer-first | Contribution rules call for developer-marketed products with paid-product fit or major milestones such as 1K GitHub stars; Tree Ring is not there yet. |
+| EthicalML Awesome Production Agentic Systems | Hold | https://github.com/EthicalML/awesome-production-agentic-systems | Contribution rules require tools to have at least 500 GitHub stars; Tree Ring does not meet that threshold. |
+| Agent-Tools Awesome Autonomous Web | Hold | https://github.com/Agent-Tools/awesome-autonomous-web | Scope is browser/web automation, auth, web search, CAPTCHA, and GraphQL consumption for agents; Tree Ring is memory infrastructure, so no PR was opened. |
 
 ## Ready To Post After Account Verification
 

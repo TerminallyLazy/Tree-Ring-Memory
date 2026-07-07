@@ -64,6 +64,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet.
 - `aifindr-awesome-ai-tools-pr.md`: AIFindr Awesome AI Tools PR packet and
   validation notes.
+- `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
+  PR packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -236,6 +238,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kbmjj123/awesome-ai-tools/pull/6`
 - AIFindr Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909686225`
+- Runaicode Awesome AI Coding Tools PR:
+  `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
+- Runaicode Awesome AI Coding Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909719736`
 
 ## Drafted For Owner Review
 
@@ -271,6 +277,11 @@ python3 marketing/scripts/build-campaign-cards.py
   submitted website.
 - Awesome Developer-First: held because contribution rules call for paid
   developer products or major adoption milestones such as 1K GitHub stars.
+- EthicalML Awesome Production Agentic Systems: held because contribution rules
+  require a minimum of 500 GitHub stars.
+- Agent-Tools Awesome Autonomous Web: held because the list is focused on
+  browser/web automation, authentication, web search, CAPTCHA, and GraphQL
+  agent tooling rather than agent memory infrastructure.
 
 ## Account-Creation Boundary
 
