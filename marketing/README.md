@@ -68,6 +68,8 @@ Launch and outreach materials for Tree Ring Memory.
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
   and validation notes.
+- `arshdeep-ai-tools-manager-pr.md`: AI Tools Manager PR packet and validation
+  notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -242,6 +244,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kbmjj123/awesome-ai-tools/pull/6`
 - AIFindr Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909686225`
+- Arshdeep AI Tools Manager PR:
+  `https://github.com/ArshdeepGrover/ai-tools-manager/pull/193`
+- Arshdeep AI Tools Manager evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909794080`
 - Runaicode Awesome AI Coding Tools PR:
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
