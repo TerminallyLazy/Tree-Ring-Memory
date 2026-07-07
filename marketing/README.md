@@ -54,6 +54,8 @@ Launch and outreach materials for Tree Ring Memory.
   Systems issue-first editorial suggestion packet and validation notes.
 - `shiyao-awesome-agent-evolution-issue.md`: Awesome Agent Evolution scope-check
   issue packet and validation notes.
+- `chao-awesome-loop-engineering-pattern-issue.md`: Awesome Loop Engineering
+  pattern-suggestion issue packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -206,6 +208,10 @@ python3 marketing/scripts/build-campaign-cards.py
 - VB Web AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909209296`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
+- Awesome Loop Engineering pattern suggestion:
+  `https://github.com/ChaoYue0307/awesome-loop-engineering/issues/7`
+- Awesome Loop Engineering evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909484975`
 
 ## Drafted For Owner Review
 
