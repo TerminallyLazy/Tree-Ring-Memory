@@ -21,6 +21,8 @@ Launch feedback is being collected in
 try the installer, run the first commands, and report where agent memory breaks
 or which framework bridge should come next.
 
+Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
+
 - v0.1 provided the initial local reference implementation with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core.
 - v0.3 explored host bindings during the Rust migration.

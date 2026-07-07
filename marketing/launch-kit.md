@@ -138,7 +138,7 @@ Show HN: Tree Ring Memory - memory lifecycle for AI agents
 ### URL
 
 ```text
-https://github.com/TerminallyLazy/Tree-Ring-Memory
+https://terminallylazy.github.io/Tree-Ring-Memory/
 ```
 
 ### First Comment
@@ -171,6 +171,8 @@ tree-ring init
 tree-ring remember "Use project-scoped recall before risky release changes." --event-type lesson --scope project
 tree-ring recall "release changes"
 ```
+
+Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 ````
 
 ### HN Reply Angles
@@ -219,6 +221,9 @@ The idea is not "store every chat." It is memory aging:
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
+Website:
+https://terminallylazy.github.io/Tree-Ring-Memory/
+
 Install:
 
 ```bash
@@ -261,6 +266,9 @@ The model is tree-ring based:
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
+Website:
+https://terminallylazy.github.io/Tree-Ring-Memory/
+
 I am looking for feedback from people running local agent stacks: what adapter
 or workflow would make this useful in your setup?
 ```
@@ -291,6 +299,9 @@ forgotten.
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
+Website:
+https://terminallylazy.github.io/Tree-Ring-Memory/
+
 Feedback wanted: docs clarity, install friction, privacy/forgetting model, and
 which agent integrations should come first.
 ```
@@ -309,7 +320,7 @@ Not transcript storage.
 
 Fresh work stays detailed. Older learning compresses. Failures become scars. Durable truths become heartwood.
 
-https://github.com/TerminallyLazy/Tree-Ring-Memory
+https://terminallylazy.github.io/Tree-Ring-Memory/
 ```
 
 2.
@@ -386,7 +397,7 @@ What should a portable memory layer get right before deeper adapters land?
 Codex? Claude Code? Agent Zero? OpenCode? LangGraph? MCP?
 
 Try it, break it, tell me what feels wrong.
-https://github.com/TerminallyLazy/Tree-Ring-Memory
+https://terminallylazy.github.io/Tree-Ring-Memory/
 ```
 
 ### Standalone X Post
@@ -398,7 +409,7 @@ Useful decisions, warnings, preferences, and evidence without transcript dumping
 
 CLI, SQLite/FTS recall, audit, consolidation, forgetting, TUI.
 
-https://github.com/TerminallyLazy/Tree-Ring-Memory
+https://terminallylazy.github.io/Tree-Ring-Memory/
 ```
 
 ## Bluesky / Mastodon
@@ -443,6 +454,9 @@ In this demo:
 
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
+
+Website:
+https://terminallylazy.github.io/Tree-Ring-Memory/
 
 Install:
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
@@ -561,7 +575,7 @@ The current release is a local-first, Rust-native CLI with SQLite/FTS storage, e
 
 The project is in protocol-preview status, and I am looking for feedback from people building or operating agent workflows.
 
-https://github.com/TerminallyLazy/Tree-Ring-Memory
+https://terminallylazy.github.io/Tree-Ring-Memory/
 ```
 
 ## Dev.to / Hashnode / Medium
@@ -606,6 +620,7 @@ DOX/Revolve adapters, and a Ratatui terminal console.
 The project is in protocol-preview status and looking for feedback from agent
 framework authors, local AI builders, and developer-tool users.
 
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 ```
 

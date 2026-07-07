@@ -9,6 +9,7 @@
       "RingMemoryAI"
     ],
     "tagline": "Framework-agnostic memory lifecycle for AI agents.",
+    "websiteUrl": "https://terminallylazy.github.io/Tree-Ring-Memory/",
     "repositoryUrl": "https://github.com/TerminallyLazy/Tree-Ring-Memory",
     "launchFeedbackIssueUrl": "https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26"
   },

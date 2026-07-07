@@ -12,6 +12,7 @@ AI agents. It is Rust-native and ships with a CLI, SQLite/FTS recall, audit,
 forgetting, deterministic consolidation, source-linked evidence, DOX/Revolve
 adapters, framework discovery, and a Ratatui terminal console.
 
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
 ```
@@ -30,6 +31,7 @@ console.
 It is in protocol-preview status and I am looking for feedback from Rust and
 developer-tool builders.
 
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 ```
 
@@ -44,6 +46,7 @@ forgetting/redaction.
 
 The current public runtime is local-first and Rust-native.
 
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Launch feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
 ```
@@ -56,6 +59,7 @@ memory lives locally by default in SQLite/FTS, with explicit write commands,
 audit, forgetting, redaction, supersession, import/export, and no hidden
 transcript recorder.
 
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 ```
 
@@ -63,7 +67,8 @@ Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 
 ```text
 Name: Tree Ring Memory
-URL: https://github.com/TerminallyLazy/Tree-Ring-Memory
+URL: https://terminallylazy.github.io/Tree-Ring-Memory/
+Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Category: AI agents, developer tools, local-first, Rust CLI
 Tagline: Framework-agnostic memory lifecycle for AI agents.
 Description: Tree Ring Memory is a local-first, Rust-native memory lifecycle
@@ -83,6 +88,9 @@ I am looking for feedback from people who care about agent memory, local-first
 developer tools, Rust CLIs, and framework-agnostic protocols. If this fits your
 community/list/newsletter, the repo is here:
 
+https://terminallylazy.github.io/Tree-Ring-Memory/
+
+Repository:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
 The launch feedback issue is here:

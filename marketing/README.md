@@ -24,8 +24,9 @@ Launch and outreach materials for Tree Ring Memory.
 ## Live Public Surfaces
 
 - Repository: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
+- Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
-- Public launch page: `docs/launch/tree-ring-memory-framework.md`
+- Text launch page: `docs/launch/tree-ring-memory-framework.md`
 
 ## Account-Creation Boundary
 

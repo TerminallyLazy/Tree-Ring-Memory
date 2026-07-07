@@ -12,6 +12,7 @@ storing passwords, recovery codes, phone numbers, or private inbox data.
 - Developer-tool fallback: `TreeRingAI`
 - Broad fallback: `UseTreeRing`
 - Repository URL: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
+- Website URL: `https://terminallylazy.github.io/Tree-Ring-Memory/`
 - Tagline: Framework-agnostic memory lifecycle for AI agents.
 - Long positioning: Local-first, Rust-native memory lifecycle for AI agents:
   fresh work stays detailed, older learning compresses into rings, important
@@ -74,6 +75,7 @@ workflows, explainable recall, forgetting, scars, heartwood, DOX/Revolve
 adapters, and practical demos for developers building AI agent systems.
 
 Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 
 ### Product Hunt Tagline
 
@@ -94,7 +96,7 @@ memory into raw transcript storage.
 - Username: `TreeRingMemory`
 - Fallbacks: `TreeRingMem`, `UseTreeRing`, `RingMemoryAI`
 - Profile image: none
-- Website: repository URL
+- Website: landing page URL
 - About text: use the Hacker News about text above
 - First action: do not post immediately from an empty-looking throwaway if an
   existing maker account can post with clear affiliation. If using the brand
@@ -125,7 +127,7 @@ memory into raw transcript storage.
 - Profile image: `marketing/assets/x-profile-400x400.png`
 - Header: `marketing/assets/x-header-1500x500.png`
 - Bio: use the X / Short Bio above
-- Website: repository URL
+- Website: landing page URL
 - First action: pin a launch thread, then reply manually to relevant agent,
   Rust, local-first, and developer-tool discussions.
 
@@ -170,7 +172,7 @@ memory into raw transcript storage.
 - Public URL target: `tree-ring-memory`
 - Logo: `marketing/assets/social-square-logo-1080x1080.png`
 - Tagline: Framework-agnostic memory lifecycle for AI agents.
-- Website: repository URL
+- Website: landing page URL
 - Description: use LinkedIn / Directory Description above
 
 ### Product Hunt
@@ -179,7 +181,7 @@ memory into raw transcript storage.
 - Product name: Tree Ring Memory
 - Tagline: Framework-agnostic memory lifecycle for AI agents.
 - Preview image: `marketing/assets/open-graph-1200x675.png`
-- Website: repository URL
+- Website: landing page URL
 - Launch note: use only after README, install flow, release artifact, and demo
   video are ready to absorb traffic.
 
