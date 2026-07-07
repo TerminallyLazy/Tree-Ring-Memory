@@ -44,6 +44,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Heilcheng Awesome Agent Skills PR | Submitted | https://github.com/heilcheng/awesome-agent-skills/pull/331 | Adds Tree Ring Memory to Context Engineering; open but Vercel preview requires project authorization. |
 | Kodus Awesome Agent Skills PR | Submitted | https://github.com/kodustech/awesome-agent-skills/pull/51 | Adds Tree Ring Memory to Tooling in a software-engineering skill directory. |
 | Skillmatic Awesome Agent Skills PR | Submitted | https://github.com/skillmatic-ai/awesome-agent-skills/pull/126 | Adds Tree Ring Memory as an Agent Skills developer-tool resource. |
+| Prat011 Awesome LLM Skills PR | Submitted | https://github.com/Prat011/awesome-llm-skills/pull/169 | Adds Tree Ring Memory as a hosted skill folder and Development & Code Tools README entry; GitGuardian passed and PR is clean. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
@@ -52,7 +53,6 @@ posted unless the post exists publicly and the URL is recorded here.
 | --- | --- | --- | --- |
 | Terminal Trove | Drafted | https://terminaltrove.com/post/ | Gmail draft prepared for `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; owner review/send required. |
 | HesReallyHim Awesome Claude Code | Ready | https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml | Repo rules require the web issue form and human recommendation; PR/CLI recommendation is explicitly disallowed. |
-| Prat011 Awesome LLM Skills | Queued | https://github.com/Prat011/awesome-llm-skills | Requires a separate pass to add a hosted skill folder and validate cross-host behavior. |
 | VoltAgent Awesome Agent Skills | Hold | https://github.com/VoltAgent/awesome-agent-skills | Contribution rules focus on proven community-adopted skills; revisit after adoption grows. |
 | JackyST0 Awesome Agent Skills | Hold | https://github.com/JackyST0/awesome-agent-skills | Contribution rules require community projects to clear a 64-star threshold by default. |
 

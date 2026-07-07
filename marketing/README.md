@@ -93,6 +93,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Heilcheng Awesome Agent Skills PR: `https://github.com/heilcheng/awesome-agent-skills/pull/331`
 - Kodus Awesome Agent Skills PR: `https://github.com/kodustech/awesome-agent-skills/pull/51`
 - Skillmatic Awesome Agent Skills PR: `https://github.com/skillmatic-ai/awesome-agent-skills/pull/126`
+- Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
@@ -107,9 +108,6 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml`
   if owner wants to pursue it; repository rules explicitly disallow PR/CLI
   resource recommendations and require a human web-form submission.
-- Prat011 Awesome LLM Skills: queued for a separate pass because the contribution
-  flow expects adding a hosted skill folder and validating behavior across
-  Claude Code, Codex, and Gemini CLI.
 - VoltAgent and JackyST0 Awesome Agent Skills: held for now because their rules
   expect proven community adoption or a 64-star threshold.
 
