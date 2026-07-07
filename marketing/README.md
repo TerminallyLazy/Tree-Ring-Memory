@@ -82,6 +82,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
+- Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
 - Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
