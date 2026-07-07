@@ -25,6 +25,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome Command Line Tools PR | Submitted | https://github.com/ad-si/awesome-command-line-tools/pull/2 | Adds Tree Ring Memory under Shell Utilities in a command-line tools directory. |
 | Awesome Agent Memory PR | Submitted | https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53 | Adds Tree Ring Memory to open-source Products in an agent-memory directory. |
 | IAAR Awesome AI Memory PR | Submitted | https://github.com/IAAR-Shanghai/Awesome-AI-Memory/pull/115 | Adds Tree Ring Memory to Systems and Open Sources in a large AI-memory knowledge base; PR is mergeable and reports no checks. |
+| XiaomingX Awesome AI Memory PR | Submitted | https://github.com/XiaomingX/awesome-ai-memory/pull/14 | Adds Tree Ring Memory to Agentic & Local Tools in an AI-memory project directory; PR is mergeable and reports no checks. |
 | Cxxz Awesome Agent Memory PR | Submitted | https://github.com/cxxz/awesome-agent-memory/pull/15 | Adds Tree Ring Memory to Standalone Libraries / Frameworks for Building Agent Memory Systems; GitGuardian passed and PR is mergeable. |
 | Wfnuser Awesome Agent Memory PR | Submitted | https://github.com/wfnuser/Awesome-Agent-Memory/pull/9 | Adds Tree Ring Memory to Open-Source Projects & Frameworks; PR is mergeable and reports no checks. |
 | Awesome TUIs PR | Submitted | https://github.com/rothgar/awesome-tuis/pull/751 | Adds Tree Ring Memory to the Development section of a terminal UI directory. |
