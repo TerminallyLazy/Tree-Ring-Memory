@@ -1,4 +1,5 @@
 use std::f64::consts::PI;
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RingMarkLayer {
@@ -15,6 +16,7 @@ pub struct RingMarkCell {
     pub layer: Option<RingMarkLayer>,
     pub upper_layer: Option<RingMarkLayer>,
     pub lower_layer: Option<RingMarkLayer>,
+    pub brightness: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -43,7 +45,7 @@ impl RingMarkActivity {
 pub struct RingMarkFrame {
     width: usize,
     height: usize,
-    pixels: Vec<Option<RingMarkLayer>>,
+    pixels: Vec<RingMarkCell>,
 }
 
 impl RingMarkFrame {
@@ -53,36 +55,9 @@ impl RingMarkFrame {
         frame: usize,
         activity: RingMarkActivity,
     ) -> Self {
-        let width = width_cells.max(17) | 1;
-        let height_cells = height_cells.max(7) | 1;
-        let height = height_cells * 2;
-        let center_x = (width as f64 - 1.0) / 2.0;
-        let center_y = (height as f64 - 1.0) / 2.0;
-        let radius = width.min(height) as f64 * 0.47;
-        let phase = frame as f64 * 0.28;
-        let perspective = 0.86 + phase.sin() * 0.050;
-        let shear = phase.cos() * 0.055;
-        let highlight_angle = normalize_angle(phase * 0.84 - 0.40);
-        let pixels = (0..height)
-            .flat_map(|row| {
-                (0..width).map(move |col| {
-                    sample_pixel(
-                        PixelSample {
-                            col,
-                            row,
-                            center_x,
-                            center_y,
-                            radius_scale: radius,
-                            perspective,
-                            shear,
-                            highlight_angle,
-                        },
-                        frame,
-                        activity,
-                    )
-                })
-            })
-            .collect();
+        let width = width_cells.max(23) | 1;
+        let height = height_cells.max(7);
+        let pixels = sample_tree_ring_object(width, height, frame, activity);
 
         Self {
             width,
@@ -95,19 +70,14 @@ impl RingMarkFrame {
         if col >= self.width || row >= self.height {
             return None;
         }
-        self.pixels[row * self.width + col]
+        self.pixels[row * self.width + col].layer
     }
 
     pub fn half_block_rows(&self) -> Vec<Vec<RingMarkCell>> {
-        (0..self.height / 2)
+        (0..self.height)
             .map(|row| {
                 (0..self.width)
-                    .map(|col| {
-                        RingMarkCell::halves(
-                            self.layer_at(col, row * 2),
-                            self.layer_at(col, row * 2 + 1),
-                        )
-                    })
+                    .map(|col| self.pixels[row * self.width + col])
                     .collect()
             })
             .collect()
@@ -121,22 +91,17 @@ impl RingMarkCell {
             layer: None,
             upper_layer: None,
             lower_layer: None,
+            brightness: 0,
         }
     }
 
-    fn halves(upper_layer: Option<RingMarkLayer>, lower_layer: Option<RingMarkLayer>) -> Self {
-        let ch = match (upper_layer, lower_layer) {
-            (None, None) => return Self::blank(),
-            (Some(upper), Some(lower)) if upper == lower => '█',
-            (Some(_), Some(_)) | (Some(_), None) => '▀',
-            (None, Some(_)) => '▄',
-        };
-
+    fn shaded(ch: char, layer: RingMarkLayer, brightness: u8) -> Self {
         Self {
             ch,
-            layer: upper_layer.or(lower_layer),
-            upper_layer,
-            lower_layer,
+            layer: Some(layer),
+            upper_layer: Some(layer),
+            lower_layer: Some(layer),
+            brightness,
         }
     }
 }
@@ -151,23 +116,33 @@ struct Band {
 const BANDS: &[Band] = &[
     Band {
         layer: RingMarkLayer::Heartwood,
-        radius: 0.12,
-        half_width: 0.10,
+        radius: 0.16,
+        half_width: 0.052,
     },
     Band {
         layer: RingMarkLayer::Inner,
-        radius: 0.42,
-        half_width: 0.06,
+        radius: 0.34,
+        half_width: 0.044,
+    },
+    Band {
+        layer: RingMarkLayer::Inner,
+        radius: 0.49,
+        half_width: 0.036,
     },
     Band {
         layer: RingMarkLayer::Outer,
-        radius: 0.67,
-        half_width: 0.06,
+        radius: 0.64,
+        half_width: 0.038,
+    },
+    Band {
+        layer: RingMarkLayer::Outer,
+        radius: 0.78,
+        half_width: 0.035,
     },
     Band {
         layer: RingMarkLayer::Cambium,
-        radius: 0.925,
-        half_width: 0.075,
+        radius: 0.94,
+        half_width: 0.046,
     },
 ];
 
@@ -181,102 +156,350 @@ pub fn ring_mark_rows_with_activity(
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PixelSample {
-    col: usize,
-    row: usize,
-    center_x: f64,
-    center_y: f64,
-    radius_scale: f64,
-    perspective: f64,
-    shear: f64,
-    highlight_angle: f64,
+struct SubPixelHit {
+    layer: RingMarkLayer,
+    brightness: u8,
 }
 
-fn sample_pixel(
-    sample: PixelSample,
-    frame: usize,
-    activity: RingMarkActivity,
-) -> Option<RingMarkLayer> {
-    let dx = sample.col as f64 - sample.center_x;
-    let dy = sample.row as f64 - sample.center_y;
-    let x = dx / sample.radius_scale;
-    let y = (dy + dx * sample.shear) / (sample.radius_scale * sample.perspective);
-    let radius = (x * x + y * y).sqrt();
-    let angle = y.atan2(x);
-
-    if radius > 1.10 {
-        return None;
-    }
-    if scar_stroke(angle, radius, frame, activity) {
-        return Some(RingMarkLayer::Scar);
-    }
-    if cut_gap(angle, radius) {
-        return None;
-    }
-    band_for_radius(radius, angle, sample.highlight_angle, frame, activity)
+#[derive(Clone, Copy, Debug)]
+struct PlotPoint {
+    x: f64,
+    y: f64,
+    z: f64,
+    nx: f64,
+    ny: f64,
+    nz: f64,
+    layer: RingMarkLayer,
+    activity: f64,
 }
 
-fn band_for_radius(
-    radius: f64,
-    angle: f64,
-    highlight_angle: f64,
+fn sample_tree_ring_object(
+    width: usize,
+    height: usize,
     frame: usize,
     activity: RingMarkActivity,
-) -> Option<RingMarkLayer> {
-    BANDS
-        .iter()
-        .find(|band| {
-            let band = **band;
-            let center = animated_radius(band, frame, activity);
-            let mut half_width = band.half_width + activity.layer(band.layer) * 0.030;
-            if angular_distance(angle, highlight_angle) < 0.22 {
-                half_width += 0.016;
+) -> Vec<RingMarkCell> {
+    let sub_width = width * 3;
+    let sub_height = height * 3;
+    let mut hits = vec![None; sub_width * sub_height];
+    let mut z_buffer = vec![f64::NEG_INFINITY; sub_width * sub_height];
+    let phase = frame as f64 * 0.085;
+
+    sample_ring_tubes(
+        sub_width,
+        sub_height,
+        phase,
+        activity,
+        &mut hits,
+        &mut z_buffer,
+    );
+    sample_scar(
+        sub_width,
+        sub_height,
+        phase,
+        activity.layer(RingMarkLayer::Scar),
+        &mut hits,
+        &mut z_buffer,
+    );
+
+    let mut cells = Vec::with_capacity(width * height);
+    for row in 0..height {
+        for col in 0..width {
+            let mut pattern = 0u16;
+            let mut brightness_sum = 0usize;
+            let mut layer_counts = [0usize; 5];
+            for sub_y in 0..3 {
+                for sub_x in 0..3 {
+                    let sx = col * 3 + sub_x;
+                    let sy = row * 3 + sub_y;
+                    let bit = (sub_y * 3 + sub_x) as u16;
+                    if let Some(hit) = hits[sy * sub_width + sx] {
+                        pattern |= 1 << bit;
+                        brightness_sum += hit.brightness as usize;
+                        layer_counts[pulse_index(hit.layer)] += 1;
+                    }
+                }
             }
-            (radius - center).abs() <= half_width
-        })
-        .map(|band| band.layer)
+            if pattern == 0 {
+                cells.push(RingMarkCell::blank());
+            } else {
+                let layer = dominant_layer(layer_counts);
+                let brightness = (brightness_sum / pattern.count_ones() as usize) as u8;
+                cells.push(RingMarkCell::shaded(
+                    shape_char_3x3(pattern, brightness),
+                    layer,
+                    brightness,
+                ));
+            }
+        }
+    }
+    cells
 }
 
-fn animated_radius(band: Band, frame: usize, activity: RingMarkActivity) -> f64 {
+fn sample_ring_tubes(
+    sub_width: usize,
+    sub_height: usize,
+    phase: f64,
+    activity: RingMarkActivity,
+    hits: &mut [Option<SubPixelHit>],
+    z_buffer: &mut [f64],
+) {
+    static THETA: OnceLock<Vec<(f64, f64)>> = OnceLock::new();
+    let theta_table = THETA.get_or_init(|| angle_table(0.070));
+
+    for band in BANDS {
+        let band_activity = activity.layer(band.layer);
+        let radius = animated_radius(*band, phase, band_activity);
+        let tube_radius = band.half_width + band_activity * 0.026;
+        let offset_scales: &[f64] = if band_activity > 0.45 {
+            &[-0.90, 0.0, 0.90]
+        } else {
+            &[0.0]
+        };
+        for &(cos_theta, sin_theta) in theta_table {
+            for &offset_scale in offset_scales {
+                let ring_radius = radius + tube_radius * offset_scale;
+                let point = PlotPoint {
+                    x: ring_radius * cos_theta,
+                    y: ring_radius * sin_theta,
+                    z: 0.020 * (pulse_index(band.layer) as f64 - 2.0),
+                    nx: 0.0,
+                    ny: 0.0,
+                    nz: 1.0,
+                    layer: band.layer,
+                    activity: band_activity,
+                };
+                plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
+            }
+        }
+    }
+
+    let side_depth = [-0.28, -0.15, -0.02, 0.11];
+    for &(cos_theta, sin_theta) in theta_table {
+        let bark_wave = (phase * 2.0 + cos_theta * 3.0 + sin_theta * 5.0).sin() * 0.018;
+        let radius = 1.02 + bark_wave;
+        for z in side_depth {
+            let point = PlotPoint {
+                x: radius * cos_theta,
+                y: radius * sin_theta,
+                z,
+                nx: cos_theta,
+                ny: sin_theta,
+                nz: 0.16,
+                layer: RingMarkLayer::Cambium,
+                activity: activity.layer(RingMarkLayer::Cambium),
+            };
+            plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
+        }
+    }
+}
+
+fn animated_radius(band: Band, phase: f64, layer_activity: f64) -> f64 {
     let offset = pulse_index(band.layer) as f64 * 0.88;
-    let wave = (frame as f64 * 0.34 + offset).sin();
+    let wave = (phase * 4.0 + offset).sin();
     let ambient = 0.010 * wave;
-    let live = activity.layer(band.layer) * (0.035 + 0.012 * wave.abs());
+    let live = layer_activity * (0.035 + 0.012 * wave.abs());
     (band.radius * (1.0 + ambient + live)).min(1.04)
 }
 
-fn scar_stroke(angle: f64, radius: f64, frame: usize, activity: RingMarkActivity) -> bool {
-    let scar_activity = activity.layer(RingMarkLayer::Scar);
-    let shimmer = 0.50 + ((frame as f64 * 0.42).sin() * 0.50);
-    let width = 0.034 + scar_activity * 0.030 + shimmer * 0.010;
-    let upper_edge = radius > 0.20 && radius < 1.05 && angular_distance(angle, -0.61) < width;
-    let lower_edge = radius > 0.46 && radius < 0.94 && angular_distance(angle, 2.30) < width * 0.90;
-    upper_edge || lower_edge
+fn sample_scar(
+    sub_width: usize,
+    sub_height: usize,
+    phase: f64,
+    scar_activity: f64,
+    hits: &mut [Option<SubPixelHit>],
+    z_buffer: &mut [f64],
+) {
+    let width = 0.026 + scar_activity * 0.034;
+    for index in 0..78 {
+        let t = -0.78 + index as f64 * 0.020;
+        let center_x = 0.18 + t * 0.42 + (t * 6.0 + phase).sin() * 0.030;
+        let center_y = -0.52 * t + (t * 3.2).sin() * 0.075;
+        for side in -2..=2 {
+            let offset = side as f64 * width;
+            let point = PlotPoint {
+                x: center_x + offset,
+                y: center_y - offset * 0.35,
+                z: 0.080 + (t * 5.0 + phase * 2.0).sin() * 0.025,
+                nx: -0.20,
+                ny: 0.15,
+                nz: 0.95,
+                layer: RingMarkLayer::Scar,
+                activity: scar_activity,
+            };
+            plot_point(point, sub_width, sub_height, phase, hits, z_buffer);
+        }
+    }
 }
 
-fn cut_gap(angle: f64, radius: f64) -> bool {
-    if radius <= 0.20 {
-        return false;
+fn plot_point(
+    point: PlotPoint,
+    sub_width: usize,
+    sub_height: usize,
+    phase: f64,
+    hits: &mut [Option<SubPixelHit>],
+    z_buffer: &mut [f64],
+) {
+    let rot_x = -0.82 + (phase * 0.55).sin() * 0.16;
+    let rot_y = phase * 1.25;
+    let rot_z = (phase * 0.35).sin() * 0.24;
+    let (x, y, z) = rotate_xyz(point.x, point.y, point.z, rot_x, rot_y, rot_z);
+    let (nx, ny, nz) = rotate_xyz(point.nx, point.ny, point.nz, rot_x, rot_y, rot_z);
+    let depth = 2.65 + z;
+    if depth <= 0.25 {
+        return;
     }
-    let upper_gap = radius > 0.22 && angular_distance(angle, -0.78) < 0.15 + radius * 0.03;
-    let lower_gap = radius > 0.46 && angular_distance(angle, 2.35) < 0.085;
-    upper_gap || lower_gap
+
+    let perspective = 1.0 / depth;
+    let center_x = (sub_width as f64 - 1.0) * 0.5;
+    let center_y = (sub_height as f64 - 1.0) * 0.52;
+    let screen_x = center_x + x * sub_width as f64 * 1.02 * perspective;
+    let screen_y = center_y - y * sub_height as f64 * 1.44 * perspective;
+    let sx = screen_x.round() as isize;
+    let sy = screen_y.round() as isize;
+    if sx < 0 || sy < 0 || sx >= sub_width as isize || sy >= sub_height as isize {
+        return;
+    }
+
+    let index = sy as usize * sub_width + sx as usize;
+    if z <= z_buffer[index] {
+        return;
+    }
+
+    z_buffer[index] = z;
+    hits[index] = Some(SubPixelHit {
+        layer: point.layer,
+        brightness: shade(nx, ny, nz, z, point.activity),
+    });
 }
 
-fn angular_distance(angle: f64, target: f64) -> f64 {
-    let mut diff = (angle - target).abs() % (PI * 2.0);
-    if diff > PI {
-        diff = PI * 2.0 - diff;
-    }
-    diff
+fn shade(nx: f64, ny: f64, nz: f64, z: f64, activity: f64) -> u8 {
+    let light = normalize3(-0.35, 0.72, 1.00);
+    let normal = normalize3(nx, ny, nz);
+    let diffuse = dot(normal, light).max(0.0);
+    let rim = (z + 0.95).clamp(0.0, 1.9) / 1.9;
+    let glow = activity * 0.20;
+    ((0.22 + diffuse * 0.54 + rim * 0.18 + glow).clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-fn normalize_angle(angle: f64) -> f64 {
-    let mut value = angle % (PI * 2.0);
-    if value < 0.0 {
-        value += PI * 2.0;
+fn dominant_layer(layer_counts: [usize; 5]) -> RingMarkLayer {
+    let index = layer_counts
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| **count)
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+    match index {
+        0 => RingMarkLayer::Cambium,
+        1 => RingMarkLayer::Outer,
+        2 => RingMarkLayer::Inner,
+        3 => RingMarkLayer::Heartwood,
+        4 => RingMarkLayer::Scar,
+        _ => RingMarkLayer::Cambium,
     }
-    value
+}
+
+fn shape_char_3x3(pattern: u16, brightness: u8) -> char {
+    let count = pattern.count_ones();
+    if count == 0 {
+        return ' ';
+    }
+
+    let top_l = pattern & (1 << 0) != 0;
+    let top_c = pattern & (1 << 1) != 0;
+    let top_r = pattern & (1 << 2) != 0;
+    let mid_l = pattern & (1 << 3) != 0;
+    let mid_c = pattern & (1 << 4) != 0;
+    let mid_r = pattern & (1 << 5) != 0;
+    let bot_l = pattern & (1 << 6) != 0;
+    let bot_c = pattern & (1 << 7) != 0;
+    let bot_r = pattern & (1 << 8) != 0;
+    let top = top_l as u8 + top_c as u8 + top_r as u8;
+    let mid = mid_l as u8 + mid_c as u8 + mid_r as u8;
+    let bot = bot_l as u8 + bot_c as u8 + bot_r as u8;
+    let left = top_l as u8 + mid_l as u8 + bot_l as u8;
+    let center = top_c as u8 + mid_c as u8 + bot_c as u8;
+    let right = top_r as u8 + mid_r as u8 + bot_r as u8;
+
+    let bright = brightness > 168;
+    let midtone = brightness > 92;
+
+    if count >= 8 {
+        return if bright { '@' } else { '#' };
+    }
+    if top_l && mid_c && bot_r && !top_r && !bot_l {
+        return if midtone { '\\' } else { '.' };
+    }
+    if top_r && mid_c && bot_l && !top_l && !bot_r {
+        return if midtone { '/' } else { '.' };
+    }
+    if mid >= 2 && mid >= top && mid >= bot {
+        return if bright { '=' } else { '-' };
+    }
+    if center >= 2 && center >= left && center >= right {
+        return if midtone { '|' } else { ':' };
+    }
+    if left >= 2 && right == 0 {
+        return if midtone { '(' } else { ':' };
+    }
+    if right >= 2 && left == 0 {
+        return if midtone { ')' } else { ':' };
+    }
+    if top >= 2 && bot == 0 {
+        return if bright { '"' } else { '\'' };
+    }
+    if bot >= 2 && top == 0 {
+        return if bright { '_' } else { '.' };
+    }
+    if count >= 6 {
+        return if bright { '%' } else { '*' };
+    }
+    if count >= 4 {
+        return if midtone { '+' } else { ':' };
+    }
+    if count == 1 && (top_l || top_c || top_r) {
+        return '\'';
+    }
+    if count <= 2 {
+        return if midtone { ':' } else { '.' };
+    }
+    if mid_c {
+        return if bright { 'o' } else { '*' };
+    }
+    if bright {
+        '+'
+    } else {
+        ':'
+    }
+}
+
+fn angle_table(step: f64) -> Vec<(f64, f64)> {
+    let mut table = Vec::new();
+    let mut angle = 0.0;
+    while angle < PI * 2.0 {
+        table.push((angle.cos(), angle.sin()));
+        angle += step;
+    }
+    table
+}
+
+fn rotate_xyz(x: f64, y: f64, z: f64, ax: f64, ay: f64, az: f64) -> (f64, f64, f64) {
+    let (cx, sx) = (ax.cos(), ax.sin());
+    let (cy, sy) = (ay.cos(), ay.sin());
+    let (cz, sz) = (az.cos(), az.sin());
+    let (y1, z1) = (y * cx - z * sx, y * sx + z * cx);
+    let (x2, z2) = (x * cy + z1 * sy, -x * sy + z1 * cy);
+    let (x3, y3) = (x2 * cz - y1 * sz, x2 * sz + y1 * cz);
+    (x3, y3, z2)
+}
+
+fn normalize3(x: f64, y: f64, z: f64) -> (f64, f64, f64) {
+    let length = (x * x + y * y + z * z).sqrt().max(f64::EPSILON);
+    (x / length, y / length, z / length)
+}
+
+fn dot(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
+    a.0 * b.0 + a.1 * b.1 + a.2 * b.2
 }
 
 pub fn pulse_index(layer: RingMarkLayer) -> usize {
@@ -304,7 +527,7 @@ mod tests {
             RingMarkLayer::Scar,
         ] {
             assert!(
-                frame.pixels.iter().any(|pixel| *pixel == Some(layer)),
+                frame.pixels.iter().any(|pixel| pixel.layer == Some(layer)),
                 "missing {layer:?}"
             );
         }
@@ -315,14 +538,14 @@ mod tests {
         let frame = RingMarkFrame::with_activity(31, 12, 0, RingMarkActivity::default());
 
         assert_eq!(frame.width, 31);
-        assert_eq!(frame.height, 26);
+        assert_eq!(frame.height, 12);
         assert_eq!(frame.layer_at(usize::MAX, 0), None);
         assert_eq!(frame.layer_at(0, usize::MAX), None);
-        assert_eq!(frame.half_block_rows().len(), 13);
+        assert_eq!(frame.half_block_rows().len(), 12);
     }
 
     #[test]
-    fn mark_uses_terminal_raster_glyphs_instead_of_template_fill() {
+    fn mark_uses_3d_shading_glyphs_instead_of_template_fill() {
         let rendered = ring_mark_rows_with_activity(31, 12, 0, RingMarkActivity::default())
             .into_iter()
             .flatten()
@@ -330,13 +553,18 @@ mod tests {
             .map(|cell| cell.ch)
             .collect::<String>();
 
-        assert!(rendered.chars().all(is_raster_glyph));
-        assert!(rendered.contains('▀'));
-        assert!(rendered.contains('▄'));
-        assert!(rendered.contains('█'));
-        assert!(!rendered.contains('#'));
-        assert!(!rendered.contains('='));
-        assert!(!rendered.contains('o'));
+        assert!(rendered.chars().all(is_3d_glyph));
+        assert!(
+            rendered.contains('┃')
+                || rendered.contains('━')
+                || rendered.contains('|')
+                || rendered.contains('-')
+                || rendered.contains('/')
+                || rendered.contains('\\')
+        );
+        assert!(!rendered.contains('█'));
+        assert!(!rendered.contains('▀'));
+        assert!(!rendered.contains('▄'));
     }
 
     #[test]
@@ -365,12 +593,12 @@ mod tests {
         let calm_cambium = calm
             .pixels
             .iter()
-            .filter(|pixel| **pixel == Some(RingMarkLayer::Cambium))
+            .filter(|pixel| pixel.layer == Some(RingMarkLayer::Cambium))
             .count();
         let live_cambium = live
             .pixels
             .iter()
-            .filter(|pixel| **pixel == Some(RingMarkLayer::Cambium))
+            .filter(|pixel| pixel.layer == Some(RingMarkLayer::Cambium))
             .count();
 
         assert!(live_cambium > calm_cambium);
@@ -384,7 +612,26 @@ mod tests {
         assert!(rows.iter().all(|row| row.len() == 23));
     }
 
-    fn is_raster_glyph(ch: char) -> bool {
-        matches!(ch, '█' | '▀' | '▄')
+    fn is_3d_glyph(ch: char) -> bool {
+        matches!(
+            ch,
+            '.' | ':'
+                | '*'
+                | '+'
+                | 'o'
+                | '@'
+                | '#'
+                | '%'
+                | '='
+                | '-'
+                | '|'
+                | '/'
+                | '\\'
+                | '('
+                | ')'
+                | '"'
+                | '\''
+                | '_'
+        )
     }
 }
