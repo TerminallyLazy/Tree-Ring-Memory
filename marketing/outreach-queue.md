@@ -124,6 +124,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | DevPages | Submitted | https://devpages.io/submit-a-tool | Submission email sent to `contact@devpages.io` with `marketing/assets/open-graph-1200x675.png` attached after the public submit form was found to only show a local thank-you state. Await review response or listing. |
 | Agentic.ai | Submitted | https://agentic.ai/submit | Submission email sent to `hello@agentic.ai` with `marketing/assets/open-graph-1200x675.png` attached and an explicit caveat that Tree Ring is agent infrastructure, not a standalone autonomous agent. Await review response or listing. |
 | Developers Digest | Submitted | https://www.developersdigest.tech/tools | Submission email sent to `developers.digest.ai@gmail.com` with `marketing/assets/open-graph-1200x675.png` attached; await review response or directory listing. |
+| AI Agents Directory | Submitted | https://aiagentsdirectory.com/submit-agent | Submission email sent to `hello@aiagentsdirectory.com` with `marketing/assets/open-graph-1200x675.png` attached and an explicit infrastructure-fit caveat. Await review response or listing. |
 
 ## Drafted For Owner Review
 

@@ -34,6 +34,8 @@ Launch and outreach materials for Tree Ring Memory.
   fields.
 - `developers-digest-submission.md`: Developers Digest AI tools directory
   submission packet and sent email fields.
+- `ai-agents-directory-submission.md`: AI Agents Directory submission packet and
+  sent email fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -134,6 +136,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Agentic.ai submission: sent to `hello@agentic.ai` with
   `marketing/assets/open-graph-1200x675.png` attached.
 - Developers Digest submission: sent to `developers.digest.ai@gmail.com` with
+  `marketing/assets/open-graph-1200x675.png` attached.
+- AI Agents Directory submission: sent to `hello@aiagentsdirectory.com` with
   `marketing/assets/open-graph-1200x675.png` attached.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
