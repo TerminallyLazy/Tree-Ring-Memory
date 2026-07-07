@@ -43,6 +43,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - `marketing/assets/rust-article-card-1200x675.png`: Rust-native CLI article.
 - `marketing/assets/twir-submission-card-1200x675.png`: This Week in Rust PR.
 - `marketing/assets/not-transcript-dump-card-1080x1080.png`: square social proof card.
+- `marketing/assets/terminal-trove-preview-1200x675.png`: Terminal Trove tool
+  submission preview card.
 
 ## Direction 1: Agent Memory Should Age
 

@@ -158,6 +158,15 @@ def main() -> None:
         GOLD,
         square=True,
     )
+    build_card(
+        "terminal-trove-preview-1200x675.png",
+        "open-graph-1200x675.png",
+        "Terminal-native agent memory",
+        "Rust CLI, SQLite/FTS recall, audit, forgetting, consolidation, and Ratatui.",
+        "tree-ring tui\nlocal-first by default",
+        "TERMINAL TOOL",
+        TEAL,
+    )
 
 
 if __name__ == "__main__":

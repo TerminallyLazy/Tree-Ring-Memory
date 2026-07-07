@@ -24,6 +24,8 @@ Launch and outreach materials for Tree Ring Memory.
   surfaces.
 - `newsletter-pitches.md`: short pitches for newsletters, directories, and
   community maintainers.
+- `terminal-trove-submission.md`: Terminal Trove submission packet and email
+  draft fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -50,6 +52,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - `marketing/assets/rust-article-card-1200x675.png`
 - `marketing/assets/twir-submission-card-1200x675.png`
 - `marketing/assets/not-transcript-dump-card-1080x1080.png`
+- `marketing/assets/terminal-trove-preview-1200x675.png`
 
 ## Live Public Surfaces
 
@@ -67,6 +70,13 @@ python3 marketing/scripts/build-campaign-cards.py
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
+
+## Drafted For Owner Review
+
+- Terminal Trove email draft: prepared for `curator@terminaltrove.com` with
+  `marketing/assets/terminal-trove-preview-1200x675.png` attached. Review and
+  send from Gmail, or paste the fields from `terminal-trove-submission.md` into
+  the Terminal Trove form at `https://terminaltrove.com/post/`.
 
 ## Account-Creation Boundary
 

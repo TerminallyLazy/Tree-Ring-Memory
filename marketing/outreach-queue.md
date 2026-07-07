@@ -20,6 +20,12 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome Command Line Tools PR | Submitted | https://github.com/ad-si/awesome-command-line-tools/pull/2 | Adds Tree Ring Memory under Shell Utilities in a command-line tools directory. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
+## Drafted For Owner Review
+
+| Outlet | Status | Destination | Notes |
+| --- | --- | --- | --- |
+| Terminal Trove | Drafted | https://terminaltrove.com/post/ | Gmail draft prepared for `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; owner review/send required. |
+
 ## Ready To Post After Account Verification
 
 | Priority | Outlet | Asset | Copy Source | Public URL |

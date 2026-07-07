@@ -68,6 +68,7 @@ truths become heartwood, and future ideas stay as seeds.
 - Rust article card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/rust-article-card-1200x675.png>
 - This Week in Rust submission card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/twir-submission-card-1200x675.png>
 - Square social card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/not-transcript-dump-card-1080x1080.png>
+- Terminal Trove preview card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/terminal-trove-preview-1200x675.png>
 
 ## Articles
 
