@@ -66,6 +66,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
+- `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
+  and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -130,6 +132,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome TUIs PR: `https://github.com/rothgar/awesome-tuis/pull/751`
 - Awesome Ratatui PR: `https://github.com/ratatui/awesome-ratatui/pull/361`
 - Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`
+- lgaggini Awesome CLI/TUI Software PR:
+  `https://github.com/lgaggini/awesome-cli-tui-software/pull/4`
 - Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
 - Awesome Coding Agents listing: `https://github.com/kailiu42/awesome-coding-agents#cli-agent-helpers`
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
@@ -242,6 +246,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909719736`
+- lgaggini Awesome CLI/TUI Software PR:
+  `https://github.com/lgaggini/awesome-cli-tui-software/pull/4`
+- lgaggini Awesome CLI/TUI Software evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909757570`
 
 ## Drafted For Owner Review
 
