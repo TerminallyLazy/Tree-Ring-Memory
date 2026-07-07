@@ -90,6 +90,9 @@ python3 marketing/scripts/build-campaign-cards.py
 - Milisp Awesome Codex CLI PR: `https://github.com/milisp/awesome-codex-cli/pull/63`
 - JQueryScript Awesome Claude Code PR: `https://github.com/jqueryscript/awesome-claude-code/pull/483`
 - RoggeOhta Awesome Codex CLI PR: `https://github.com/RoggeOhta/awesome-codex-cli/pull/132`
+- Heilcheng Awesome Agent Skills PR: `https://github.com/heilcheng/awesome-agent-skills/pull/331`
+- Kodus Awesome Agent Skills PR: `https://github.com/kodustech/awesome-agent-skills/pull/51`
+- Skillmatic Awesome Agent Skills PR: `https://github.com/skillmatic-ai/awesome-agent-skills/pull/126`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
@@ -104,6 +107,11 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml`
   if owner wants to pursue it; repository rules explicitly disallow PR/CLI
   resource recommendations and require a human web-form submission.
+- Prat011 Awesome LLM Skills: queued for a separate pass because the contribution
+  flow expects adding a hosted skill folder and validating behavior across
+  Claude Code, Codex, and Gemini CLI.
+- VoltAgent and JackyST0 Awesome Agent Skills: held for now because their rules
+  expect proven community adoption or a 64-star threshold.
 
 ## Account-Creation Boundary
 
