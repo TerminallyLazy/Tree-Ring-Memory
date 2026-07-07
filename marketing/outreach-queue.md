@@ -16,6 +16,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Homebrew tap | Live | https://github.com/TerminallyLazy/homebrew-tree-ring | macOS ARM64 install path: `brew tap TerminallyLazy/tree-ring && brew install tree-ring`; card: `marketing/assets/homebrew-install-card-1200x675.png`. |
 | Atom launch feed | Live | https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml | Syndication and crawler surface. |
 | Rust-native CLI article | Live | https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md | Rust-specific article for newsletters and developer-tool submissions. |
+| IndexNow launch URL batch | Submitted | https://api.indexnow.org/indexnow | Public key file is live at `https://terminallylazy.github.io/Tree-Ring-Memory/0bfd1a9f8a68e38d590817b8ea1ed1e2.txt`; bulk URL POST returned HTTP `202` for seven launch URLs; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909613838. |
 | This Week in Rust PR | Submitted | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Adds the Rust article to issue 659 Project/Tooling Updates. |
 | Awesome Context Engineering PR | Submitted | https://github.com/jihoo-kim/awesome-context-engineering/pull/23 | Adds Tree Ring Memory to Long-term memory in a context-engineering library directory; PR is clean and reports no checks. |
 | Meirtz Awesome Context Engineering PR | Submitted | https://github.com/Meirtz/Awesome-Context-Engineering/pull/89 | Adds Tree Ring Memory to Developer Tools with Context Engineering in a large survey directory; PR is clean and reports no checks. |
@@ -175,6 +176,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | Stork AI directory | Hold | https://www.stork.ai/submit-ai-tool-free | Free listing requires a normal Stork badge/link on the public site, otherwise the submission goes through a $49 one-time checkout; no badge/payment decision made. |
 | OpenTools | Hold | https://opentools.ai/submit | Submit page requires Google sign-in from an owner-controlled account session; no submission made. |
 | llmstxt.site directory | Hold | https://llmstxt.site/submit | Submit form requires product name, website URL, owner name, validated email, and a hosted `llms.txt` or `llms-full.txt` URL. No submission made without an owner-approved public project contact email. |
+| Glarify llms.txt directory | Hold | https://glarify.net/llms-directory/ | Public UI advertises no-login submission, but the bundled Supabase edge function `llms-directory` returned `NOT_FOUND` on 2026-07-07. Retry only after the public form/API works. |
+| Context7 llms.txt add library | Hold | https://context7.com/docs/api-reference/add-library/add-an-llmstxt-file | Official API requires an Authorization bearer token from `context7.com/dashboard`; no submission made without owner-provided Context7 API key or dashboard access. |
 
 ## Ready To Post After Account Verification
 

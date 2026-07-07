@@ -60,6 +60,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `llmstxt-cloud-directory-submission.md`: directory.llmstxt.cloud submission
   packet and accepted Tally confirmation.
+- `indexnow-submission.md`: IndexNow key, URL batch, response, and follow-up
+  packet.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -193,6 +195,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
 - directory.llmstxt.cloud submission:
   `https://directory.llmstxt.cloud/`
+- IndexNow key:
+  `https://terminallylazy.github.io/Tree-Ring-Memory/0bfd1a9f8a68e38d590817b8ea1ed1e2.txt`
 - Accepted-listings evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908361729`
 - Milisp replacement evidence update:
@@ -224,6 +228,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909533037`
 - directory.llmstxt.cloud evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909576998`
+- IndexNow evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909613838`
 
 ## Drafted For Owner Review
 
