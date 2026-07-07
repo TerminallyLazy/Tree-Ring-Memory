@@ -61,6 +61,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | EUDK Awesome AI Tools PR | Submitted | https://github.com/eudk/awesome-ai-tools/pull/413 | Adds Tree Ring Memory to AI Agent Tools in a broad AI-tools directory. |
 | Milisp Awesome Codex CLI PR | Submitted | https://github.com/milisp/awesome-codex-cli/pull/63 | Adds Tree Ring Memory to Development Tools in a Codex CLI directory. |
 | JQueryScript Awesome Claude Code PR | Submitted | https://github.com/jqueryscript/awesome-claude-code/pull/483 | Adds Tree Ring Memory to Tools & Utilities in a broad Claude Code directory. |
+| LangGPT Awesome Claude Code PR | Submitted | https://github.com/LangGPT/awesome-claude-code/pull/115 | Adds Tree Ring Memory to Development Tools & Utilities across English and Chinese docs; PR is mergeable and reports no checks. |
 | RoggeOhta Awesome Codex CLI PR | Submitted | https://github.com/RoggeOhta/awesome-codex-cli/pull/132 | Adds Tree Ring Memory to Specialized Skills with Codex-style skill bridge guidance. |
 | Heilcheng Awesome Agent Skills PR | Submitted | https://github.com/heilcheng/awesome-agent-skills/pull/331 | Adds Tree Ring Memory to Context Engineering; open but Vercel preview requires project authorization. |
 | Kodus Awesome Agent Skills PR | Submitted | https://github.com/kodustech/awesome-agent-skills/pull/51 | Adds Tree Ring Memory to Tooling in a software-engineering skill directory. |
