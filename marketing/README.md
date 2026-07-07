@@ -74,6 +74,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome AI SDKs PR: `https://github.com/e2b-dev/awesome-ai-sdks/pull/268`
 - Awesome Command Line Tools PR: `https://github.com/ad-si/awesome-command-line-tools/pull/2`
 - Awesome Agent Memory PR: `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
+- IAAR Awesome AI Memory PR: `https://github.com/IAAR-Shanghai/Awesome-AI-Memory/pull/115`
 - Awesome TUIs PR: `https://github.com/rothgar/awesome-tuis/pull/751`
 - Awesome Ratatui PR: `https://github.com/ratatui/awesome-ratatui/pull/361`
 - Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`

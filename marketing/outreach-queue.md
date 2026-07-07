@@ -22,6 +22,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome AI SDKs PR | Submitted | https://github.com/e2b-dev/awesome-ai-sdks/pull/268 | Adds Tree Ring Memory to an AI-agent SDK/tooling directory; CLA check needs owner action. |
 | Awesome Command Line Tools PR | Submitted | https://github.com/ad-si/awesome-command-line-tools/pull/2 | Adds Tree Ring Memory under Shell Utilities in a command-line tools directory. |
 | Awesome Agent Memory PR | Submitted | https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53 | Adds Tree Ring Memory to open-source Products in an agent-memory directory. |
+| IAAR Awesome AI Memory PR | Submitted | https://github.com/IAAR-Shanghai/Awesome-AI-Memory/pull/115 | Adds Tree Ring Memory to Systems and Open Sources in a large AI-memory knowledge base; PR is mergeable and reports no checks. |
 | Awesome TUIs PR | Submitted | https://github.com/rothgar/awesome-tuis/pull/751 | Adds Tree Ring Memory to the Development section of a terminal UI directory. |
 | Awesome Ratatui PR | Submitted | https://github.com/ratatui/awesome-ratatui/pull/361 | Adds Tree Ring Memory to Apps / Development Tools in the Ratatui ecosystem list. |
 | Awesome CLI Apps CSV PR | Submitted | https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303 | Adds Tree Ring Memory to the source CSV for a large CLI/TUI index. |
