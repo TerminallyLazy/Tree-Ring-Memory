@@ -58,6 +58,8 @@ Launch and outreach materials for Tree Ring Memory.
   pattern-suggestion issue packet and validation notes.
 - `secretiveshell-awesome-llms-txt-pr.md`: SecretiveShell Awesome llms.txt PR
   packet and validation notes.
+- `llmstxt-cloud-directory-submission.md`: directory.llmstxt.cloud submission
+  packet and accepted Tally confirmation.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -189,6 +191,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
+- directory.llmstxt.cloud submission:
+  `https://directory.llmstxt.cloud/`
 - Accepted-listings evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908361729`
 - Milisp replacement evidence update:
@@ -218,6 +222,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/SecretiveShell/Awesome-llms-txt/pull/101`
 - SecretiveShell Awesome llms.txt evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909533037`
+- directory.llmstxt.cloud evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909576998`
 
 ## Drafted For Owner Review
 
