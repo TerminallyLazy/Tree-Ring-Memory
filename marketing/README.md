@@ -76,6 +76,10 @@ python3 marketing/scripts/build-campaign-cards.py
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
+- Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
+- Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
+- Awesome AI Coding Assistants Playbook PR: `https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11`
+- Awesome LLM CLI Apps PR: `https://github.com/jsnyder/awesome-llm-cli-apps/pull/4`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
