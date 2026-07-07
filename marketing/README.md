@@ -56,6 +56,8 @@ Launch and outreach materials for Tree Ring Memory.
   issue packet and validation notes.
 - `chao-awesome-loop-engineering-pattern-issue.md`: Awesome Loop Engineering
   pattern-suggestion issue packet and validation notes.
+- `secretiveshell-awesome-llms-txt-pr.md`: SecretiveShell Awesome llms.txt PR
+  packet and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -212,6 +214,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ChaoYue0307/awesome-loop-engineering/issues/7`
 - Awesome Loop Engineering evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909484975`
+- SecretiveShell Awesome llms.txt PR:
+  `https://github.com/SecretiveShell/Awesome-llms-txt/pull/101`
+- SecretiveShell Awesome llms.txt evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909533037`
 
 ## Drafted For Owner Review
 
