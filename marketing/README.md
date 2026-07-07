@@ -44,6 +44,8 @@ Launch and outreach materials for Tree Ring Memory.
   sent email fallback after the public form rejected the AJAX request.
 - `iaar-awesome-ai-memory-pr.md`: IAAR Awesome AI Memory PR packet, duplicate
   cleanup, and validation notes.
+- `teleai-awesome-agent-memory-pr.md`: TeleAI Awesome Agent Memory PR packet and
+  validation notes.
 - `enterprise-ai-atlas-awesome-ai-coding-agents-pr.md`: Enterprise AI Atlas
   Awesome AI Coding Agents PR packet and validation notes.
 - `devtoollab-submission.md`: DevToolLab editorial fallback submission packet
@@ -286,6 +288,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/lgaggini/awesome-cli-tui-software/pull/4`
 - lgaggini Awesome CLI/TUI Software evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909757570`
+- TeleAI Awesome Agent Memory PR:
+  `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
+- TeleAI Awesome Agent Memory evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910014796`
 
 ## Drafted For Owner Review
 
