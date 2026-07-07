@@ -39,6 +39,9 @@ Launch and outreach materials for Tree Ring Memory.
   as accounts are created.
 - `assets/`: resized social, header, thumbnail, and channel-banner images
   derived from the source brand assets.
+- Crates.io packages: prepared but not published. Owner crates.io login/token is
+  required; publish order is `tree-ring-memory-core`,
+  `tree-ring-memory-sqlite`, then `tree-ring-memory-cli`.
 
 ## Generated Campaign Cards
 
@@ -104,6 +107,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `marketing/assets/terminal-trove-preview-1200x675.png` attached. Review and
   send from Gmail, or paste the fields from `terminal-trove-submission.md` into
   the Terminal Trove form at `https://terminaltrove.com/post/`.
+- Crates.io package publish: package names appear available and
+  `tree-ring-memory-core` passes `cargo publish --dry-run`. The dependent
+  packages are manifest-ready but must be published after the core crate exists
+  on crates.io.
 - HesReallyHim Awesome Claude Code recommendation: submit manually through
   `https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml`
   if owner wants to pursue it; repository rules explicitly disallow PR/CLI

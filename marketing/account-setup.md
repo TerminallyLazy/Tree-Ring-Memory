@@ -224,6 +224,20 @@ memory into raw transcript storage.
   `#agent-memory`, `#rust-cli`, `#integrations`, `#contributing`
 - First rule: no secrets, private data, or transcript dumps in shared channels.
 
+### Crates.io
+
+- Login URL: `https://crates.io/login`
+- Package names: `tree-ring-memory-core`, `tree-ring-memory-sqlite`,
+  `tree-ring-memory-cli`
+- Owner action: sign in with the owner crates.io account and publish with an
+  owner-controlled API token.
+- Publish order: `tree-ring-memory-core`, then `tree-ring-memory-sqlite`, then
+  `tree-ring-memory-cli`.
+- Validation status: `tree-ring-memory-core` passes `cargo publish --dry-run`.
+  The dependent crates have publishable internal dependency versions and will
+  resolve after the core crate exists on crates.io.
+- Do not store the crates.io token in this repository.
+
 ## Launch Compliance Notes
 
 - Hacker News `Show HN` should point to something people can try, not only a
