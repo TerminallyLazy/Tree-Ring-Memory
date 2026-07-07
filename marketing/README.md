@@ -109,6 +109,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
 - Caramaschi Awesome AI Agents 2026 PR: `https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418`
 - Deep Insight Awesome AI Agents PR: `https://github.com/Deep-Insight-Labs/awesome-ai-agents/pull/35`
+- ChatTeach Awesome AI Agents PR:
+  `https://github.com/ChatTeach/Awesome-AI-Agents/pull/26`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
@@ -173,6 +175,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908883051`
 - JayLZhou Awesome Agent Skills evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908940578`
+- ChatTeach Awesome AI Agents evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909053774`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
