@@ -12,7 +12,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | GitHub launch feedback issue | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26 | Feedback funnel for all launch posts. |
 | GitHub launch discussion | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27 | Public conversation surface for launch feedback. |
 | Atom launch feed | Live | https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml | Syndication and crawler surface. |
-| Rust-native CLI article | Ready | https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md | Pushed article; public after Pages build. |
+| Rust-native CLI article | Live | https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md | Rust-specific article for newsletters and developer-tool submissions. |
+| This Week in Rust PR | Submitted | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Adds the Rust article to issue 659 Project/Tooling Updates. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Ready To Post After Account Verification
