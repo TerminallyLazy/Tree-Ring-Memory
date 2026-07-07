@@ -87,6 +87,9 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome AI Coding Agent Tools PR: `https://github.com/namphuongtran/awesome-ai-coding-agent-tools/pull/27`
 - Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
 - EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
+- Milisp Awesome Codex CLI PR: `https://github.com/milisp/awesome-codex-cli/pull/63`
+- JQueryScript Awesome Claude Code PR: `https://github.com/jqueryscript/awesome-claude-code/pull/483`
+- RoggeOhta Awesome Codex CLI PR: `https://github.com/RoggeOhta/awesome-codex-cli/pull/132`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
@@ -97,6 +100,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `marketing/assets/terminal-trove-preview-1200x675.png` attached. Review and
   send from Gmail, or paste the fields from `terminal-trove-submission.md` into
   the Terminal Trove form at `https://terminaltrove.com/post/`.
+- HesReallyHim Awesome Claude Code recommendation: submit manually through
+  `https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml`
+  if owner wants to pursue it; repository rules explicitly disallow PR/CLI
+  resource recommendations and require a human web-form submission.
 
 ## Account-Creation Boundary
 

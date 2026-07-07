@@ -38,6 +38,9 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome AI Coding Agent Tools PR | Submitted | https://github.com/namphuongtran/awesome-ai-coding-agent-tools/pull/27 | Adds Tree Ring Memory to Supporting Infrastructure / Memory; PR is open but currently unstable with no exposed checks. |
 | Mahseema Awesome AI Tools PR | Submitted | https://github.com/mahseema/awesome-ai-tools/pull/1742 | Adds Tree Ring Memory to Developer tools in a broad AI-tools directory. |
 | EUDK Awesome AI Tools PR | Submitted | https://github.com/eudk/awesome-ai-tools/pull/413 | Adds Tree Ring Memory to AI Agent Tools in a broad AI-tools directory. |
+| Milisp Awesome Codex CLI PR | Submitted | https://github.com/milisp/awesome-codex-cli/pull/63 | Adds Tree Ring Memory to Development Tools in a Codex CLI directory. |
+| JQueryScript Awesome Claude Code PR | Submitted | https://github.com/jqueryscript/awesome-claude-code/pull/483 | Adds Tree Ring Memory to Tools & Utilities in a broad Claude Code directory. |
+| RoggeOhta Awesome Codex CLI PR | Submitted | https://github.com/RoggeOhta/awesome-codex-cli/pull/132 | Adds Tree Ring Memory to Specialized Skills with Codex-style skill bridge guidance. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
@@ -45,6 +48,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Outlet | Status | Destination | Notes |
 | --- | --- | --- | --- |
 | Terminal Trove | Drafted | https://terminaltrove.com/post/ | Gmail draft prepared for `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; owner review/send required. |
+| HesReallyHim Awesome Claude Code | Ready | https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml | Repo rules require the web issue form and human recommendation; PR/CLI recommendation is explicitly disallowed. |
 
 ## Ready To Post After Account Verification
 
