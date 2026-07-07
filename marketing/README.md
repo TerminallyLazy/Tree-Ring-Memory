@@ -78,6 +78,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
+- `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
+  and related e2b agents-list hold.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -272,6 +274,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909942920`
+- Top AI Tools PR:
+  `https://github.com/ghimiresunil/Top-AI-Tools/pull/556`
+- Top AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909973600`
 - Runaicode Awesome AI Coding Tools PR:
   `https://github.com/runaicode/awesome-ai-coding-tools/pull/6`
 - Runaicode Awesome AI Coding Tools evidence update:
@@ -320,6 +326,9 @@ python3 marketing/scripts/build-campaign-cards.py
 - Agent-Tools Awesome Autonomous Web: held because the list is focused on
   browser/web automation, authentication, web search, CAPTCHA, and GraphQL
   agent tooling rather than agent memory infrastructure.
+- e2b Awesome AI Agents: held because the README says SDKs, frameworks, and
+  tools belong in the separate SDKs repo and that the agents list is only for
+  AI assistants and agents.
 
 ## Account-Creation Boundary
 
