@@ -44,6 +44,8 @@ Launch and outreach materials for Tree Ring Memory.
   sent email fallback after the public form rejected the AJAX request.
 - `enterprise-ai-atlas-awesome-ai-coding-agents-pr.md`: Enterprise AI Atlas
   Awesome AI Coding Agents PR packet and validation notes.
+- `devtoollab-submission.md`: DevToolLab editorial fallback submission packet
+  and sent email fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
