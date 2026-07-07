@@ -36,6 +36,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome Coding Agents PR | Submitted | https://github.com/kailiu42/awesome-coding-agents/pull/12 | Adds Tree Ring Memory to CLI Agent Helpers in a coding-agent directory. |
 | Command Line Tools listing | Merged | https://github.com/linsa-io/command-line-tools#rust | Lists Tree Ring Memory under Rust CLI tools in a command-line directory. |
 | Awesome AI Agents PR | Submitted | https://github.com/jim-schwoebel/awesome_ai_agents/pull/382 | Adds Tree Ring Memory to Tools in a broad AI-agent directory. |
+| Caramaschi Awesome AI Agents 2026 PR | Submitted | https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418 | Adds Tree Ring Memory to RAG and Knowledge Bases in a broad AI-agent directory; PR is mergeable and reports no checks. |
 | Awesome LLM Agent Frameworks PR | Submitted | https://github.com/kaushikb11/awesome-llm-agents/pull/282 | Adds Tree Ring Memory as a local-first memory lifecycle framework; PR is clean and reports no checks. |
 | Awesome Harness Engineering PR | Submitted | https://github.com/ai-boost/awesome-harness-engineering/pull/108 | Adds Tree Ring Memory to Memory & State as an auditable lifecycle memory harness primitive; PR is clean and reports no checks. |
 | Schickling Awesome Local-First PR | Submitted | https://github.com/schickling/awesome-local-first/pull/39 | Adds Tree Ring Memory to Libraries in a local-first directory. |
