@@ -62,6 +62,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and accepted Tally confirmation.
 - `indexnow-submission.md`: IndexNow key, URL batch, response, and follow-up
   packet.
+- `aifindr-awesome-ai-tools-pr.md`: AIFindr Awesome AI Tools PR packet and
+  validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -230,6 +232,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909576998`
 - IndexNow evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909613838`
+- AIFindr Awesome AI Tools PR:
+  `https://github.com/kbmjj123/awesome-ai-tools/pull/6`
+- AIFindr Awesome AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909686225`
 
 ## Drafted For Owner Review
 
@@ -257,6 +263,14 @@ python3 marketing/scripts/build-campaign-cards.py
   Stork badge/link on the public site, otherwise the listing is a paid checkout.
 - OpenTools: held for now because submission requires Google sign-in from an
   owner-controlled account session.
+- AIDude: held because the public submit path redirects to login.
+- Submit AI Tools: held because the submit path is behind human verification;
+  no automated bypass was attempted.
+- Doforai: held because free submission requires an owner-approved public
+  contact email plus a public doforai backlink badge or direct link on the
+  submitted website.
+- Awesome Developer-First: held because contribution rules call for paid
+  developer products or major adoption milestones such as 1K GitHub stars.
 
 ## Account-Creation Boundary
 
