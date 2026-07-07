@@ -21,6 +21,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome Agent Memory PR | Submitted | https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53 | Adds Tree Ring Memory to open-source Products in an agent-memory directory. |
 | Awesome TUIs PR | Submitted | https://github.com/rothgar/awesome-tuis/pull/751 | Adds Tree Ring Memory to the Development section of a terminal UI directory. |
 | Awesome Ratatui PR | Submitted | https://github.com/ratatui/awesome-ratatui/pull/361 | Adds Tree Ring Memory to Apps / Development Tools in the Ratatui ecosystem list. |
+| Awesome CLI Apps CSV PR | Submitted | https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303 | Adds Tree Ring Memory to the source CSV for a large CLI/TUI index. |
+| Awesome DevTools PR | Submitted | https://github.com/devtoolsd/awesome-devtools/pull/299 | Adds Tree Ring Memory to AI Coding Tools in a developer-tool directory. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review

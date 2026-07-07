@@ -70,6 +70,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Agent Memory PR: `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
 - Awesome TUIs PR: `https://github.com/rothgar/awesome-tuis/pull/751`
 - Awesome Ratatui PR: `https://github.com/ratatui/awesome-ratatui/pull/361`
+- Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`
+- Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
