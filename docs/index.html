@@ -436,7 +436,12 @@
           <li>Feedback flows through GitHub issue #26.</li>
         </ul>
       </div>
-      <pre><code>curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+      <pre><code># Portable installer
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+
+# macOS ARM64 Homebrew tap
+brew tap TerminallyLazy/tree-ring
+brew install tree-ring
 
 tree-ring init
 tree-ring remember "Use project-scoped recall before risky changes." --event-type lesson --scope project

@@ -30,6 +30,20 @@ Current local output:
 - `outputs/imagegen/tree-ring-memory-digital-product-ads/review-board.html`
 - `outputs/imagegen/tree-ring-memory-digital-product-ads/moodboard-widget-payload.json`
 
+## Checked-In Campaign Cards
+
+The current launch campaign also includes deterministic cards generated from
+the checked-in brand assets with:
+
+```bash
+python3 marketing/scripts/build-campaign-cards.py
+```
+
+- `marketing/assets/homebrew-install-card-1200x675.png`: Homebrew tap and install.
+- `marketing/assets/rust-article-card-1200x675.png`: Rust-native CLI article.
+- `marketing/assets/twir-submission-card-1200x675.png`: This Week in Rust PR.
+- `marketing/assets/not-transcript-dump-card-1080x1080.png`: square social proof card.
+
 ## Direction 1: Agent Memory Should Age
 
 - Format: launch hero, X card, Product Hunt gallery frame.

@@ -18,6 +18,8 @@ Launch and outreach materials for Tree Ring Memory.
 - `launch-calendar.md`: five-day launch sequence and success signals.
 - `ad-directions.md`: deterministic campaign image directions based on the
   existing Tree Ring Memory visual system.
+- `scripts/build-campaign-cards.py`: reproducible PIL builder for the generated
+  Homebrew, Rust article, TWiR, and square social cards.
 - `outreach-queue.md`: execution tracker for live, pending, and held launch
   surfaces.
 - `newsletter-pitches.md`: short pitches for newsletters, directories, and
@@ -36,12 +38,26 @@ Launch and outreach materials for Tree Ring Memory.
 - `assets/`: resized social, header, thumbnail, and channel-banner images
   derived from the source brand assets.
 
+## Generated Campaign Cards
+
+Regenerate the checked-in launch cards with:
+
+```bash
+python3 marketing/scripts/build-campaign-cards.py
+```
+
+- `marketing/assets/homebrew-install-card-1200x675.png`
+- `marketing/assets/rust-article-card-1200x675.png`
+- `marketing/assets/twir-submission-card-1200x675.png`
+- `marketing/assets/not-transcript-dump-card-1080x1080.png`
+
 ## Live Public Surfaces
 
 - Repository: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
 - Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
 - Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
 - Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
+- Homebrew tap: `https://github.com/TerminallyLazy/homebrew-tree-ring`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`

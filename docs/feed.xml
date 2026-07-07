@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-07T08:35:00Z</updated>
+  <updated>2026-07-07T08:45:00Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Homebrew tap opened for Tree Ring Memory</title>
+    <id>https://github.com/TerminallyLazy/homebrew-tree-ring</id>
+    <link href="https://github.com/TerminallyLazy/homebrew-tree-ring"/>
+    <updated>2026-07-07T08:45:00Z</updated>
+    <summary>The macOS ARM64 launch-preview artifact can now be installed with brew tap TerminallyLazy/tree-ring and brew install tree-ring.</summary>
+  </entry>
 
   <entry>
     <title>Building a Rust-native memory lifecycle CLI for AI agents</title>

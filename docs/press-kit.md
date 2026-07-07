@@ -28,6 +28,7 @@ DOX/Revolve adapters, framework discovery, and a terminal TUI.
 - Repository: <https://github.com/TerminallyLazy/Tree-Ring-Memory>
 - Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
+- Homebrew tap: <https://github.com/TerminallyLazy/homebrew-tree-ring>
 - Feedback: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
 - Feed: <https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml>
 
@@ -63,6 +64,10 @@ truths become heartwood, and future ideas stay as seeds.
 - Icon: <https://terminallylazy.github.io/Tree-Ring-Memory/assets/tree-ring-memory-icon.png>
 - Repository banner: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/assets/tree-ring-memory-banner.png>
 - Repository logo: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/assets/tree-ring-memory-logo.png>
+- Homebrew install card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/homebrew-install-card-1200x675.png>
+- Rust article card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/rust-article-card-1200x675.png>
+- This Week in Rust submission card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/twir-submission-card-1200x675.png>
+- Square social card: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/marketing/assets/not-transcript-dump-card-1080x1080.png>
 
 ## Articles
 
@@ -73,6 +78,13 @@ truths become heartwood, and future ideas stay as seeds.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+```
+
+macOS ARM64 Homebrew:
+
+```bash
+brew tap TerminallyLazy/tree-ring
+brew install tree-ring
 ```
 
 ## First Commands
