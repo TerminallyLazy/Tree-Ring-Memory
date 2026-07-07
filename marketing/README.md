@@ -133,6 +133,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Heilcheng Awesome Agent Skills PR: `https://github.com/heilcheng/awesome-agent-skills/pull/331`
 - Kodus Awesome Agent Skills PR: `https://github.com/kodustech/awesome-agent-skills/pull/51`
 - Skillmatic Awesome Agent Skills PR: `https://github.com/skillmatic-ai/awesome-agent-skills/pull/126`
+- Ezeafk Awesome Agent Skills PR: `https://github.com/Ezeafk/awesome-agent-skills/pull/5`
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
@@ -162,6 +163,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908615878`
 - Awesome Copilot Agents evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908719870`
+- Ezeafk Awesome Agent Skills evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908796394`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
