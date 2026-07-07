@@ -9,6 +9,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | --- | --- | --- | --- |
 | Public landing page | Live | https://terminallylazy.github.io/Tree-Ring-Memory/ | Primary campaign URL for posts and profiles. |
 | GitHub repository metadata | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory | Description and topics updated for discovery. |
+| Tree Ring Memory Cookbook repo | Live | https://github.com/TerminallyLazy/tree-ring-memory-cookbook | Public companion repo with practical recipes, launch demo script, and brand assets for reviewers and social posts. |
 | GitHub launch feedback issue | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26 | Feedback funnel for all launch posts. |
 | GitHub launch discussion | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27 | Public conversation surface for launch feedback. |
 | Homebrew tap | Live | https://github.com/TerminallyLazy/homebrew-tree-ring | macOS ARM64 install path: `brew tap TerminallyLazy/tree-ring && brew install tree-ring`; card: `marketing/assets/homebrew-install-card-1200x675.png`. |

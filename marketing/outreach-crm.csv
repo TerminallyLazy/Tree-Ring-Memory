@@ -1,5 +1,6 @@
 outlet,wave,status,account_required,target_url,asset,copy_source,next_action,notes
 GitHub Discussions,0,live,no,https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27,none,discussion post,monitor replies,Launch announcement created.
+Tree Ring Memory Cookbook repo,0,live,no,https://github.com/TerminallyLazy/tree-ring-memory-cookbook,assets/tree-ring-memory-banner.png,README.md and recipes,monitor stars issues and recipe feedback,Public companion repo with practical recipes launch demo script brand assets and discovery topics.
 Homebrew tap,0,live,no,https://github.com/TerminallyLazy/homebrew-tree-ring,marketing/assets/homebrew-install-card-1200x675.png,Formula/tree-ring.rb,link from install docs and launch posts,macOS ARM64 formula audited and tested.
 Crates.io packages,1,ready,yes,https://crates.io/,none,Cargo.toml,publish with owner-controlled crates.io token in order core -> sqlite -> cli,Package names returned no current cargo search matches. Core dry-run passes. SQLite and CLI manifests include publishable internal dependency versions and require core first.
 Atom feed,0,live,no,https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml,none,docs/feed.xml,watch Pages publish,Use for syndication and crawler discovery.
