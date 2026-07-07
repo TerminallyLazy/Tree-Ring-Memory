@@ -47,6 +47,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome Harness Engineering PR | Submitted | https://github.com/ai-boost/awesome-harness-engineering/pull/108 | Adds Tree Ring Memory to Memory & State as an auditable lifecycle memory harness primitive; PR is clean and reports no checks. |
 | Schickling Awesome Local-First PR | Submitted | https://github.com/schickling/awesome-local-first/pull/39 | Adds Tree Ring Memory to Libraries in a local-first directory. |
 | Awesome AI Coding Tools PR | Submitted | https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514 | Adds Tree Ring Memory to Developer Productivity Tools in an AI coding-tools directory. |
+| LaunchApp Awesome AI Coding Tools PR | Submitted | https://github.com/launchapp-dev/awesome-ai-coding-tools/pull/18 | Adds Tree Ring Memory to Prompt & Context Engineering in an AI coding-tools directory; PR is mergeable and reports no checks. |
 | Awesome AI DevTools PR | Submitted | https://github.com/jamesmurdza/awesome-ai-devtools/pull/779 | Adds Tree Ring Memory to Configuration & Context Management; corrected PR after template-only closure of `#778`. |
 | Awesome AI Coding Assistants Playbook PR | Submitted | https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11 | Adds Tree Ring Memory to Skills & Config in English and Portuguese docs. |
 | Awesome LLM CLI Apps PR | Submitted | https://github.com/jsnyder/awesome-llm-cli-apps/pull/4 | Adds Tree Ring Memory to Developer Tools in an LLM-agent CLI directory. |
