@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://terminallylazy.github.io/Tree-Ring-Memory/sitemap.xml

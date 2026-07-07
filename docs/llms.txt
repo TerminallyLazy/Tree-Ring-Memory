@@ -1,0 +1,70 @@
+# Tree Ring Memory Framework
+
+> Tree Ring Memory is a framework-agnostic, local-first memory lifecycle layer
+> for AI agents.
+
+Website: https://terminallylazy.github.io/Tree-Ring-Memory/
+Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
+Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
+License: MIT
+Status: protocol-preview
+Current version: 0.11.0
+
+## Summary
+
+Tree Ring Memory helps AI agents remember useful decisions, warnings,
+preferences, and evidence without turning memory into raw transcript storage.
+Fresh memory stays detailed, older learning compresses into rings, important
+failures remain visible as scars, durable truths become heartwood, and future
+ideas stay as seeds.
+
+## What Ships Now
+
+- Rust-native CLI and crates.
+- Local SQLite/FTS storage.
+- Explainable recall with ring, scope, confidence, and ranking signals.
+- Explicit forgetting, redaction, supersession, audit, and maintenance.
+- Deterministic consolidation without requiring an LLM.
+- Source-linked evaluated outcomes through `tree-ring evidence`.
+- DOX and Revolve sync adapters.
+- Read-only agent-framework discovery.
+- Terminal onboarding and a Ratatui operator console.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+```
+
+## First Commands
+
+```bash
+tree-ring init
+tree-ring remember "Use project-scoped recall before risky release changes." --event-type lesson --scope project
+tree-ring recall "release changes"
+tree-ring evidence "The eval passed after the fix." --outcome promoted --evidence-ref evals/run-042
+tree-ring tui
+```
+
+## Ring Model
+
+- `cambium`: fresh active context.
+- `outer`: recent summarized learning.
+- `inner`: older compressed learning.
+- `heartwood`: durable high-confidence truths.
+- `scar`: important failures, regressions, and warnings.
+- `seed`: unresolved ideas and hypotheses.
+
+## Privacy Boundary
+
+Tree Ring Memory is local-first by default. It does not scrape transcripts, run
+a hidden recorder, or turn terminal event pulses into durable memory. Durable
+writes are explicit.
+
+## Canonical Links
+
+- Launch page: https://terminallylazy.github.io/Tree-Ring-Memory/
+- Text launch note: https://terminallylazy.github.io/Tree-Ring-Memory/launch/tree-ring-memory-framework.md
+- Press kit: https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md
+- Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
+- Feedback issue: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26

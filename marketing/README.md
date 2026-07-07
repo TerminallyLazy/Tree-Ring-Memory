@@ -19,6 +19,8 @@ Launch and outreach materials for Tree Ring Memory.
   captions, tags, voiceover, slide renderer, and reproducible MP4 build script.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
+- Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
+  and `docs/press-kit.md`.
 - `github-feedback-issue.md`: body used for the live launch feedback issue.
 - `social-profiles.json`: structured account registry for public profile URLs
   as accounts are created.
@@ -31,6 +33,8 @@ Launch and outreach materials for Tree Ring Memory.
 - Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
+- Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
+- LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 
 ## Account-Creation Boundary
 
