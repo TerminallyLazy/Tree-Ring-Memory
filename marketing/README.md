@@ -40,6 +40,8 @@ Launch and outreach materials for Tree Ring Memory.
   submission packet and accepted response.
 - `the-next-ai-submission.md`: The Next AI free-listing submission packet and
   accepted endpoint response.
+- `vbwebtools-submission.md`: VB Web AI Tools directory submission packet and
+  sent email fallback after the public form rejected the AJAX request.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -162,6 +164,8 @@ python3 marketing/scripts/build-campaign-cards.py
   and tool ID `hHS6jZnWHgEOjdqRYUcv`.
 - The Next AI submission: accepted through the free AI tool form with HTTP
   `200` and response body `{"success":true}`.
+- VB Web AI Tools submission: sent to `info@vbwebtools.com` after the public
+  form's WordPress AJAX endpoint returned `-1`.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
@@ -183,6 +187,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909053774`
 - The Next AI evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909161516`
+- VB Web AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909209296`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
