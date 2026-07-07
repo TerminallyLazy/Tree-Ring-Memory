@@ -67,6 +67,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Awesome AI SDKs PR: `https://github.com/e2b-dev/awesome-ai-sdks/pull/268`
 - Awesome Command Line Tools PR: `https://github.com/ad-si/awesome-command-line-tools/pull/2`
+- Awesome Agent Memory PR: `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
