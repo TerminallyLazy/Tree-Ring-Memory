@@ -18,6 +18,7 @@ Medium,3,ready,yes,https://medium.com/,marketing/assets/social-square-banner-108
 Substack,3,queued,yes,https://substack.com/signup,marketing/assets/social-square-banner-1080x1080.png,marketing/newsletter-pitches.md,create publication and first note,Use for release notes.
 Product Hunt,4,hold,yes,https://www.producthunt.com/launch,marketing/assets/open-graph-1200x675.png,marketing/channel-playbook.md#product-hunt,wait for YouTube public URL,Coordinate launch day.
 Rust This Week,3,ready,no,https://this-week-in-rust.org/,none,marketing/newsletter-pitches.md#rust-newsletter-pitch,submit project link,Use short Rust-focused pitch.
+This Week in Rust draft PR,3,ready,yes,https://github.com/rust-lang/this-week-in-rust/pulls,none,marketing/newsletter-pitches.md#this-week-in-rust-pr-snippet,open PR against current draft with Rust article link,Use article not bare repo link.
 Awesome AI Agents lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use framework-agnostic wording.
 Awesome Rust CLI lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use CLI and TUI angle.
 Local-first software lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#local-first-pitch,identify active lists and open PRs,Use privacy and local SQLite angle.

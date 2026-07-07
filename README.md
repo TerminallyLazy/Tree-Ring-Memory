@@ -27,6 +27,8 @@ Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag
 
 Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 
+Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
+
 - v0.1 provided the initial local reference implementation with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core.
 - v0.3 explored host bindings during the Rust migration.

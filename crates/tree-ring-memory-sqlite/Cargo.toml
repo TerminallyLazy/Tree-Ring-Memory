@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description = "SQLite and FTS storage backend for local-first Tree Ring Memory agent recall."
+homepage = "https://terminallylazy.github.io/Tree-Ring-Memory/"
+readme = "../../README.md"
+keywords = ["ai", "agents", "memory", "sqlite"]
+categories = ["database-implementations", "development-tools"]
 
 [dependencies]
 rusqlite.workspace = true

@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description = "Core protocol models, recall scoring, validation, and sensitivity checks for Tree Ring Memory."
+homepage = "https://terminallylazy.github.io/Tree-Ring-Memory/"
+readme = "../../README.md"
+keywords = ["ai", "agents", "memory", "local-first"]
+categories = ["development-tools"]
 
 [dependencies]
 chrono.workspace = true

@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+description = "Rust CLI for local-first AI agent memory lifecycle: recall, audit, forgetting, evidence, and TUI."
+homepage = "https://terminallylazy.github.io/Tree-Ring-Memory/"
+readme = "../../README.md"
+keywords = ["ai", "agents", "memory", "local-first", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "tree-ring"

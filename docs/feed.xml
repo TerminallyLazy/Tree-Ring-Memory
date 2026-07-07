@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-07T08:04:29Z</updated>
+  <updated>2026-07-07T08:35:00Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Building a Rust-native memory lifecycle CLI for AI agents</title>
+    <id>https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md</id>
+    <link href="https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md"/>
+    <updated>2026-07-07T08:35:00Z</updated>
+    <summary>A Rust-focused launch article covering Tree Ring Memory's workspace split, SQLite/FTS storage choice, explicit writes, explainable recall, and Ratatui operator console.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory v0.11.0 launch preview is live</title>

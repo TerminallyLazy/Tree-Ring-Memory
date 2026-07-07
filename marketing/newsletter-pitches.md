@@ -20,19 +20,29 @@ Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
 ## Rust Newsletter Pitch
 
 ```text
-I opened Tree Ring Memory, a Rust-native local memory lifecycle layer for AI
-agents.
+I published a Rust-focused launch article for Tree Ring Memory, a local-first
+memory lifecycle layer for AI agents.
 
-The workspace currently includes Rust crates for core protocol models,
-SQLite/FTS storage, recall filtering, import/export, audit, deterministic
-consolidation, maintenance, DOX/Revolve adapters, a CLI, and a Ratatui terminal
-console.
+The article covers the Rust workspace split, SQLite/FTS storage choice,
+explicit writes instead of transcript capture, explainable recall, audit,
+forgetting, and the Ratatui operator console.
 
 It is in protocol-preview status and I am looking for feedback from Rust and
 developer-tool builders.
 
+Article: https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md
 Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
+```
+
+## This Week In Rust PR Snippet
+
+Use this only after checking the current draft file in
+`rust-lang/this-week-in-rust`. The TWiR guidelines prefer useful Rust-specific
+write-ups over bare repository links.
+
+```markdown
+- [Building A Rust-Native Memory Lifecycle CLI For AI Agents](https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md)
 ```
 
 ## AI Engineering Pitch

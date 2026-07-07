@@ -44,6 +44,7 @@ Launch and outreach materials for Tree Ring Memory.
 - Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
+- Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`

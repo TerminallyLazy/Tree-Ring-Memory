@@ -64,6 +64,11 @@ truths become heartwood, and future ideas stay as seeds.
 - Repository banner: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/assets/tree-ring-memory-banner.png>
 - Repository logo: <https://github.com/TerminallyLazy/Tree-Ring-Memory/blob/main/assets/tree-ring-memory-logo.png>
 
+## Articles
+
+- Launch note: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/tree-ring-memory-framework.md>
+- Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
+
 ## Install
 
 ```bash
