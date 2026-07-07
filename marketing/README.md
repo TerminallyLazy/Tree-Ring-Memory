@@ -84,6 +84,9 @@ python3 marketing/scripts/build-campaign-cards.py
 - Filipe Awesome Vibe Coding PR: `https://github.com/filipecalegario/awesome-vibe-coding/pull/249`
 - AI-for-Developers Awesome Vibe Coding PR: `https://github.com/ai-for-developers/awesome-vibe-coding/pull/99`
 - Taskade Awesome Vibe Coding PR: `https://github.com/taskade/awesome-vibe-coding/pull/41`
+- Awesome AI Coding Agent Tools PR: `https://github.com/namphuongtran/awesome-ai-coding-agent-tools/pull/27`
+- Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
+- EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`

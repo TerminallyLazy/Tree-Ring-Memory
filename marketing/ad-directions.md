@@ -15,20 +15,31 @@ Rebuild command:
 
 ```bash
 python3 /Users/lazy/.codex/plugins/cache/openai-curated-remote/creative-production/0.1.24/skills/ads-explorer/scripts/build_ads_explorer.py \
-  --ad-name "Tree Ring Memory" \
+  --ad-name "Tree Ring Memory Framework" \
   --pack digital-product-core-ad-prompts \
   --subject-kind digital-product \
-  --ad-brief "Tree Ring Memory is a framework-agnostic, local-first memory lifecycle layer for AI agents. Preserve the current visual system: warm cream background, deep navy type, teal/coral/orange/gold accents, visible tree-ring metaphor, and terminal-native proof. Approved copy may mention Rust-native CLI, SQLite/FTS recall, audit, forgetting, deterministic consolidation, DOX/Revolve adapters, framework discovery, and Ratatui terminal console. Avoid fake metrics, fake testimonials, fake endorsements, invented benchmark claims, hosted-service framing, automatic transcript capture, or compatibility guarantees beyond protocol-preview status." \
-  --out-dir outputs/imagegen/tree-ring-memory-digital-product-ads \
+  --ad-brief "Developer-tool launch for Tree Ring Memory Framework. Product: framework-agnostic, local-first memory lifecycle layer for AI agents. Proof object: Rust CLI and TUI, SQLite/FTS recall, forgetting, audit, consolidation, DOX/Revolve adapters, Homebrew install, GitHub repo, Pages landing, release v0.11.0. Audience: AI-agent builders, Rust CLI developers, local-first developers, coding-agent power users. Channels: Hacker News Show HN, Reddit r/rust, Reddit r/LocalLLaMA, X launch thread, YouTube thumbnail, developer directories. Visual style: use existing @assets style and color scheme: tree rings, dark terminal surface, warm amber/gold accents, rust/orange highlights, bark/wood texture references, precise CLI proof, not generic AI chatbot imagery. Copy constraints: use only supplied phrases: 'Tree Ring Memory', 'Local-first memory for AI agents', 'Recall. Forget. Audit.', 'Rust CLI + TUI', 'SQLite/FTS'. Avoid fake metrics, fake reviews, fake customer logos, fake awards, fake pricing, or invented integrations." \
+  --out-dir outputs/marketing/tree-ring-memory-digital-product-ads \
   --force
 ```
 
 Current local output:
 
-- `outputs/imagegen/tree-ring-memory-digital-product-ads/prompts-manifest.json`
-- `outputs/imagegen/tree-ring-memory-digital-product-ads/jobs.jsonl`
-- `outputs/imagegen/tree-ring-memory-digital-product-ads/review-board.html`
-- `outputs/imagegen/tree-ring-memory-digital-product-ads/moodboard-widget-payload.json`
+- `outputs/marketing/tree-ring-memory-digital-product-ads/prompts-manifest.json`
+- `outputs/marketing/tree-ring-memory-digital-product-ads/jobs.jsonl`
+- `outputs/marketing/tree-ring-memory-digital-product-ads/review-board.html`
+- `outputs/marketing/tree-ring-memory-digital-product-ads/moodboard-widget-payload.json`
+
+Strongest first-pass families from the 12-direction prompt wall:
+
+- `product-proof-crop`: Show HN, directory listings, and PR comments where
+  the terminal/storage proof matters more than atmosphere.
+- `feature-mechanic-spotlight`: Reddit and Rust-community posts around recall,
+  forgetting, audit, and consolidation.
+- `digital-product-launch-hero`: X, LinkedIn, Product Hunt, and launch-page
+  social cards.
+- `screen-detail-macro`: YouTube thumbnail variants and short clips where the
+  CLI/TUI needs to be legible.
 
 ## Checked-In Campaign Cards
 

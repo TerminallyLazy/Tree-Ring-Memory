@@ -35,6 +35,9 @@ posted unless the post exists publicly and the URL is recorded here.
 | Filipe Awesome Vibe Coding PR | Submitted | https://github.com/filipecalegario/awesome-vibe-coding/pull/249 | Adds Tree Ring Memory to Command Line Tools across English and translated README mirrors. |
 | AI-for-Developers Awesome Vibe Coding PR | Submitted | https://github.com/ai-for-developers/awesome-vibe-coding/pull/99 | Adds Tree Ring Memory near memory-oriented CLI tools. |
 | Taskade Awesome Vibe Coding PR | Submitted | https://github.com/taskade/awesome-vibe-coding/pull/41 | Adds Tree Ring Memory to AI Agent Memory & Context; PR is open but currently unstable with no exposed checks. |
+| Awesome AI Coding Agent Tools PR | Submitted | https://github.com/namphuongtran/awesome-ai-coding-agent-tools/pull/27 | Adds Tree Ring Memory to Supporting Infrastructure / Memory; PR is open but currently unstable with no exposed checks. |
+| Mahseema Awesome AI Tools PR | Submitted | https://github.com/mahseema/awesome-ai-tools/pull/1742 | Adds Tree Ring Memory to Developer tools in a broad AI-tools directory. |
+| EUDK Awesome AI Tools PR | Submitted | https://github.com/eudk/awesome-ai-tools/pull/413 | Adds Tree Ring Memory to AI Agent Tools in a broad AI-tools directory. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
