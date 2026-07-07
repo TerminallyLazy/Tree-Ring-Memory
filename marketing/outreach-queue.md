@@ -65,6 +65,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Composio Awesome Claude Skills PR | Submitted | https://github.com/ComposioHQ/awesome-claude-skills/pull/1252 | Adds Tree Ring Memory to Development & Code Tools; validator passed and `ready-to-merge` label applied. |
 | Zo Computer Skills PR | Submitted | https://github.com/zocomputer/skills/pull/105 | Adds Tree Ring Memory as a Community skill with display metadata; local validation passed and GitHub reports no PR checks yet. |
 | Awesome Open Source AI PR | Submitted | https://github.com/suncloudsmoon/awesome-open-source-ai/pull/14 | Adds Tree Ring Memory to Tools in an open-source AI resource list; PR is mergeable and reports no checks. |
+| Awesome AI Agent Tools PR | Submitted | https://github.com/michielhdoteth/awesome-ai-agent-tools/pull/5 | Adds Tree Ring Memory to the Tools catalog under a new Agent Memory category; PR is mergeable and reports no checks. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
@@ -81,6 +82,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | Rust Unofficial Awesome Rust | Hold | https://github.com/rust-unofficial/awesome-rust | Contribution rules require more than 50 stars or more than 2000 crates.io downloads; Tree Ring had 2 stars and crates were not published when checked. |
 | Agarrharr Awesome CLI Apps | Hold | https://github.com/agarrharr/awesome-cli-apps | Repository-local instructions explicitly forbid creating issues or PRs. |
 | ColinEberhardt Awesome AI Developer Tools | Hold | https://github.com/ColinEberhardt/awesome-ai-developer-tools | Scope is explicitly mature AI developer tools; Tree Ring is still a launch-preview project. |
+| AgentMemoryWorld Awesome Agent Memory | Hold | https://github.com/AgentMemoryWorld/Awesome-Agent-Memory | Repository is a survey companion and paper list; Tree Ring does not have a paper citation to add. |
+| OpenDataBox Awesome Agent Memory | Hold | https://github.com/OpenDataBox/awesome-agent-memory | Repository is formatted around papers, methods, and benchmarks with publication metadata; Tree Ring is a tool release without a paper. |
 
 ## Ready To Post After Account Verification
 
