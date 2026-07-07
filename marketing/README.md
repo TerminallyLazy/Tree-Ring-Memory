@@ -127,6 +127,9 @@ python3 marketing/scripts/build-campaign-cards.py
   resource recommendations and require a human web-form submission.
 - VoltAgent and JackyST0 Awesome Agent Skills: held for now because their rules
   expect proven community adoption or a 64-star threshold.
+- Topoteretes Awesome AI Memory: held for now because its contribution schema
+  requires Storage to be Graph, Vector, or both; Tree Ring currently uses
+  project-scoped SQLite/FTS and should not be misclassified.
 
 ## Account-Creation Boundary
 

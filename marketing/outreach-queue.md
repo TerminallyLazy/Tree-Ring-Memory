@@ -66,6 +66,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | HesReallyHim Awesome Claude Code | Ready | https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml | Repo rules require the web issue form and human recommendation; PR/CLI recommendation is explicitly disallowed. |
 | VoltAgent Awesome Agent Skills | Hold | https://github.com/VoltAgent/awesome-agent-skills | Contribution rules focus on proven community-adopted skills; revisit after adoption grows. |
 | JackyST0 Awesome Agent Skills | Hold | https://github.com/JackyST0/awesome-agent-skills | Contribution rules require community projects to clear a 64-star threshold by default. |
+| Topoteretes Awesome AI Memory | Hold | https://github.com/topoteretes/awesome-ai-memory | Contribution rules require Storage as Graph / Vector / Graph, Vector; Tree Ring uses project-scoped SQLite/FTS, so hold unless maintainers accept keyword/SQLite storage. |
 
 ## Ready To Post After Account Verification
 
