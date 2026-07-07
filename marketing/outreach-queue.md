@@ -17,6 +17,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | This Week in Rust PR | Submitted | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Adds the Rust article to issue 659 Project/Tooling Updates. |
 | Awesome Local-First PR | Submitted | https://github.com/alexanderop/awesome-local-first/pull/42 | Adds Tree Ring Memory to a local-first software directory under Frameworks & Platforms. |
 | Awesome AI SDKs PR | Submitted | https://github.com/e2b-dev/awesome-ai-sdks/pull/268 | Adds Tree Ring Memory to an AI-agent SDK/tooling directory; CLA check needs owner action. |
+| Awesome Command Line Tools PR | Submitted | https://github.com/ad-si/awesome-command-line-tools/pull/2 | Adds Tree Ring Memory under Shell Utilities in a command-line tools directory. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Ready To Post After Account Verification
