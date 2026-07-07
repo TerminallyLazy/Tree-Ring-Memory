@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-07T08:45:00Z</updated>
+  <updated>2026-07-07T08:46:57Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory submitted to Awesome Local-First</title>
+    <id>https://github.com/alexanderop/awesome-local-first/pull/42</id>
+    <link href="https://github.com/alexanderop/awesome-local-first/pull/42"/>
+    <updated>2026-07-07T08:46:57Z</updated>
+    <summary>Tree Ring Memory was submitted to the Awesome Local-First directory under Frameworks &amp; Platforms as a local-first memory lifecycle framework for AI agents.</summary>
+  </entry>
 
   <entry>
     <title>Homebrew tap opened for Tree Ring Memory</title>
