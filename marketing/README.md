@@ -91,7 +91,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Agent Memory PR: `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
 - IAAR Awesome AI Memory PR: `https://github.com/IAAR-Shanghai/Awesome-AI-Memory/pull/115`
 - XiaomingX Awesome AI Memory PR: `https://github.com/XiaomingX/awesome-ai-memory/pull/14`
-- Brandon Awesome AI Memory Systems PR: `https://github.com/brandonhimpfen/awesome-ai-memory-systems/pull/21`
+- Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
+  after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
 - ZFancy Awesome Agent Memory PR: `https://github.com/ZFancy/awesome-agent-memory/pull/3`
 - Cxxz Awesome Agent Memory PR: `https://github.com/cxxz/awesome-agent-memory/pull/15`
@@ -100,7 +101,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Ratatui PR: `https://github.com/ratatui/awesome-ratatui/pull/361`
 - Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`
 - Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
-- Awesome Coding Agents PR: `https://github.com/kailiu42/awesome-coding-agents/pull/12`
+- Awesome Coding Agents listing: `https://github.com/kailiu42/awesome-coding-agents#cli-agent-helpers`
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
@@ -110,9 +111,10 @@ python3 marketing/scripts/build-campaign-cards.py
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
 - Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
+- Yeaight7 Awesome AI Devtools listing: `https://github.com/yeaight7/awesome-ai-devtools#terminal-agents`
 - Awesome AI Coding Assistants Playbook PR: `https://github.com/CodandoTV/awesome-ai-coding-assistants-playbook/pull/11`
 - Awesome LLM CLI Apps PR: `https://github.com/jsnyder/awesome-llm-cli-apps/pull/4`
-- Awesome Vibe Coding Resources PR: `https://github.com/acvnace/awesome-vibe-coding-resources/pull/39`
+- Awesome Vibe Coding Resources listing: `https://github.com/acvnace/awesome-vibe-coding-resources#command-line-tools`
 - Filipe Awesome Vibe Coding PR: `https://github.com/filipecalegario/awesome-vibe-coding/pull/249`
 - AI-for-Developers Awesome Vibe Coding PR: `https://github.com/ai-for-developers/awesome-vibe-coding/pull/99`
 - Taskade Awesome Vibe Coding PR: `https://github.com/taskade/awesome-vibe-coding/pull/41`
@@ -120,7 +122,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
 - EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
 - Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
-- Milisp Awesome Codex CLI PR: `https://github.com/milisp/awesome-codex-cli/pull/63`
+- Milisp Awesome Codex CLI PR: closed for URL/description format; ask
+  maintainer for the expected row style before resubmitting.
 - JQueryScript Awesome Claude Code PR: `https://github.com/jqueryscript/awesome-claude-code/pull/483`
 - RoggeOhta Awesome Codex CLI PR: `https://github.com/RoggeOhta/awesome-codex-cli/pull/132`
 - Heilcheng Awesome Agent Skills PR: `https://github.com/heilcheng/awesome-agent-skills/pull/331`
@@ -147,6 +150,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - llms.txt Hub PR: `https://github.com/thedaviddias/llms-txt-hub/pull/1306`
+- Accepted-listings evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908361729`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
