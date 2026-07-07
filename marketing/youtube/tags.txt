@@ -1,0 +1,1 @@
+AI agents, agent memory, local-first AI, Rust CLI, developer tools, Tree Ring Memory, AI engineering, autonomous agents, coding agents, SQLite, terminal tools, Ratatui, memory lifecycle, explainable recall, privacy-aware AI

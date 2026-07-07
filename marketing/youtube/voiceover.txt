@@ -1,0 +1,21 @@
+Most AI agent memory systems fail in one of two ways.
+
+They either forget the useful parts of prior work, or they preserve too much raw context and call it memory.
+
+Tree Ring Memory starts from a different premise: memory should age.
+
+Fresh work stays detailed. Older learning compresses into rings. Important failures remain visible as scars. Durable truths become heartwood. Future ideas stay as seeds until they are reviewed.
+
+This is not a hosted memory service, and it is not a vector database wrapper. Tree Ring Memory is a framework-agnostic memory lifecycle layer for AI agents.
+
+The current public runtime is Rust-native. It includes a CLI, local SQLite and FTS storage, explainable recall, import and export, audit, deterministic consolidation, maintenance, DOX and Revolve adapters, framework discovery, and a Ratatui terminal console.
+
+The install path is intentionally direct. Install the CLI, initialize a local memory root, store one concise project lesson, recall it by query, and record evaluated outcomes with source references.
+
+Evaluated outcomes matter because memory should not treat every claim as durable truth. A promoted evaluation can become heartwood. A rejected experiment can become a scar, so future agents do not repeat the same failed path.
+
+The privacy boundary matters too. Tree Ring Memory does not scrape transcripts, run a hidden recorder, or turn terminal pulses into durable memory. Durable writes are explicit: remember, evidence, import, consolidation, maintenance, TUI action, or deliberate agent action.
+
+Tree Ring Memory is in protocol-preview status. The launch question is practical: what should a portable, local-first memory layer get right before deeper framework bridges land?
+
+Try it, break it, and leave feedback in the launch issue.

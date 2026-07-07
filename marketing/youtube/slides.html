@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tree Ring Memory Demo Slides</title>
+  <style>
+    :root {
+      --cream: #fff0d3;
+      --white: #fffaf0;
+      --navy: #001c30;
+      --teal: #018695;
+      --coral: #f14668;
+      --orange: #ff7718;
+      --gold: #f7b842;
+      --brown: #5c3a20;
+      --muted: #385568;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      width: 1920px;
+      height: 1080px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--cream);
+      color: var(--navy);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .slide {
+      width: 1920px;
+      height: 1080px;
+      display: none;
+      position: relative;
+      padding: 78px 104px;
+      background:
+        linear-gradient(180deg, rgba(255, 240, 211, 0.92), rgba(255, 240, 211, 0.98)),
+        radial-gradient(circle at 84% 16%, rgba(241, 70, 104, 0.20), transparent 26%),
+        radial-gradient(circle at 12% 88%, rgba(1, 134, 149, 0.18), transparent 24%);
+    }
+
+    .slide.active { display: grid; }
+
+    .brand-strip {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .banner {
+      width: 100%;
+      border: 6px solid var(--navy);
+      box-shadow: 14px 14px 0 var(--coral);
+    }
+
+    h1, h2 {
+      margin: 0;
+      line-height: 0.92;
+      letter-spacing: 0;
+    }
+
+    h1 { font-size: 128px; max-width: 1060px; }
+    h2 { font-size: 104px; max-width: 1100px; }
+
+    .eyebrow {
+      margin: 0 0 22px;
+      color: var(--teal);
+      font-size: 30px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+
+    .lead {
+      max-width: 1040px;
+      margin: 34px 0 0;
+      color: var(--muted);
+      font-size: 42px;
+      line-height: 1.16;
+      font-weight: 780;
+    }
+
+    .large-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 26px;
+      margin-top: 56px;
+    }
+
+    .card {
+      min-height: 160px;
+      padding: 30px;
+      background: var(--white);
+      border: 5px solid var(--navy);
+      border-radius: 8px;
+      box-shadow: 10px 10px 0 rgba(0, 28, 48, 0.16);
+      font-size: 34px;
+      font-weight: 820;
+      line-height: 1.18;
+    }
+
+    .card small {
+      display: block;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .rings {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 22px;
+      margin-top: 56px;
+    }
+
+    .ring { border-left: 16px solid var(--teal); }
+    .ring:nth-child(2) { border-left-color: var(--gold); }
+    .ring:nth-child(3) { border-left-color: var(--orange); }
+    .ring:nth-child(4) { border-left-color: var(--brown); }
+    .ring:nth-child(5) { border-left-color: var(--coral); }
+    .ring:nth-child(6) { border-left-color: var(--navy); }
+
+    .terminal {
+      margin-top: 46px;
+      padding: 34px;
+      background: #00121f;
+      color: var(--white);
+      border: 6px solid var(--teal);
+      border-radius: 8px;
+      box-shadow: 12px 12px 0 var(--orange);
+      font: 700 30px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+      gap: 54px;
+      align-items: center;
+    }
+
+    .footer {
+      position: absolute;
+      left: 104px;
+      right: 104px;
+      bottom: 54px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--muted);
+      font-size: 26px;
+      font-weight: 800;
+    }
+
+    .url {
+      color: var(--navy);
+      font-weight: 950;
+    }
+
+    .closing h2 {
+      font-size: 96px;
+      max-width: 1160px;
+    }
+
+    .closing .large-list {
+      margin-top: 42px;
+      gap: 18px;
+    }
+
+    .closing .card {
+      min-height: 128px;
+      padding: 24px;
+      font-size: 28px;
+    }
+
+    .closing .footer {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="slide" data-slide="1">
+      <div class="brand-strip">
+        <div>
+          <p class="eyebrow">Local-first agent memory</p>
+          <h1>Tree Ring Memory Framework</h1>
+          <p class="lead">A framework-agnostic memory lifecycle layer for AI agents.</p>
+        </div>
+        <img class="banner" src="../../assets/tree-ring-memory-logo.png" alt="">
+      </div>
+      <div class="footer"><span>Fresh memory stays detailed. Durable truths become heartwood.</span><span class="url">terminallylazy.github.io/Tree-Ring-Memory</span></div>
+    </section>
+
+    <section class="slide" data-slide="2">
+      <p class="eyebrow">The problem</p>
+      <h2>Agent memory usually fails two ways.</h2>
+      <div class="large-list">
+        <div class="card">It forgets useful work between runs.<small>Prior decisions, warnings, and preferences disappear.</small></div>
+        <div class="card">It stores raw transcript sludge.<small>Too much context becomes less useful over time.</small></div>
+      </div>
+      <div class="footer"><span>Memory needs a lifecycle.</span><span class="url">Tree Ring Memory</span></div>
+    </section>
+
+    <section class="slide" data-slide="3">
+      <p class="eyebrow">The model</p>
+      <h2>Memory should age like rings.</h2>
+      <div class="rings">
+        <div class="card ring">Cambium<small>Fresh active context.</small></div>
+        <div class="card ring">Outer / Inner<small>Older learning compresses.</small></div>
+        <div class="card ring">Heartwood<small>Durable high-confidence truths.</small></div>
+        <div class="card ring">Scars<small>Failures worth remembering.</small></div>
+        <div class="card ring">Seeds<small>Future hypotheses.</small></div>
+        <div class="card ring">Forgetting<small>Redact, delete, expire, supersede.</small></div>
+      </div>
+      <div class="footer"><span>The point is lifecycle, not hoarding.</span><span class="url">Tree Ring Memory</span></div>
+    </section>
+
+    <section class="slide" data-slide="4">
+      <p class="eyebrow">What ships now</p>
+      <h2>Rust-native, local-first runtime.</h2>
+      <div class="large-list">
+        <div class="card">CLI + SQLite/FTS<small>Local durable storage and explainable recall.</small></div>
+        <div class="card">Audit + maintenance<small>Sensitive, stale, superseded, and low-confidence checks.</small></div>
+        <div class="card">Deterministic consolidation<small>Compress older learning without requiring an LLM.</small></div>
+        <div class="card">DOX/Revolve adapters<small>Source-linked memory from project contracts and evidence records.</small></div>
+      </div>
+      <div class="footer"><span>Framework-agnostic by design.</span><span class="url">github.com/TerminallyLazy/Tree-Ring-Memory</span></div>
+    </section>
+
+    <section class="slide" data-slide="5">
+      <div class="split">
+        <div>
+          <p class="eyebrow">Try it locally</p>
+          <h2>Install, remember, recall, record evidence.</h2>
+          <p class="lead">The first workflow is intentionally boring: initialize local memory, store one concise lesson, and recall it.</p>
+        </div>
+        <pre class="terminal">curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+
+tree-ring init
+tree-ring remember "Use project-scoped recall before risky changes." \
+  --event-type lesson \
+  --scope project
+tree-ring recall "risky changes"
+tree-ring evidence "The eval passed after the fix." \
+  --outcome promoted \
+  --evidence-ref evals/run-042</pre>
+      </div>
+      <div class="footer"><span>Use evaluated outcomes for heartwood and scars.</span><span class="url">tree-ring evidence</span></div>
+    </section>
+
+    <section class="slide" data-slide="6">
+      <p class="eyebrow">Privacy boundary</p>
+      <h2>No hidden transcript recorder.</h2>
+      <div class="large-list">
+        <div class="card">Local-first by default<small>No required hosted service.</small></div>
+        <div class="card">Explicit durable writes<small>Remember, evidence, import, maintenance, TUI action, or deliberate agent action.</small></div>
+        <div class="card">Sensitive data fails closed<small>Audit, redaction, deletion, and supersession are part of the product.</small></div>
+        <div class="card">Source remains authoritative<small>Memory is a recall aid, not a replacement for tests, docs, or evidence.</small></div>
+      </div>
+      <div class="footer"><span>Memory quality should be testable.</span><span class="url">Tree Ring Memory</span></div>
+    </section>
+
+    <section class="slide closing" data-slide="7">
+      <p class="eyebrow">Launch feedback</p>
+      <h2>What should portable agent memory get right?</h2>
+      <div class="large-list">
+        <div class="card">Which agent frameworks need bridge support first?</div>
+        <div class="card">What should explainable recall show by default?</div>
+        <div class="card">Where is the ring model too simple or too heavy?</div>
+        <div class="card">What makes the first ten minutes hard?</div>
+      </div>
+      <div class="footer"><span>Try it, break it, tell us what feels wrong.</span><span class="url">github.com/TerminallyLazy/Tree-Ring-Memory/issues/26</span></div>
+    </section>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const slide = params.get("slide") || "1";
+    document.querySelector(`[data-slide="${slide}"]`)?.classList.add("active");
+  </script>
+</body>
+</html>

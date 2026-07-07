@@ -1,0 +1,51 @@
+1
+00:00:00,000 --> 00:00:06,000
+Most AI agent memory systems fail in one of two ways.
+
+2
+00:00:06,000 --> 00:00:13,000
+They either forget useful prior work, or preserve too much raw context and call it memory.
+
+3
+00:00:13,000 --> 00:00:18,000
+Tree Ring Memory starts from a different premise: memory should age.
+
+4
+00:00:18,000 --> 00:00:31,000
+Fresh work stays detailed. Older learning compresses into rings. Failures become scars. Durable truths become heartwood. Future ideas stay as seeds.
+
+5
+00:00:31,000 --> 00:00:42,000
+This is not a hosted memory service or a vector database wrapper. It is a framework-agnostic memory lifecycle layer for AI agents.
+
+6
+00:00:42,000 --> 00:00:56,000
+The current public runtime is Rust-native: CLI, SQLite and FTS storage, explainable recall, import and export, audit, consolidation, maintenance, adapters, and TUI.
+
+7
+00:00:56,000 --> 00:01:12,000
+Install the CLI, initialize a local memory root, store one concise project lesson, recall it by query, and record evaluated outcomes with source references.
+
+8
+00:01:12,000 --> 00:01:20,000
+Evaluated outcomes matter because memory should not treat every claim as durable truth.
+
+9
+00:01:20,000 --> 00:01:31,000
+A promoted evaluation can become heartwood. A rejected experiment can become a scar, so future agents do not repeat the same failed path.
+
+10
+00:01:31,000 --> 00:01:42,000
+The privacy boundary matters too. Tree Ring Memory does not scrape transcripts, run a hidden recorder, or turn terminal pulses into durable memory.
+
+11
+00:01:42,000 --> 00:01:48,000
+Durable writes are explicit: remember, evidence, import, consolidation, maintenance, TUI action, or deliberate agent action.
+
+12
+00:01:48,000 --> 00:01:57,000
+Tree Ring Memory is in protocol-preview status. What should a portable, local-first memory layer get right before deeper framework bridges land?
+
+13
+00:01:57,000 --> 00:02:02,000
+Try it, break it, and leave feedback in the launch issue.

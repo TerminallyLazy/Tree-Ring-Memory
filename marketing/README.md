@@ -15,6 +15,10 @@ Launch and outreach materials for Tree Ring Memory.
   community maintainers.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
+- `youtube/`: upload-ready YouTube source package with title, description,
+  captions, tags, voiceover, slide renderer, and reproducible MP4 build script.
+- `submission-ledger.csv`: platform-by-platform status tracker for external
+  outlets.
 - `github-feedback-issue.md`: body used for the live launch feedback issue.
 - `social-profiles.json`: structured account registry for public profile URLs
   as accounts are created.
