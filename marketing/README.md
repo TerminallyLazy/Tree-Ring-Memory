@@ -67,6 +67,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`
+- Awesome Context Engineering PR: `https://github.com/jihoo-kim/awesome-context-engineering/pull/23`
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Awesome AI SDKs PR: `https://github.com/e2b-dev/awesome-ai-sdks/pull/268`
 - Awesome Command Line Tools PR: `https://github.com/ad-si/awesome-command-line-tools/pull/2`
