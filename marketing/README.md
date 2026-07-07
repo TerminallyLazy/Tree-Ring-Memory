@@ -68,6 +68,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `0voice-awesome-ai-tools-pr.md`: 0voice Awesome AI Tools PR packet and
   validation notes.
+- `pingan-awesome-ai-tools-pr.md`: Pingan Awesome AI Tools PR packet and
+  validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -304,6 +306,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/0voice/awesome-ai-tools/pull/71`
 - 0voice Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910064921`
+- Pingan Awesome AI Tools PR:
+  `https://github.com/pingan8787/awesome-ai-tools/pull/169`
+- Pingan Awesome AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910093876`
 
 ## Drafted For Owner Review
 
