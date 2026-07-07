@@ -47,6 +47,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Prat011 Awesome LLM Skills PR | Submitted | https://github.com/Prat011/awesome-llm-skills/pull/169 | Adds Tree Ring Memory as a hosted skill folder and Development & Code Tools README entry; GitGuardian passed and PR is clean. |
 | Composio Awesome Agent CLIs PR | Submitted | https://github.com/ComposioHQ/awesome-agent-clis/pull/19 | Adds Tree Ring Memory under Memory & Context with agent-ready skill instructions; Socket Security checks passed and PR is clean. |
 | Composio Awesome Claude Skills PR | Submitted | https://github.com/ComposioHQ/awesome-claude-skills/pull/1252 | Adds Tree Ring Memory to Development & Code Tools; validator passed and `ready-to-merge` label applied. |
+| Zo Computer Skills PR | Submitted | https://github.com/zocomputer/skills/pull/105 | Adds Tree Ring Memory as a Community skill with display metadata; local validation passed and GitHub reports no PR checks yet. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
 
 ## Drafted For Owner Review
