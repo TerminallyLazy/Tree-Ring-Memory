@@ -46,6 +46,8 @@ Launch and outreach materials for Tree Ring Memory.
   Awesome AI Coding Agents PR packet and validation notes.
 - `devtoollab-submission.md`: DevToolLab editorial fallback submission packet
   and sent email fields.
+- `alainchen-awesome-mcp-skills-pr.md`: Awesome MCP Skills watchlist PR packet
+  and validation notes.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
