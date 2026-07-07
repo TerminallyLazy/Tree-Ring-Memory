@@ -73,7 +73,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome CLI Apps CSV PR: `https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303`
 - Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
 - Awesome Coding Agents PR: `https://github.com/kailiu42/awesome-coding-agents/pull/12`
-- Command Line Tools PR: `https://github.com/linsa-io/command-line-tools/pull/37`
+- Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`

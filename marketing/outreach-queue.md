@@ -24,7 +24,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Awesome CLI Apps CSV PR | Submitted | https://github.com/toolleeo/awesome-cli-apps-in-a-csv/pull/303 | Adds Tree Ring Memory to the source CSV for a large CLI/TUI index. |
 | Awesome DevTools PR | Submitted | https://github.com/devtoolsd/awesome-devtools/pull/299 | Adds Tree Ring Memory to AI Coding Tools in a developer-tool directory. |
 | Awesome Coding Agents PR | Submitted | https://github.com/kailiu42/awesome-coding-agents/pull/12 | Adds Tree Ring Memory to CLI Agent Helpers in a coding-agent directory. |
-| Command Line Tools PR | Submitted | https://github.com/linsa-io/command-line-tools/pull/37 | Adds Tree Ring Memory to Rust CLI tools in a command-line directory. |
+| Command Line Tools listing | Merged | https://github.com/linsa-io/command-line-tools#rust | Lists Tree Ring Memory under Rust CLI tools in a command-line directory. |
 | Awesome AI Agents PR | Submitted | https://github.com/jim-schwoebel/awesome_ai_agents/pull/382 | Adds Tree Ring Memory to Tools in a broad AI-agent directory. |
 | Schickling Awesome Local-First PR | Submitted | https://github.com/schickling/awesome-local-first/pull/39 | Adds Tree Ring Memory to Libraries in a local-first directory. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
