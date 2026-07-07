@@ -9,6 +9,15 @@ Launch and outreach materials for Tree Ring Memory.
 - `launch-kit.md`: channel-specific launch copy for GitHub, Hacker News,
   Reddit, X, YouTube, Product Hunt, LinkedIn, developer blogs, newsletters, and
   directories.
+- `channel-playbook.md`: execution-ready platform playbook with current
+  platform guardrails and post order.
+- `reply-bank.md`: response bank for HN, Reddit, Discussions, X, YouTube, and
+  newsletter follow-up.
+- `outreach-crm.csv`: outlet-by-outlet execution CRM with next action and
+  asset mapping.
+- `launch-calendar.md`: five-day launch sequence and success signals.
+- `ad-directions.md`: deterministic campaign image directions based on the
+  existing Tree Ring Memory visual system.
 - `outreach-queue.md`: execution tracker for live, pending, and held launch
   surfaces.
 - `newsletter-pitches.md`: short pitches for newsletters, directories, and
@@ -32,10 +41,12 @@ Launch and outreach materials for Tree Ring Memory.
 - Repository: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
 - Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
 - Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
+- Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
+- Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Account-Creation Boundary
 

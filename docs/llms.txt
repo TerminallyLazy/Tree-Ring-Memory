@@ -6,7 +6,9 @@
 Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0
+Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
+Feed: https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml
 License: MIT
 Status: protocol-preview
 Current version: 0.11.0
@@ -69,4 +71,6 @@ writes are explicit.
 - Press kit: https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md
 - Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
 - Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0
+- Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 - Feedback issue: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
+- Atom feed: https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml

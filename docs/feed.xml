@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Tree Ring Memory Launch Updates</title>
+  <subtitle>Launch updates for the framework-agnostic memory lifecycle layer for AI agents.</subtitle>
+  <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
+  <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
+  <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
+  <updated>2026-07-07T08:04:29Z</updated>
+  <author>
+    <name>Tree Ring Memory</name>
+    <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
+  </author>
+
+  <entry>
+    <title>Tree Ring Memory v0.11.0 launch preview is live</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0"/>
+    <updated>2026-07-07T07:42:46Z</updated>
+    <summary>Tree Ring Memory v0.11.0 ships a Rust-native local-first CLI with SQLite/FTS recall, audit, forgetting, consolidation, DOX/Revolve adapters, framework discovery, and a Ratatui terminal console.</summary>
+  </entry>
+
+  <entry>
+    <title>Launch discussion opened for Tree Ring Memory</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27"/>
+    <updated>2026-07-07T08:04:29Z</updated>
+    <summary>Use the launch discussion for feedback on adapter priorities, explainable recall, the ring model, privacy controls, and first-ten-minute install friction.</summary>
+  </entry>
+
+  <entry>
+    <title>Tree Ring Memory launch page and press kit</title>
+    <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
+    <link href="https://terminallylazy.github.io/Tree-Ring-Memory/"/>
+    <updated>2026-07-07T07:42:50Z</updated>
+    <summary>The public launch page, press kit, LLM summary, and feedback issue are live for the first campaign wave.</summary>
+  </entry>
+</feed>

@@ -1,0 +1,24 @@
+outlet,wave,status,account_required,target_url,asset,copy_source,next_action,notes
+GitHub Discussions,0,live,no,https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27,none,discussion post,monitor replies,Launch announcement created.
+Atom feed,0,live,no,https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml,none,docs/feed.xml,watch Pages publish,Use for syndication and crawler discovery.
+Hacker News Show HN,1,ready,yes,https://news.ycombinator.com/submit,marketing/assets/open-graph-1200x675.png,marketing/channel-playbook.md#hacker-news,post from verified maker account,Do not ask for upvotes.
+X launch thread,1,ready,yes,https://x.com/home,marketing/assets/open-graph-1200x675.png,marketing/channel-playbook.md#x,create profile and pin launch thread,Use TreeRingMemory handle if available.
+YouTube demo,1,ready,yes,https://studio.youtube.com/,outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4,marketing/youtube/,upload unlisted then publish,Custom thumbnail may require verification.
+Reddit r/rust,2,ready,yes,https://www.reddit.com/r/rust/,marketing/assets/reddit-link-card-1600x900.png,marketing/channel-playbook.md#rrust,read current rules then post if allowed,Prefer project/showcase thread if required.
+Reddit r/LocalLLaMA,2,ready,yes,https://www.reddit.com/r/LocalLLaMA/,marketing/assets/reddit-link-card-1600x900.png,marketing/channel-playbook.md#rlocalllama,read current rules then post if allowed,Focus local-first and privacy.
+Reddit r/opensource,2,ready,yes,https://www.reddit.com/r/opensource/,marketing/assets/reddit-link-card-1600x900.png,marketing/channel-playbook.md#ropensource,read current rules then post if allowed,Focus MIT and public repo.
+Reddit r/commandline,2,queued,yes,https://www.reddit.com/r/commandline/,marketing/assets/reddit-link-card-1600x900.png,marketing/channel-playbook.md,prepare CLI-focused variant,Emphasize Rust CLI and TUI.
+Reddit r/AI_Agents,2,queued,yes,https://www.reddit.com/r/AI_Agents/,marketing/assets/reddit-link-card-1600x900.png,marketing/channel-playbook.md,prepare adapter-focused variant,Check self-promotion policy.
+Bluesky,2,ready,yes,https://bsky.app/,marketing/assets/social-square-logo-1080x1080.png,marketing/launch-kit.md#bluesky--mastodon,create profile and post launch note,Use repo link.
+Mastodon Hachyderm,2,ready,yes,https://hachyderm.io/auth/sign_up,marketing/assets/social-square-logo-1080x1080.png,marketing/launch-kit.md#bluesky--mastodon,create profile and post launch note,Use developer audience instance.
+LinkedIn page,3,ready,yes,https://www.linkedin.com/company/setup/new/,marketing/assets/open-graph-1200x675.png,marketing/launch-kit.md#linkedin,create page and post launch note,Owner admin verification required.
+DEV Community,3,ready,yes,https://dev.to/enter,marketing/assets/social-square-banner-1080x1080.png,marketing/channel-playbook.md#developer-blogs,publish explainer with canonical link,Use Markdown editor.
+Hashnode,3,ready,yes,https://hashnode.com/onboard,marketing/assets/social-square-banner-1080x1080.png,marketing/channel-playbook.md#developer-blogs,publish explainer mirror,Set canonical if available.
+Medium,3,ready,yes,https://medium.com/,marketing/assets/social-square-banner-1080x1080.png,marketing/channel-playbook.md#developer-blogs,publish manifesto,Link to repo and feedback.
+Substack,3,queued,yes,https://substack.com/signup,marketing/assets/social-square-banner-1080x1080.png,marketing/newsletter-pitches.md,create publication and first note,Use for release notes.
+Product Hunt,4,hold,yes,https://www.producthunt.com/launch,marketing/assets/open-graph-1200x675.png,marketing/channel-playbook.md#product-hunt,wait for YouTube public URL,Coordinate launch day.
+Rust This Week,3,ready,no,https://this-week-in-rust.org/,none,marketing/newsletter-pitches.md#rust-newsletter-pitch,submit project link,Use short Rust-focused pitch.
+Awesome AI Agents lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use framework-agnostic wording.
+Awesome Rust CLI lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#directory-listing,identify active lists and open PRs,Use CLI and TUI angle.
+Local-first software lists,3,queued,depends,GitHub search,none,marketing/newsletter-pitches.md#local-first-pitch,identify active lists and open PRs,Use privacy and local SQLite angle.
+Discord community,4,hold,yes,https://discord.com/,marketing/assets/social-square-logo-1080x1080.png,marketing/account-setup.md#discord,create only when moderation capacity exists,Do not invite secrets or transcript dumps.
