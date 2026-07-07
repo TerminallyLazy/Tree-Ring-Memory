@@ -70,6 +70,8 @@ Launch and outreach materials for Tree Ring Memory.
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
   and validation notes.
+- `openbestof-awesome-ai-pr.md`: OpenBestOf Awesome AI PR packet and validation
+  notes.
 - `arshdeep-ai-tools-manager-pr.md`: AI Tools Manager PR packet and validation
   notes.
 - `ainative-ecosystem-pr.md`: AINative Open Source Ecosystem PR packet and
@@ -292,6 +294,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TeleAI-UAGI/Awesome-Agent-Memory/pull/53`
 - TeleAI Awesome Agent Memory evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910014796`
+- OpenBestOf Awesome AI PR:
+  `https://github.com/openbestof/awesome-ai/pull/84`
+- OpenBestOf Awesome AI evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910036594`
 
 ## Drafted For Owner Review
 
