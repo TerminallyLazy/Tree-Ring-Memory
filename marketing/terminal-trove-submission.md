@@ -6,8 +6,8 @@ Terminal Trove accepts tool submissions by form or email and asks for a preview
 image, install commands, categories, and confirmation that the tool is not
 already listed.
 
-Current status: Gmail draft created with the preview image attached; review and
-send from Gmail, or paste these fields into the Terminal Trove form.
+Current status: submission email sent to `curator@terminaltrove.com` with the
+preview image attached. Await curator response or public listing.
 
 ## Criteria Check
 

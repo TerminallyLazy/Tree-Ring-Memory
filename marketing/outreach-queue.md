@@ -99,12 +99,12 @@ posted unless the post exists publicly and the URL is recorded here.
 | Slava Awesome AI Agents PR | Submitted | https://github.com/slavakurilyak/awesome-ai-agents/pull/338 | Adds Tree Ring Memory to Long-Term Memory in a broad agentic AI resources list; YAML, JSON, README, duplicate, link, and diff whitespace checks passed; PR is mergeable and reports no checks. |
 | GitHub Awesome Copilot skill PR | Submitted | https://github.com/github/awesome-copilot/pull/2235 | Adds Tree Ring Memory as an installable GitHub Copilot skill; local skill validation, Vally lint, generated docs build, diff whitespace, risk scan, README, line-ending, spelling, and skill checks passed; upstream duplicate-check agent job refuses fork checkout because maintainer write permission is required. |
 | YouTube upload package | Ready | outputs/marketing/youtube-demo/tree-ring-memory-demo.mp4 | Built locally from `marketing/youtube/`; upload requires verified YouTube account. |
+| Terminal Trove | Submitted | https://terminaltrove.com/post/ | Submission email sent to `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; await curator response or listing. |
 
 ## Drafted For Owner Review
 
 | Outlet | Status | Destination | Notes |
 | --- | --- | --- | --- |
-| Terminal Trove | Drafted | https://terminaltrove.com/post/ | Gmail draft prepared for `curator@terminaltrove.com` with `marketing/assets/terminal-trove-preview-1200x675.png` attached; owner review/send required. |
 | Crates.io packages | Ready | https://crates.io/ | Owner crates.io login/token required. Package names appear available; core dry-run passes; publish order is `tree-ring-memory-core` -> `tree-ring-memory-sqlite` -> `tree-ring-memory-cli`. |
 | HesReallyHim Awesome Claude Code | Ready | https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml | Repo rules require the web issue form and human recommendation; PR/CLI recommendation is explicitly disallowed. |
 | VoltAgent Awesome Agent Skills | Hold | https://github.com/VoltAgent/awesome-agent-skills | Contribution rules focus on proven community-adopted skills; revisit after adoption grows. |

@@ -24,8 +24,8 @@ Launch and outreach materials for Tree Ring Memory.
   surfaces.
 - `newsletter-pitches.md`: short pitches for newsletters, directories, and
   community maintainers.
-- `terminal-trove-submission.md`: Terminal Trove submission packet and email
-  draft fields.
+- `terminal-trove-submission.md`: Terminal Trove submission packet and sent
+  email fields.
 - `youtube-demo-plan.md`: shot list, terminal script, and production notes for
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
@@ -116,16 +116,14 @@ python3 marketing/scripts/build-campaign-cards.py
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
 - Zo Computer Skills PR: `https://github.com/zocomputer/skills/pull/105`
+- Terminal Trove submission: sent to `curator@terminaltrove.com` with
+  `marketing/assets/terminal-trove-preview-1200x675.png` attached.
 - Press kit: `https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md`
 - LLM summary: `https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt`
 - Atom feed: `https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml`
 
 ## Drafted For Owner Review
 
-- Terminal Trove email draft: prepared for `curator@terminaltrove.com` with
-  `marketing/assets/terminal-trove-preview-1200x675.png` attached. Review and
-  send from Gmail, or paste the fields from `terminal-trove-submission.md` into
-  the Terminal Trove form at `https://terminaltrove.com/post/`.
 - Crates.io package publish: package names appear available and
   `tree-ring-memory-core` passes `cargo publish --dry-run`. The dependent
   packages are manifest-ready but must be published after the core crate exists
