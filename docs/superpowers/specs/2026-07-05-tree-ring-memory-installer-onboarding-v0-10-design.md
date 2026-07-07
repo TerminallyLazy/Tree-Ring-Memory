@@ -34,28 +34,17 @@ blocking wizard.
 Default:
 
 ```bash
-(
-  installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT INT TERM &&
-  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
-  sh "$installer"
-)
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
 ```
 
 Project-local:
 
 ```bash
-(
-  installer=$(mktemp) &&
-  trap 'rm -f "$installer"' EXIT INT TERM &&
-  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh -o "$installer" &&
-  sh "$installer" --project --init
-)
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
 ```
 
-The temporary file holds only the downloaded installer script. The cleanup trap
-removes that script after the subshell exits or receives `INT`/`TERM`;
-persistent memory remains in the configured memory root.
+The streamed script is only the installer entrypoint; persistent memory remains
+in the configured memory root.
 
 Emotional arc:
 
