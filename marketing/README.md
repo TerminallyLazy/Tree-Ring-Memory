@@ -105,6 +105,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `linny006-awesome-agent-skills-listing.md`: Linny006 Awesome Agent Skills
   live auto-indexed listing notes.
+- `anant-awesome-opencode-skills-pr.md`: Anant Sharma Awesome OpenCode Skills
+  PR packet and validation notes.
 - `shawnesquivel-awesome-agent-clis-pr.md`: Shawnesquivel Awesome Agent CLIs PR
   packet and validation notes.
 - `nmaroulis-awesome-acp-hold.md`: Awesome Agent Client Protocol hold note for
@@ -405,6 +407,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/JayLZhou/Awesome-Agent-Skills/pull/15`
 - ATOM00blue Awesome Agent Skills PR:
   `https://github.com/ATOM00blue/awesome-agent-skills/pull/3`
+- Anant Sharma Awesome OpenCode Skills PR:
+  `https://github.com/anantsharma67/awesome-opencode-skills/pull/1`
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
