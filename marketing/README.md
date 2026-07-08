@@ -74,6 +74,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `rvelamen-awesome-ai-tools-pr.md`: Rvelamen Awesome AI Tools PR packet and
   validation notes.
+- `correia-awesome-ai-tools-pr.md`: Correia Awesome AI Tools PR packet and
+  validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -198,6 +200,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/PierrunoYT/awesome-ai-dev-tools/pull/37`
 - Rvelamen Awesome AI Tools PR:
   `https://github.com/Rvelamen/Awesome-AI-Tools/pull/26`
+- Correia Awesome AI Tools PR:
+  `https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30`
 - Milisp Awesome Codex CLI PR: closed for URL/description format; ask
   maintainer for the expected row style before resubmitting.
 - Milisp Awesome Codex CLI replacement PR:
@@ -344,6 +348,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/frangelbarrera/awesome-ai-agents/pull/9`
 - Frangel Barrera Awesome AI Agents evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910253092`
+- Correia Awesome AI Tools PR:
+  `https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30`
+- Correia Awesome AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910275592`
 
 ## Drafted For Owner Review
 
