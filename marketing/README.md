@@ -158,6 +158,8 @@ Launch and outreach materials for Tree Ring Memory.
   Coding Tools PR packet and validation notes.
 - `ai-for-developers-awesome-ai-coding-tools-pr.md`: AI for Developers Awesome
   AI Coding Tools PR packet and validation notes.
+- `kalyanks-llm-engineer-toolkit-pr.md`: LLM Engineer Toolkit PR packet and
+  validation notes.
 - `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
   merged listing and validation notes.
 - `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
@@ -172,6 +174,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `darknorth-awesome-codex-plugins-pr.md`: Darknorth Awesome Codex Plugins PR
   packet and validation notes.
+- `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
+  publication requirement.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
