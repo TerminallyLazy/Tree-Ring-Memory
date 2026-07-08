@@ -160,6 +160,8 @@ Launch and outreach materials for Tree Ring Memory.
   provider PR packet and validation notes.
 - `hxxd-ambient-benchmark-pr.md`: AMBIENT Benchmark Tree Ring CLI adapter PR
   packet and validation notes.
+- `lobu-agent-memory-benchmark-pr.md`: Lobu Agent Memory Benchmark Tree Ring
+  adapter PR packet and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
 - `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
