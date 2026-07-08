@@ -84,6 +84,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
   Infrastructure PR packet and validation notes.
+- `mrtnrocks-awesome-agent-infrastructure-pr.md`: Mrtnrocks Awesome Agent
+  Infrastructure PR packet and validation notes.
 - `yzfly-awesome-skills-zh-pr.md`: Awesome Skills ZH PR packet and validation
   notes.
 - `junminhong-awesome-agent-skills-pr.md`: Junminhong Awesome Agent Skills PR
@@ -319,6 +321,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/to-real/awesome-agent-harness/pull/1`
 - LAS-WG Awesome Agent Infrastructure PR:
   `https://github.com/las-wg/awesome-agent-infrastructure/pull/9`
+- Mrtnrocks Awesome Agent Infrastructure PR:
+  `https://github.com/mrtnrocks/awesome-agent-infrastructure/pull/3`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
 - Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
