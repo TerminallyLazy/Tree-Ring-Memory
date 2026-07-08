@@ -29,8 +29,8 @@
 - Ran `git diff --check` in the fork checkout.
 - Verified the added Markdown table row has the expected pipe count.
 - Verified PR state: open, ready, mergeable.
-- Check status after submission: GitGuardian Security Checks succeeded and
-  CodeRabbit remains pending.
+- Check status after submission: GitGuardian Security Checks and CodeRabbit
+  both succeeded.
 
 ## Notes
 

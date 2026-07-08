@@ -220,8 +220,10 @@ python3 marketing/scripts/build-campaign-cards.py
 - Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
 - Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
 - Homebrew tap: `https://github.com/TerminallyLazy/homebrew-tree-ring`
-- Agent-Skills.md listing:
+- Agent-Skills.md main repo listing:
   `https://agent-skills.md/skills/TerminallyLazy/Tree-Ring-Memory/tree-ring-memory`
+- Agent-Skills.md dedicated skill repo listing:
+  `https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory`
 - Launch feedback issue: `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26`
 - Text launch page: `docs/launch/tree-ring-memory-framework.md`
 - Rust-native CLI article: `https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md`
@@ -381,6 +383,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908796394`
 - Agent-Skills.md listing evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908883051`
+- Agent-Skills.md dedicated skill repo evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4912355745`
 - JayLZhou Awesome Agent Skills evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4908940578`
 - ChatTeach Awesome AI Agents evidence update:
