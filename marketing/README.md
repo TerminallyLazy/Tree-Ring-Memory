@@ -94,6 +94,8 @@ Launch and outreach materials for Tree Ring Memory.
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
   captions, tags, voiceover, slide renderer, and reproducible MP4 build script.
+- `pierrunoyt-awesome-ai-dev-tools-pr.md`: Awesome AI Dev Tools PR packet and
+  validation notes.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
@@ -182,6 +184,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
 - EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
 - Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
+- PierrunoYT Awesome AI Dev Tools PR:
+  `https://github.com/PierrunoYT/awesome-ai-dev-tools/pull/37`
 - Milisp Awesome Codex CLI PR: closed for URL/description format; ask
   maintainer for the expected row style before resubmitting.
 - Milisp Awesome Codex CLI replacement PR:
