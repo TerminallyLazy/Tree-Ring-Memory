@@ -160,6 +160,8 @@ Launch and outreach materials for Tree Ring Memory.
   AI Coding Tools PR packet and validation notes.
 - `kalyanks-llm-engineer-toolkit-pr.md`: LLM Engineer Toolkit PR packet and
   validation notes.
+- `steven2358-awesome-generative-ai-discoveries-pr.md`: Awesome Generative AI
+  Discoveries PR packet and validation notes.
 - `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
   merged listing and validation notes.
 - `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
