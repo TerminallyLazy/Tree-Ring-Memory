@@ -196,6 +196,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `dmgrok-agent-plugins-source-issue.md`: Agent Plugins provider issue,
   validation proof, and auto-created PR tracking.
+- `0xnyk-awesome-hermes-agent-issue.md`: Awesome Hermes Agent resource
+  submission issue packet and validation notes.
 - `shajith003-awesome-claude-skills-hold.md`: Awesome Claude Skills hold note
   for malformed ZIP-only catalog links.
 - `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
