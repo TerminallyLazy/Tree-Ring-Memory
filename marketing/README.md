@@ -72,6 +72,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `aliammari-awesome-ai-tools-pr.md`: Aliammari Awesome AI Tools PR packet and
   validation notes.
+- `rvelamen-awesome-ai-tools-pr.md`: Rvelamen Awesome AI Tools PR packet and
+  validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -186,6 +188,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
 - PierrunoYT Awesome AI Dev Tools PR:
   `https://github.com/PierrunoYT/awesome-ai-dev-tools/pull/37`
+- Rvelamen Awesome AI Tools PR:
+  `https://github.com/Rvelamen/Awesome-AI-Tools/pull/26`
 - Milisp Awesome Codex CLI PR: closed for URL/description format; ask
   maintainer for the expected row style before resubmitting.
 - Milisp Awesome Codex CLI replacement PR:
@@ -320,6 +324,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/aliammari1/awesome-ai-tools/pull/118`
 - Aliammari Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910135658`
+- Rvelamen Awesome AI Tools PR:
+  `https://github.com/Rvelamen/Awesome-AI-Tools/pull/26`
+- Rvelamen Awesome AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910217614`
 
 ## Drafted For Owner Review
 
@@ -369,6 +377,9 @@ python3 marketing/scripts/build-campaign-cards.py
   than 128 GitHub stars and Tree Ring currently has 3 stars.
 - JMcrafter26 Awesome AI Tools: held because its contribution rules treat
   self-owned repos under 50 stars as advertising and Tree Ring currently has 3
+  stars.
+- buntys2010 Awesome AI Agents: held because contribution rules require 500+
+  GitHub stars or established organizational backing; Tree Ring currently has 3
   stars.
 
 ## Account-Creation Boundary

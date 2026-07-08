@@ -203,6 +203,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Agent-Tools Awesome Autonomous Web | Hold | https://github.com/Agent-Tools/awesome-autonomous-web | Scope is browser/web automation, auth, web search, CAPTCHA, and GraphQL consumption for agents; Tree Ring is memory infrastructure, so no PR was opened. |
 | Tankvn Awesome AI Tools | Hold | https://github.com/tankvn/awesome-ai-tools | Contribution rules require more than 128 GitHub stars; Tree Ring had 3 stars when checked on July 7, 2026. |
 | JMcrafter26 Awesome AI Tools | Hold | https://github.com/JMcrafter26/awesome-ai-tools | Contribution rules treat self-owned repos under 50 GitHub stars as advertising; Tree Ring had 3 stars when checked on July 7, 2026. |
+| buntys2010 Awesome AI Agents | Hold | https://github.com/buntys2010/awesome-ai-agents | Contribution rules require 500+ GitHub stars or established organizational backing; Tree Ring had 3 stars when checked on July 7, 2026. |
 
 ## Ready To Post After Account Verification
 
