@@ -132,6 +132,8 @@ Launch and outreach materials for Tree Ring Memory.
   the first demo video.
 - `youtube/`: upload-ready YouTube source package with title, description,
   captions, tags, voiceover, slide renderer, and reproducible MP4 build script.
+- `youtube-upload-validation.md`: latest local rebuild, stream metadata, frame
+  checks, and YouTube account blocker for the upload package.
 - `pierrunoyt-awesome-ai-dev-tools-pr.md`: Awesome AI Dev Tools PR packet and
   validation notes.
 - `leotavares-awesome-ai-agents-pr.md`: Leotavares Awesome AI Agents PR packet
