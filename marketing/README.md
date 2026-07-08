@@ -162,6 +162,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `steven2358-awesome-generative-ai-discoveries-pr.md`: Awesome Generative AI
   Discoveries PR packet and validation notes.
+- `alvinreal-awesome-opensource-ai-pr.md`: Awesome Open Source AI PR packet and
+  validation notes.
 - `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
   merged listing and validation notes.
 - `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
