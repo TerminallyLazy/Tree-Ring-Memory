@@ -152,6 +152,8 @@ Launch and outreach materials for Tree Ring Memory.
   Engineering PR packet and validation notes.
 - `astek-awesome-context-engineering-pr.md`: Astek Awesome Context Engineering
   PR packet and validation notes.
+- `qainsights-awesome-ai-tools-submission.md`: QAInsights Awesome AI Tools
+  structured issue-form submission packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
@@ -203,6 +205,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ranjithrajv/awesome-context-engineering/pull/2`
 - Astek Awesome Context Engineering PR:
   `https://github.com/AstekGroup/awesome-context-engineering/pull/10`
+- QAInsights Awesome AI Tools submission:
+  `https://github.com/QAInsights/awesome-ai-tools/issues/87`
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Alan Awesome Local-First PR: `https://github.com/alantriesagain/awesome-local-first/pull/9`
 - Zhongkechen Awesome Local-First PR: `https://github.com/zhongkechen/awesome-local-first/pull/6`
