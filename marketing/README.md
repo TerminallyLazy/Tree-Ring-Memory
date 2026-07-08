@@ -146,6 +146,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `siyuan-memory-mechanism-for-agent-pr.md`: Siyuan Awesome Memory Mechanism for
   Agent PR packet and validation notes.
+- `ai-for-enterprises-context-engineering-pr.md`: AI for Enterprises Context
+  Engineering PR packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
@@ -191,6 +193,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Meirtz Awesome Context Engineering PR: `https://github.com/Meirtz/Awesome-Context-Engineering/pull/89`
 - Yzfly Awesome Context Engineering PR: `https://github.com/yzfly/awesome-context-engineering/pull/20`
 - Rerewang Awesome Context Engineering PR: `https://github.com/rerewang/awesome-context-engineering/pull/5`
+- AI for Enterprises Context Engineering PR:
+  `https://github.com/ai-for-enterprises/awesome-context-engineering-enterprise/pull/2`
 - Awesome Local-First PR: `https://github.com/alexanderop/awesome-local-first/pull/42`
 - Alan Awesome Local-First PR: `https://github.com/alantriesagain/awesome-local-first/pull/9`
 - Zhongkechen Awesome Local-First PR: `https://github.com/zhongkechen/awesome-local-first/pull/6`
