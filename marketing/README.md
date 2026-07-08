@@ -120,6 +120,8 @@ Launch and outreach materials for Tree Ring Memory.
   Extensions PR packet and validation notes.
 - `ishandutta-ai-memory-assistants-pr.md`: Ishandutta Awesome AI Memory
   Assistants PR packet and validation notes.
+- `chenhuiyu-awesome-llm-memory-pr.md`: Chenhuiyu Awesome LLM Memory PR packet
+  and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
 - `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
@@ -193,6 +195,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ishandutta2007/Awesome-AI-Memory-Extensions/pull/3`
 - Ishandutta Awesome AI Memory Assistants PR:
   `https://github.com/ishandutta2007/Awesome-AI-Memory-Assistants/pull/4`
+- Chenhuiyu Awesome LLM Memory PR:
+  `https://github.com/chenhuiyu/awesome-llm-memory/pull/2`
 - Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
   after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
@@ -362,6 +366,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ishandutta2007/Awesome-AI-Memory-Assistants/pull/4`
 - Ishandutta Awesome AI Memory Assistants evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910834279`
+- Chenhuiyu Awesome LLM Memory PR:
+  `https://github.com/chenhuiyu/awesome-llm-memory/pull/2`
+- Chenhuiyu Awesome LLM Memory evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910886712`
 - Master AI Finder submission:
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
