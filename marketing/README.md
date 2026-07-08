@@ -97,6 +97,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `junminhong-awesome-agent-skills-pr.md`: Junminhong Awesome Agent Skills PR
   packet and validation notes.
+- `atom-awesome-agent-skills-pr.md`: ATOM00blue Awesome Agent Skills PR packet
+  and validation notes.
 - `orkas-awesome-agentskills-pr.md`: Orkas Awesome AgentSkills PR packet and
   validation notes.
 - `yangsonhung-awesome-agent-skills-pr.md`: YangsonHung Awesome Agent Skills PR
@@ -401,6 +403,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Ezeafk Awesome Agent Skills PR: `https://github.com/Ezeafk/awesome-agent-skills/pull/5`
 - JayLZhou Awesome Agent Skills PR:
   `https://github.com/JayLZhou/Awesome-Agent-Skills/pull/15`
+- ATOM00blue Awesome Agent Skills PR:
+  `https://github.com/ATOM00blue/awesome-agent-skills/pull/3`
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
