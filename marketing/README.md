@@ -190,6 +190,8 @@ Launch and outreach materials for Tree Ring Memory.
   publication requirement.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
+- `pr-status-sweep-2026-07-08.md`: GitHub PR follow-up sweep that promoted
+  newly merged listings and closed no-action PRs in the trackers.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
