@@ -156,6 +156,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `aetna-memorystackbench-pr.md`: MemoryStackBench PR packet and validation
   notes for the pending benchmark-target listing.
+- `vectorize-agent-memory-benchmark-pr.md`: Vectorize Agent Memory Benchmark
+  provider PR packet and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
 - `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
