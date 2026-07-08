@@ -80,6 +80,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `yzfly-awesome-skills-zh-pr.md`: Awesome Skills ZH PR packet and validation
   notes.
+- `junminhong-awesome-agent-skills-pr.md`: Junminhong Awesome Agent Skills PR
+  packet and validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -188,6 +190,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
 - Awesome Skills ZH PR:
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
+- Junminhong Awesome Agent Skills PR:
+  `https://github.com/junminhong/awesome-agent-skills/pull/21`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
@@ -368,6 +372,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
 - Awesome Skills ZH evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910363304`
+- Junminhong Awesome Agent Skills PR:
+  `https://github.com/junminhong/awesome-agent-skills/pull/21`
+- Junminhong Awesome Agent Skills evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910399079`
 
 ## Drafted For Owner Review
 

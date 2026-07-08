@@ -167,6 +167,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Correia Awesome AI Tools PR | Submitted | https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30 | Adds Tree Ring Memory to Developer tools in a broad AI tools list; PR-template rules, duplicate PR/issue search, README duplicate search, repo link check, and diff whitespace passed; PR is mergeable and reports no checks. |
 | Sam Blackfly Awesome LLM Tools PR | Submitted | https://github.com/sam-blackfly/awesome-llm-tools/pull/4 | Adds Tree Ring Memory to Agent Memory in a broad LLM tools list; duplicate PR/issue search, README duplicate search, repo link check, and diff whitespace passed; PR is mergeable and reports no checks. |
 | Awesome Skills ZH PR | Submitted | https://github.com/yzfly/awesome-skills-zh/pull/8 | Adds Tree Ring Memory to Featured Standalone Skills / 明星单项 Skills as a lifecycle-memory skill; duplicate PR/issue search, README duplicate search, skill URL, badge URL, and diff whitespace passed; PR is mergeable and reports no checks. |
+| Junminhong Awesome Agent Skills PR | Submitted | https://github.com/junminhong/awesome-agent-skills/pull/21 | Adds Tree Ring Memory to Development & Code Tools across English and Chinese READMEs; duplicate PR/issue search, README duplicate search, skill URL, and diff whitespace passed; PR is mergeable and reports no checks. |
 
 ## Drafted For Owner Review
 
