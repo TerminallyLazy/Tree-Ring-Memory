@@ -142,6 +142,10 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `claude-code-and-coding-agents-holds.md`: Claude Code and coding-agent list
   hold notes for star-threshold and scope mismatches.
+- `alexwang-awesome-agent-memory-pr.md`: AlexWang Awesome Agent Memory PR packet
+  and validation notes.
+- `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
+  archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
@@ -209,6 +213,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/bigai-nlco/Awesome-AI-Memory/pull/2`
 - Kongshan Agent Memory Frameworks Research PR:
   `https://github.com/kongshan001/agent-memory-frameworks-research/pull/1`
+- AlexWang Awesome Agent Memory PR:
+  `https://github.com/AlexWang959/Awesome-Agent-Memory/pull/2`
 - Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
   after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
