@@ -8,7 +8,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Outlet | Status | URL | Notes |
 | --- | --- | --- | --- |
 | Public landing page | Live | https://terminallylazy.github.io/Tree-Ring-Memory/ | Primary campaign URL for posts and profiles. |
-| GitHub repository metadata | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory | Description and topics updated for discovery. |
+| GitHub repository metadata | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory | Description and 20 topics updated for discovery, including `agent-skills`, `claude-skills`, `codex-skills`, `llm-memory`, `ai-memory`, `context-engineering`, `rust-cli`, `terminal-ui`, and `sqlite-fts`; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910419303. |
 | Agent-Skills.md listing | Live | https://agent-skills.md/skills/TerminallyLazy/Tree-Ring-Memory/tree-ring-memory | Indexed the portable Tree Ring Memory skill package; public search also returns the repo and skill. |
 | Tree Ring Memory Cookbook repo | Live | https://github.com/TerminallyLazy/tree-ring-memory-cookbook | Public companion repo with practical recipes, launch demo script, and brand assets for reviewers and social posts. |
 | GitHub launch feedback issue | Live | https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26 | Feedback funnel for all launch posts. |

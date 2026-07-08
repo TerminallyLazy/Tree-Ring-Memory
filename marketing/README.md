@@ -22,6 +22,8 @@ Launch and outreach materials for Tree Ring Memory.
   Homebrew, Rust article, TWiR, and square social cards.
 - `outreach-queue.md`: execution tracker for live, pending, and held launch
   surfaces.
+- `github-repository-metadata.md`: GitHub description and topic-discovery
+  packet for search and auto-indexed trackers.
 - `newsletter-pitches.md`: short pitches for newsletters, directories, and
   community maintainers.
 - `terminal-trove-submission.md`: Terminal Trove submission packet and sent
