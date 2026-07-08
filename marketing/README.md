@@ -6,6 +6,8 @@ Launch and outreach materials for Tree Ring Memory.
 
 - `account-setup.md`: account identity, handles, bios, signup URLs, secure
   setup checklist, and profile asset mapping.
+- `account-creation-runbook.md`: owner-side signup order and exact profile
+  fields for social, video, and blog accounts without storing secrets.
 - `launch-kit.md`: channel-specific launch copy for GitHub, Hacker News,
   Reddit, X, YouTube, Product Hunt, LinkedIn, developer blogs, newsletters, and
   directories.
