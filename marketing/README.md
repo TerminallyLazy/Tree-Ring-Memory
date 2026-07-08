@@ -84,6 +84,12 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `junminhong-awesome-agent-skills-pr.md`: Junminhong Awesome Agent Skills PR
   packet and validation notes.
+- `orkas-awesome-agentskills-pr.md`: Orkas Awesome AgentSkills PR packet and
+  validation notes.
+- `yangsonhung-awesome-agent-skills-pr.md`: YangsonHung Awesome Agent Skills PR
+  packet and validation notes.
+- `linny006-awesome-agent-skills-listing.md`: Linny006 Awesome Agent Skills
+  live auto-indexed listing notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
