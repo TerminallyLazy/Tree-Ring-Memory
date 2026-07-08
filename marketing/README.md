@@ -114,6 +114,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `switchy-awesome-ai-memory-pr.md`: Switchy Awesome AI Memory PR packet and
   validation notes.
+- `trionlabs-awesome-ai-memory-pr.md`: Trionlabs Awesome AI Memory PR packet
+  and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
 - `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
@@ -181,6 +183,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - XiaomingX Awesome AI Memory PR: `https://github.com/XiaomingX/awesome-ai-memory/pull/14`
 - Switchy Awesome AI Memory PR:
   `https://github.com/Switchy-AI/awesome-ai-memory/pull/3`
+- Trionlabs Awesome AI Memory PR:
+  `https://github.com/trionlabs/awesome-ai-memory/pull/2`
 - Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
   after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
@@ -336,6 +340,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/Switchy-AI/awesome-ai-memory/pull/3`
 - Switchy Awesome AI Memory evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910720812`
+- Trionlabs Awesome AI Memory PR:
+  `https://github.com/trionlabs/awesome-ai-memory/pull/2`
+- Trionlabs Awesome AI Memory evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910759111`
 - Master AI Finder submission:
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
