@@ -92,6 +92,8 @@ Launch and outreach materials for Tree Ring Memory.
 - `irteza-ai-megalist-pr.md`: AI Megalist PR packet and validation notes.
 - `sam-blackfly-awesome-llm-tools-pr.md`: Sam Blackfly Awesome LLM Tools PR
   packet and validation notes.
+- `sumanth-llm-toolkit-pr.md`: Sumanth LLM Toolkit PR packet and validation
+  notes.
 - `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
   Infrastructure PR packet and validation notes.
 - `mrtnrocks-awesome-agent-infrastructure-pr.md`: Mrtnrocks Awesome Agent
@@ -382,6 +384,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
 - Sam Blackfly Awesome LLM Tools PR:
   `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
+- Sumanth LLM Toolkit PR:
+  `https://github.com/sumanth-dhanya/llm-toolkit/pull/4`
 - Awesome Skills ZH PR:
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
 - Junminhong Awesome Agent Skills PR:
@@ -630,6 +634,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
 - Sam Blackfly Awesome LLM Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910305889`
+- Sumanth LLM Toolkit PR:
+  `https://github.com/sumanth-dhanya/llm-toolkit/pull/4`
+- Sumanth LLM Toolkit evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4916063660`
 - Awesome Skills ZH PR:
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
 - Awesome Skills ZH evidence update:
