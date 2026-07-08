@@ -201,6 +201,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/chenhuiyu/awesome-llm-memory/pull/2`
 - MemoryStackBench PR:
   `https://github.com/aetna000/MemoryStackBench/pull/1`
+- BigAI Awesome AI Memory PR:
+  `https://github.com/bigai-nlco/Awesome-AI-Memory/pull/2`
 - Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
   after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
@@ -378,6 +380,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/aetna000/MemoryStackBench/pull/1`
 - MemoryStackBench evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910927711`
+- BigAI Awesome AI Memory PR:
+  `https://github.com/bigai-nlco/Awesome-AI-Memory/pull/2`
+- BigAI Awesome AI Memory evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910961825`
 - Master AI Finder submission:
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
