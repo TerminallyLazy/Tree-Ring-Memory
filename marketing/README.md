@@ -94,6 +94,10 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `nmaroulis-awesome-acp-hold.md`: Awesome Agent Client Protocol hold note for
   ACP-scope mismatch.
+- `geoffreyporto-awesome-rust-cli-pr.md`: Geoffreyporto Awesome Rust CLI PR
+  packet and validation notes.
+- `rust-cli-list-holds.md`: Rust CLI directory hold notes for star-threshold and
+  scope mismatches.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
