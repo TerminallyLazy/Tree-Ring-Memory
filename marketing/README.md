@@ -214,6 +214,8 @@ Launch and outreach materials for Tree Ring Memory.
   for malformed ZIP-only catalog links.
 - `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
   publication requirement.
+- `irresi-awesome-agentic-knowledge-base-issue.md`: Awesome Agentic Knowledge
+  Base issue-first candidate survey packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `local-first-directory-holds.md`: Local-first directory hold notes for
@@ -393,6 +395,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kennethlaw325/awesome-llm-knowledge-systems/issues/48`
 - Awesome Agent Evolution scope-check issue:
   `https://github.com/Shiyao-Huang/awesome-agent-evolution/issues/18`
+- Awesome Agentic Knowledge Base candidate issue:
+  `https://github.com/irresi/awesome-agentic-knowledge-base/issues/2`
 - Zo Computer Skills PR: `https://github.com/zocomputer/skills/pull/105`
 - Terminal Trove submission: sent to `curator@terminaltrove.com` with
   `marketing/assets/terminal-trove-preview-1200x675.png` attached.
