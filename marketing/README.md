@@ -218,6 +218,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/lgaggini/awesome-cli-tui-software/pull/4`
 - Awesome DevTools PR: `https://github.com/devtoolsd/awesome-devtools/pull/299`
 - Awesome Coding Agents listing: `https://github.com/kailiu42/awesome-coding-agents#cli-agent-helpers`
+- Wdzhwsh Awesome Coding Agents PR:
+  `https://github.com/wdzhwsh4067/awesome-coding-agents/pull/9`
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
@@ -390,6 +392,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kongshan001/agent-memory-frameworks-research/pull/1`
 - Kongshan Agent Memory Frameworks Research evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910995877`
+- Wdzhwsh Awesome Coding Agents PR:
+  `https://github.com/wdzhwsh4067/awesome-coding-agents/pull/9`
+- Wdzhwsh Awesome Coding Agents evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4911053796`
 - Master AI Finder submission:
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
