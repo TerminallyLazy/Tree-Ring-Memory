@@ -22,6 +22,16 @@ as proof that a platform will reserve the handle after verification.
 - After each account exists, record only the public profile URL in
   `marketing/social-profiles.json`.
 
+## Credibility Links
+
+Use these proof links in profile descriptions when the platform has enough room
+or in pinned/introductory posts when the bio must stay short.
+
+- Agent-Skills.md listing:
+  `https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory`
+- HeyClaude / Awesome Claude source entry:
+  `https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx`
+
 ## Priority Order
 
 ### 1. YouTube

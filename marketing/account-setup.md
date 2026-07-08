@@ -13,6 +13,10 @@ storing passwords, recovery codes, phone numbers, or private inbox data.
 - Broad fallback: `UseTreeRing`
 - Repository URL: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
 - Website URL: `https://terminallylazy.github.io/Tree-Ring-Memory/`
+- Agent-Skills.md listing:
+  `https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory`
+- HeyClaude / Awesome Claude source entry:
+  `https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx`
 - Tagline: Framework-agnostic memory lifecycle for AI agents.
 - Long positioning: Local-first, Rust-native memory lifecycle for AI agents:
   fresh work stays detailed, older learning compresses into rings, important
@@ -76,6 +80,8 @@ adapters, and practical demos for developers building AI agent systems.
 
 Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Website: https://terminallylazy.github.io/Tree-Ring-Memory/
+Agent skill listing: https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+HeyClaude source entry: https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
 
 ### Product Hunt Tagline
 
