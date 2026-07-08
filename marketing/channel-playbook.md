@@ -123,6 +123,11 @@ Execution notes:
 Do not cross-post the same copy everywhere. Post only where rules allow
 projects, launches, or self-promotion.
 
+Current public rule checks are summarized in
+`marketing/reddit-rule-check-2026-07-08.md`. Reddit copy in this playbook is a
+brief, not paste-ready text. Before posting, the owner should read current
+rules from an authenticated session and rewrite the post in their own voice.
+
 ### r/rust
 
 Title:
@@ -282,9 +287,9 @@ like.
 
 Execution notes:
 
-- Read current `r/commandline` rules before posting.
-- Prefer the repo link over the landing page if link-post rules are strict.
-- Keep replies about CLI behavior, storage, portability, and terminal UX.
+- Hold for this launch. Public rules checked on 2026-07-08 disallow most
+  generative-AI-related projects and projects newer than 30 days.
+- Revisit only after the project has stronger adoption or moderator approval.
 
 ### r/AI_Agents
 
@@ -313,6 +318,15 @@ tree-ring lifecycle states:
 - durable truths become heartwood
 - unresolved follow-ups remain seeds
 
+I am looking for feedback from people building agents: where should the adapter
+boundary sit so memory is useful without becoming automatic transcript hoarding?
+````
+
+First comment:
+
+````markdown
+Maintainer note: Tree Ring Memory is my project.
+
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
@@ -321,15 +335,14 @@ https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-m
 
 Source-backed HeyClaude entry:
 https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
-
-I am looking for feedback from people building agents: where should the adapter
-boundary sit so memory is useful without becoming automatic transcript hoarding?
 ````
 
 Execution notes:
 
 - Read current `r/AI_Agents` self-promotion and project-post rules before
   posting.
+- Put project links in a comment or weekly project display thread, not directly
+  in the post body.
 - Disclose maintainer affiliation in the post or first comment.
 - Stay focused on agent memory lifecycle and adapters, not broad AI hype.
 

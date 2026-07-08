@@ -195,6 +195,11 @@ Do not blast the same post into many subreddits. Tailor the angle, disclose
 that it is your project, and prefer weekly showcase/self-promotion threads when
 communities require them.
 
+Current public rule checks are summarized in
+`marketing/reddit-rule-check-2026-07-08.md`. Treat the copy below as a brief,
+not paste-ready text; several communities restrict low-effort or AI-generated
+submissions.
+
 ### r/rust
 
 Title:
@@ -319,6 +324,10 @@ which agent integrations should come first.
 
 ### r/commandline
 
+Status: hold for this launch. Public rules checked on 2026-07-08 disallow most
+generative-AI-related projects and projects newer than 30 days. Revisit only
+after stronger adoption or moderator approval.
+
 Title:
 
 ```text
@@ -357,6 +366,10 @@ and whether the import/export flow feels Unix-friendly.
 
 ### r/AI_Agents
 
+Status: owner rewrite required. Public rules checked on 2026-07-08 say project
+links belong in comments or the weekly project display thread, not the post
+body.
+
 Title:
 
 ```text
@@ -378,14 +391,20 @@ tree-ring based: fresh context stays detailed, older learning compresses,
 negative lessons stay visible as scars, durable truths become heartwood, and
 unresolved follow-ups remain seeds.
 
+I am looking for feedback from people building agents: where should adapter
+writes sit so memory is useful without becoming automatic transcript hoarding?
+````
+
+First comment:
+
+````markdown
+Maintainer note: Tree Ring Memory is my project.
+
 Repo:
 https://github.com/TerminallyLazy/Tree-Ring-Memory
 
 Agent-facing package:
 https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
-
-I am looking for feedback from people building agents: where should adapter
-writes sit so memory is useful without becoming automatic transcript hoarding?
 ````
 
 ## X
