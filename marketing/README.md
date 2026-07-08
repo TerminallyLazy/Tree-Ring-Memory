@@ -100,6 +100,8 @@ Launch and outreach materials for Tree Ring Memory.
   ACP-scope mismatch.
 - `geoffreyporto-awesome-rust-cli-pr.md`: Geoffreyporto Awesome Rust CLI PR
   packet and validation notes.
+- `to-real-awesome-agent-harness-pr.md`: To-real Awesome Agent Harness PR
+  packet and validation notes.
 - `rust-cli-list-holds.md`: Rust CLI directory hold notes for star-threshold and
   scope mismatches.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
@@ -313,6 +315,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Junminhong Awesome Agent Skills PR:
   `https://github.com/junminhong/awesome-agent-skills/pull/21`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
+- To-real Awesome Agent Harness PR:
+  `https://github.com/to-real/awesome-agent-harness/pull/1`
 - LAS-WG Awesome Agent Infrastructure PR:
   `https://github.com/las-wg/awesome-agent-infrastructure/pull/9`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
