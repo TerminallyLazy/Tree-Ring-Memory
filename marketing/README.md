@@ -150,6 +150,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `frangelbarrera-awesome-ai-agents-pr.md`: Frangel Barrera Awesome AI Agents
   PR packet and validation notes.
+- `groovy-web-awesome-ai-agents-pr.md`: Groovy Web Awesome AI Agents PR packet
+  and validation notes.
 - `jmanhype-awesome-claude-code-pr.md`: Jmanhype Awesome Claude Code PR packet
   and validation notes.
 - `ratatui-awesome-ratatui-pr.md`: Awesome Ratatui PR packet, screenshot
@@ -210,6 +212,8 @@ Launch and outreach materials for Tree Ring Memory.
   publication requirement.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
+- `local-first-directory-holds.md`: Local-first directory hold notes for
+  portfolio-style and browser-workflow scoped repositories.
 - `pr-status-sweep-2026-07-08.md`: GitHub PR follow-up sweep that promoted
   newly merged listings and closed no-action PRs in the trackers.
 - `pr-status-sweep-2026-07-08-follow-up.md`: second GitHub PR sweep that
@@ -325,6 +329,7 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/frangelbarrera/awesome-ai-agents/pull/9`
 - Caramaschi Awesome AI Agents 2026 PR: `https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418`
 - Deep Insight Awesome AI Agents PR: `https://github.com/Deep-Insight-Labs/awesome-ai-agents/pull/35`
+- Groovy Web Awesome AI Agents PR: `https://github.com/groovy-web/awesome-ai-agents/pull/12`
 - ChatTeach Awesome AI Agents PR:
   `https://github.com/ChatTeach/Awesome-AI-Agents/pull/26`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
