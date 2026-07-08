@@ -29,9 +29,8 @@
   `python3 scripts/validate-plugin-pr.py --base-ref upstream/main`.
 - Ran `git diff --check`.
 - Source plugin repo has a public passing HOL scanner run on `main`.
-- PR state: open, ready, mergeable.
-- Upstream fork workflows are `action_required` with no jobs because maintainer
-  approval is required before they run on this fork PR.
+- PR state: merged on 2026-07-08T09:56:42Z.
+- Upstream posted HOL registry claim instructions after merge.
 
 ## Notes
 

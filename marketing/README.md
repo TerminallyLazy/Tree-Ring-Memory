@@ -210,6 +210,9 @@ Launch and outreach materials for Tree Ring Memory.
   archived repos, and product-repo scope mismatches.
 - `pr-status-sweep-2026-07-08.md`: GitHub PR follow-up sweep that promoted
   newly merged listings and closed no-action PRs in the trackers.
+- `pr-status-sweep-2026-07-08-follow-up.md`: second GitHub PR sweep that
+  captured two new merges, repaired two conflicting PRs, and closed one
+  redundant live-listing PR.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,

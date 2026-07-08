@@ -6,7 +6,8 @@
 - PR: `https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30`
 - Fork: `https://github.com/TerminallyLazy/correia-awesome-ai-tools`
 - Branch: `add-tree-ring-memory`
-- Commit: `ab63f02eb021c5ff3fa1362af2fbbe5ebf067e1f`
+- Original commit: `ab63f02eb021c5ff3fa1362af2fbbe5ebf067e1f`
+- Current rebased head: `8bf26e504538abd476541649621e1a6f94160abd`
 - Evidence comment:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910275592`
 
@@ -29,7 +30,9 @@
 - Ran `git diff --check`.
 - Restored the target README's pre-existing missing final newline so the final
   diff is one added line only.
-- Verified PR state: open, ready, mergeable.
+- Rebased on 2026-07-08 to resolve an upstream README conflict while preserving
+  only the Tree Ring Memory developer-tools row.
+- Verified PR state after rebase: open, ready, mergeable.
 - Check status: no checks reported.
 
 ## Notes

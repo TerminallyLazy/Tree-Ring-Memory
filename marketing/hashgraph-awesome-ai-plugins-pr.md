@@ -34,10 +34,13 @@
   each contain exactly one Tree Ring Memory entry.
 - Confirmed the public HOL Plugin Scanner run for the plugin repo passed:
   `https://github.com/TerminallyLazy/tree-ring-memory-codex-plugin/actions/runs/28917677294`
-- PR state: open, ready, mergeable.
-- Check status: no GitHub PR checks currently configured.
+- PR state: closed as superseded on 2026-07-08T10:29:39Z.
+- Tree Ring Memory is already live on upstream `main` in `README.md`,
+  `plugins.json`, and `.agents/plugins/marketplace.json` via the merged Codex
+  plugin sync.
+- Check status: no further action required unless the upstream listing regresses.
 
 ## Notes
 
-This extends the Codex plugin launch from the narrower Codex plugin list into
-Hashgraph's broader AI plugins marketplace surface.
+This extended the Codex plugin launch into Hashgraph's broader AI plugins
+marketplace surface without needing a duplicate PR merge.
