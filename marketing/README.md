@@ -100,6 +100,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `leotavares-awesome-ai-agents-pr.md`: Leotavares Awesome AI Agents PR packet
   and validation notes.
+- `frangelbarrera-awesome-ai-agents-pr.md`: Frangel Barrera Awesome AI Agents
+  PR packet and validation notes.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
@@ -169,6 +171,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
 - Leotavares Awesome AI Agents PR:
   `https://github.com/leotavares26/awesome-ai-agents/pull/3`
+- Frangel Barrera Awesome AI Agents PR:
+  `https://github.com/frangelbarrera/awesome-ai-agents/pull/9`
 - Caramaschi Awesome AI Agents 2026 PR: `https://github.com/caramaschiHG/awesome-ai-agents-2026/pull/418`
 - Deep Insight Awesome AI Agents PR: `https://github.com/Deep-Insight-Labs/awesome-ai-agents/pull/35`
 - ChatTeach Awesome AI Agents PR:
@@ -336,6 +340,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/leotavares26/awesome-ai-agents/pull/3`
 - Leotavares Awesome AI Agents evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910237499`
+- Frangel Barrera Awesome AI Agents PR:
+  `https://github.com/frangelbarrera/awesome-ai-agents/pull/9`
+- Frangel Barrera Awesome AI Agents evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910253092`
 
 ## Drafted For Owner Review
 
