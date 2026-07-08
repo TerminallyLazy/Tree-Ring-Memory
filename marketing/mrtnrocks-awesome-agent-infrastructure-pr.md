@@ -7,6 +7,8 @@
 - Commit: `217ee69`
 - Evidence comment:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4913339136`
+- CodeRabbit follow-up evidence:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4913349106`
 
 ## Submission
 
@@ -23,5 +25,5 @@ The PR body disclosed that Tree Ring Memory is maintained by the submitter.
 - Added repository URL returned HTTP `200`.
 - `git diff --check` passed.
 - GitHub reports the PR as mergeable.
-- CodeRabbit was still pending when checked.
-
+- CodeRabbit completed successfully with no actionable review comments, but
+  also flagged the PR as potential promotional spam for maintainer review.
