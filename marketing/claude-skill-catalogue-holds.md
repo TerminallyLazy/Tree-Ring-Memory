@@ -41,3 +41,13 @@
   self-owned catalogue shape.
 - Next action: do not submit unless Tree Ring Memory is intentionally adapted
   as a CodeCharm-owned skill directory.
+
+## Machinae Awesome Claws
+
+- Repository: `https://github.com/machinae/awesome-claws`
+- Status: hold
+- Reason: the list is a compact catalogue of standalone AI assistant and agent
+  projects inspired by OpenClaw. Tree Ring Memory is memory lifecycle
+  infrastructure for agents rather than a standalone personal assistant agent.
+- Next action: revisit only if the list expands to include agent
+  infrastructure components or memory frameworks.
