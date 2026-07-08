@@ -166,6 +166,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Aliammari Awesome AI Tools PR | Submitted | https://github.com/aliammari1/awesome-ai-tools/pull/118 | Adds Tree Ring Memory to AI Agents & Automation in a broad AI tools list; duplicate PR/issue search, source URL check, and `git diff --check` passed; PR is ready for review and mergeable; GitGuardian, Sourcery, SonarCloud, DeepScan, CodeRabbit, and Cubic passed; evidence comments: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910135658 and https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910149365. |
 | Correia Awesome AI Tools PR | Submitted | https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30 | Adds Tree Ring Memory to Developer tools in a broad AI tools list; PR-template rules, duplicate PR/issue search, README duplicate search, repo link check, and diff whitespace passed; PR is mergeable and reports no checks. |
 | Sam Blackfly Awesome LLM Tools PR | Submitted | https://github.com/sam-blackfly/awesome-llm-tools/pull/4 | Adds Tree Ring Memory to Agent Memory in a broad LLM tools list; duplicate PR/issue search, README duplicate search, repo link check, and diff whitespace passed; PR is mergeable and reports no checks. |
+| Awesome Skills ZH PR | Submitted | https://github.com/yzfly/awesome-skills-zh/pull/8 | Adds Tree Ring Memory to Featured Standalone Skills / 明星单项 Skills as a lifecycle-memory skill; duplicate PR/issue search, README duplicate search, skill URL, badge URL, and diff whitespace passed; PR is mergeable and reports no checks. |
 
 ## Drafted For Owner Review
 
@@ -209,6 +210,9 @@ posted unless the post exists publicly and the URL is recorded here.
 | Tankvn Awesome AI Tools | Hold | https://github.com/tankvn/awesome-ai-tools | Contribution rules require more than 128 GitHub stars; Tree Ring had 3 stars when checked on July 7, 2026. |
 | JMcrafter26 Awesome AI Tools | Hold | https://github.com/JMcrafter26/awesome-ai-tools | Contribution rules treat self-owned repos under 50 GitHub stars as advertising; Tree Ring had 3 stars when checked on July 7, 2026. |
 | buntys2010 Awesome AI Agents | Hold | https://github.com/buntys2010/awesome-ai-agents | Contribution rules require 500+ GitHub stars or established organizational backing; Tree Ring had 3 stars when checked on July 7, 2026. |
+| Erson Awesome Coding Agent Orchestration | Hold | https://github.com/erson/awesome-coding-agent-orchestration | Contribution rules require tools whose primary job is running, supervising, or coordinating AI coding-agent fleets; Tree Ring is memory lifecycle infrastructure rather than orchestration. |
+| YXF Awesome Efficient Agents | Hold | https://github.com/yxf203/Awesome-Efficient-Agents | Paper and survey list asks for papers and categorization; Tree Ring is an implementation without a paper citation. |
+| Aloth Awesome AI Agents | Hold | https://github.com/aloth/awesome-ai-agents | Contribution rules require 100+ GitHub stars or a major organization; Tree Ring had 3 stars when checked on July 7, 2026. |
 
 ## Ready To Post After Account Verification
 
