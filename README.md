@@ -9,7 +9,7 @@ It helps agents remember useful decisions, warnings, preferences, and lessons wi
 Tree Ring Memory is inspired by the spatial project-memory patterns in
 [DOX](https://github.com/agent0ai/dox) and the evidence-driven improvement loop
 in [Revolve](https://github.com/agent0ai/revolve), with a deliberate nod to
-their original creator, [frdel](https://github.com/frdel). This project is
+their original creator, [Jan Tomášek](https://github.com/frdel). This project is
 framework-agnostic and does not replace either protocol.
 
 ## Status
