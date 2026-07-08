@@ -236,6 +236,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `sandipan-awesome-claude-skills-pr.md`: Sandipan Awesome Claude Skills PR
   packet and validation notes.
+- `yibie-awesome-claude-skills-pr.md`: Yibie Awesome Claude Skills PR packet
+  and validation notes.
 - `shajith003-awesome-claude-skills-hold.md`: Awesome Claude Skills hold note
   for malformed ZIP-only catalog links.
 - `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
@@ -431,6 +433,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kenryu42/awesome-claude-skills/pull/22`
 - Sandipan Awesome Claude Skills PR:
   `https://github.com/sandipan1/awesome-claude-skills/pull/18`
+- Yibie Awesome Claude Skills PR:
+  `https://github.com/yibie/Awesome-Claude-Skills/pull/18`
 - Ishandutta Awesome Claude Skills PR:
   `https://github.com/ishandutta2007/Awesome-Claude-Skills/pull/7`
 - Awesome LLM Knowledge Systems issue:
