@@ -82,6 +82,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `sam-blackfly-awesome-llm-tools-pr.md`: Sam Blackfly Awesome LLM Tools PR
   packet and validation notes.
+- `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
+  Infrastructure PR packet and validation notes.
 - `yzfly-awesome-skills-zh-pr.md`: Awesome Skills ZH PR packet and validation
   notes.
 - `junminhong-awesome-agent-skills-pr.md`: Junminhong Awesome Agent Skills PR
@@ -311,6 +313,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Junminhong Awesome Agent Skills PR:
   `https://github.com/junminhong/awesome-agent-skills/pull/21`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
+- LAS-WG Awesome Agent Infrastructure PR:
+  `https://github.com/las-wg/awesome-agent-infrastructure/pull/9`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
 - Awesome AI DevTools PR: `https://github.com/jamesmurdza/awesome-ai-devtools/pull/779`
