@@ -150,6 +150,8 @@ Launch and outreach materials for Tree Ring Memory.
   PR packet and validation notes.
 - `jmanhype-awesome-claude-code-pr.md`: Jmanhype Awesome Claude Code PR packet
   and validation notes.
+- `ratatui-awesome-ratatui-pr.md`: Awesome Ratatui PR packet, screenshot
+  follow-up, and validation notes.
 - `claude-code-and-coding-agents-holds.md`: Claude Code and coding-agent list
   hold notes for star-threshold and scope mismatches.
 - `alexwang-awesome-agent-memory-pr.md`: AlexWang Awesome Agent Memory PR packet
@@ -224,6 +226,7 @@ python3 marketing/scripts/build-campaign-cards.py
 - `marketing/assets/twir-submission-card-1200x675.png`
 - `marketing/assets/not-transcript-dump-card-1080x1080.png`
 - `marketing/assets/terminal-trove-preview-1200x675.png`
+- `marketing/assets/ratatui-tui-screenshot-1200x675.png`
 
 ## Live Public Surfaces
 
