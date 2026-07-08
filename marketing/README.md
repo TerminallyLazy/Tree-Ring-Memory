@@ -208,6 +208,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `jsonbored-awesome-claude-pr.md`: HeyClaude / Awesome Claude content PR packet
   and validation notes.
+- `ishandutta-awesome-claude-skills-pr.md`: Ishandutta Awesome Claude Skills PR
+  packet and validation notes.
 - `shajith003-awesome-claude-skills-hold.md`: Awesome Claude Skills hold note
   for malformed ZIP-only catalog links.
 - `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
@@ -385,6 +387,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Prat011 Awesome LLM Skills PR: `https://github.com/Prat011/awesome-llm-skills/pull/169`
 - Composio Awesome Agent CLIs PR: `https://github.com/ComposioHQ/awesome-agent-clis/pull/19`
 - Composio Awesome Claude Skills PR: `https://github.com/ComposioHQ/awesome-claude-skills/pull/1252`
+- Ishandutta Awesome Claude Skills PR:
+  `https://github.com/ishandutta2007/Awesome-Claude-Skills/pull/7`
 - Awesome LLM Knowledge Systems issue:
   `https://github.com/kennethlaw325/awesome-llm-knowledge-systems/issues/48`
 - Awesome Agent Evolution scope-check issue:
