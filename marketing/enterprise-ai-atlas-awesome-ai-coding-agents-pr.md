@@ -7,7 +7,9 @@ Submission date: 2026-07-07
 - Directory: https://github.com/Enterprise-AI-Atlas/awesome-ai-coding-agents
 - Pull request: https://github.com/Enterprise-AI-Atlas/awesome-ai-coding-agents/pull/3
 - Fork branch: https://github.com/TerminallyLazy/awesome-ai-coding-agents/tree/add-tree-ring-memory
-- Evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909290440
+- Evidence comments:
+  - https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909290440
+  - https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4911027090
 
 ## Submitted Entry
 
@@ -34,3 +36,5 @@ standalone coding agent.
   shim: passed.
 - GitHub PR state at submission: open draft, mergeable, no status checks
   reported.
+- Follow-up on 2026-07-08: marked PR ready for review; verified open,
+  non-draft, mergeable, and no status checks reported.
