@@ -205,7 +205,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Outlet | Status | Destination | Notes |
 | --- | --- | --- | --- |
 | Crates.io packages | Ready | https://crates.io/ | Owner crates.io login/token required. Package names appear available; core dry-run passes; publish order is `tree-ring-memory-core` -> `tree-ring-memory-sqlite` -> `tree-ring-memory-cli`. |
-| HesReallyHim Awesome Claude Code | Ready | https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml | Repo rules require the web issue form and human recommendation; PR/CLI recommendation is explicitly disallowed. |
+| HesReallyHim Awesome Claude Code | Hold | https://github.com/hesreallyhim/awesome-claude-code | Issue form body passed the target parser locally but GitHub rejected issue creation because interactions are restricted to collaborators only; hold unless a maintainer invites a submission. |
 | VoltAgent Awesome Agent Skills | Hold | https://github.com/VoltAgent/awesome-agent-skills | Contribution rules focus on proven community-adopted skills; revisit after adoption grows. |
 | VoltAgent Awesome OpenClaw Skills | Hold | https://github.com/VoltAgent/awesome-openclaw-skills | Contribution rules require the skill to be published on ClawHub first with clean security status, passing tests, documentation, concise description, and usage evidence; no PR opened. |
 | JackyST0 Awesome Agent Skills | Hold | https://github.com/JackyST0/awesome-agent-skills | Contribution rules require community projects to clear a 64-star threshold by default. |

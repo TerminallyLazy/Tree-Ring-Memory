@@ -535,10 +535,11 @@ python3 marketing/scripts/build-campaign-cards.py
   `tree-ring-memory-core` passes `cargo publish --dry-run`. The dependent
   packages are manifest-ready but must be published after the core crate exists
   on crates.io.
-- HesReallyHim Awesome Claude Code recommendation: submit manually through
-  `https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml`
-  if owner wants to pursue it; repository rules explicitly disallow PR/CLI
-  resource recommendations and require a human web-form submission.
+- HesReallyHim Awesome Claude Code recommendation: held after the issue body
+  passed the target parser locally but GitHub rejected issue creation because
+  interactions are restricted to collaborators only. Revisit only if a
+  maintainer invites a submission or a collaborator can submit through the
+  restricted issue flow.
 - VoltAgent and JackyST0 Awesome Agent Skills: held for now because their rules
   expect proven community adoption or a 64-star threshold.
 - Topoteretes Awesome AI Memory: held for now because its contribution schema
