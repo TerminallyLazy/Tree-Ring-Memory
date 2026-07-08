@@ -32,7 +32,7 @@
 - Ran `python3 scripts/generate.py`.
 - Ran `git diff --check`.
 - Verified PR state: open, ready, mergeable.
-- Initial check status: CodeRabbit pending.
+- Check status: CodeRabbit passed.
 
 ## Notes
 
@@ -40,3 +40,6 @@ The PR body discloses maintainership and notes that Tree Ring Memory does not
 meet the repository's rough 100-star signal yet. The submission is framed under
 the shipped product with public documentation criterion, using the public launch
 site and v0.11.0 release as evidence.
+
+Follow-up check evidence:
+`https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910766924`

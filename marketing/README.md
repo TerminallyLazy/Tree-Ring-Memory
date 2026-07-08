@@ -344,6 +344,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/trionlabs/awesome-ai-memory/pull/2`
 - Trionlabs Awesome AI Memory evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910759111`
+- Trionlabs Awesome AI Memory check update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910766924`
 - Master AI Finder submission:
   `https://masteraifinder.com/registeryourwebsite.php`
 - Master AI Finder evidence update:
