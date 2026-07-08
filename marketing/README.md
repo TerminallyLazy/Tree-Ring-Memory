@@ -13,6 +13,9 @@ Launch and outreach materials for Tree Ring Memory.
 - `launch-kit.md`: channel-specific launch copy for GitHub, Hacker News,
   Reddit, X, YouTube, Product Hunt, LinkedIn, developer blogs, newsletters, and
   directories.
+- `tree-ring-memory-media-kit-repo.md`: public media-kit repository packet with
+  press copy, social drafts, creator brief, assets, Pages URL, and validation
+  proof.
 - `channel-playbook.md`: execution-ready platform playbook with current
   platform guardrails and post order.
 - `reply-bank.md`: response bank for HN, Reddit, Discussions, X, YouTube, and
@@ -203,6 +206,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
   merged listing and validation notes.
+- `tree-ring-memory-media-kit-repo.md`: public media-kit repository, Pages URL,
+  launch assets, press copy, social drafts, creator brief, and validation notes.
 - `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
   scanner proof, and marketplace packaging notes.
 - `hashgraph-awesome-codex-plugins-pr.md`: Hashgraph Awesome Codex Plugins PR

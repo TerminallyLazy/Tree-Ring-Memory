@@ -11,6 +11,8 @@ for manual posting from verified owner-controlled accounts.
 - Discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
 - Press kit: <https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md>
+- Media kit repo: <https://github.com/TerminallyLazy/tree-ring-memory-media-kit>
+- Media kit page: <https://terminallylazy.github.io/tree-ring-memory-media-kit/>
 - LLM summary: <https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt>
 - Feed: <https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml>
 - Agent-Skills.md listing:
