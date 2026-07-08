@@ -82,6 +82,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `correia-awesome-ai-tools-pr.md`: Correia Awesome AI Tools PR packet and
   validation notes.
+- `mdruhulkuddus-awesome-free-ai-tools-pr.md`: Awesome Free AI Tools PR packet
+  and validation notes.
 - `sam-blackfly-awesome-llm-tools-pr.md`: Sam Blackfly Awesome LLM Tools PR
   packet and validation notes.
 - `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
@@ -368,6 +370,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Mahseema Awesome AI Tools PR: `https://github.com/mahseema/awesome-ai-tools/pull/1742`
 - EUDK Awesome AI Tools PR: `https://github.com/eudk/awesome-ai-tools/pull/413`
 - Toolkitly Awesome AI Tools PR: `https://github.com/ToolkitlyAI/awesome-ai-tools/pull/57`
+- Awesome Free AI Tools PR:
+  `https://github.com/mdruhulkuddus/awesome-free-ai-tools/pull/19`
 - PierrunoYT Awesome AI Dev Tools PR:
   `https://github.com/PierrunoYT/awesome-ai-dev-tools/pull/37`
 - Rvelamen Awesome AI Tools PR:
