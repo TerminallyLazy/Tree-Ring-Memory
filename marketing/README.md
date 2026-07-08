@@ -144,6 +144,8 @@ Launch and outreach materials for Tree Ring Memory.
   hold notes for star-threshold and scope mismatches.
 - `alexwang-awesome-agent-memory-pr.md`: AlexWang Awesome Agent Memory PR packet
   and validation notes.
+- `siyuan-memory-mechanism-for-agent-pr.md`: Siyuan Awesome Memory Mechanism for
+  Agent PR packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
@@ -215,6 +217,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/kongshan001/agent-memory-frameworks-research/pull/1`
 - AlexWang Awesome Agent Memory PR:
   `https://github.com/AlexWang959/Awesome-Agent-Memory/pull/2`
+- Siyuan Memory Mechanism for Agent PR:
+  `https://github.com/SiyuanWan99/Awesome-Memory-Mechanism-for-Agent/pull/1`
 - Brandon Awesome AI Memory Systems PR: closed for maturity/scope fit; revisit
   after adoption evidence.
 - Tfatykhov Awesome Agent Memory PR: `https://github.com/tfatykhov/awesome-agent-memory/pull/12`
