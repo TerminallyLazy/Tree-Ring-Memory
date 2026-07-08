@@ -164,6 +164,10 @@ Launch and outreach materials for Tree Ring Memory.
   scanner proof, and marketplace packaging notes.
 - `hashgraph-awesome-codex-plugins-pr.md`: Hashgraph Awesome Codex Plugins PR
   packet and validation notes.
+- `kareldo-awesome-codex-pr.md`: KarelDO Awesome Codex PR packet and validation
+  notes.
+- `darknorth-awesome-codex-plugins-pr.md`: Darknorth Awesome Codex Plugins PR
+  packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
