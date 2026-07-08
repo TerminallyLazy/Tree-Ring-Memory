@@ -159,6 +159,8 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `oakeighty5-awesome-ai-agents-pr.md`: Oakeighty5 Awesome AI Agents PR packet
   and validation notes.
+- `pathonai-awesome-ai-agents-pr.md`: PathOnAI Awesome AI Agents PR packet and
+  validation notes.
 - `jmanhype-awesome-claude-code-pr.md`: Jmanhype Awesome Claude Code PR packet
   and validation notes.
 - `ratatui-awesome-ratatui-pr.md`: Awesome Ratatui PR packet, screenshot
@@ -342,6 +344,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Deep Insight Awesome AI Agents PR: `https://github.com/Deep-Insight-Labs/awesome-ai-agents/pull/35`
 - Groovy Web Awesome AI Agents PR: `https://github.com/groovy-web/awesome-ai-agents/pull/12`
 - Oakeighty5 Awesome AI Agents PR: `https://github.com/oakeighty5/awesome-ai-agents/pull/7`
+- PathOnAI Awesome AI Agents PR:
+  `https://github.com/PathOnAIOrg/awesome-ai-agents/pull/17`
 - ChatTeach Awesome AI Agents PR:
   `https://github.com/ChatTeach/Awesome-AI-Agents/pull/26`
 - Alexbevi Awesome Agent Frameworks PR:
