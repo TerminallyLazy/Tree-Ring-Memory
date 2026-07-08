@@ -90,6 +90,10 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `linny006-awesome-agent-skills-listing.md`: Linny006 Awesome Agent Skills
   live auto-indexed listing notes.
+- `shawnesquivel-awesome-agent-clis-pr.md`: Shawnesquivel Awesome Agent CLIs PR
+  packet and validation notes.
+- `nmaroulis-awesome-acp-hold.md`: Awesome Agent Client Protocol hold note for
+  ACP-scope mismatch.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
