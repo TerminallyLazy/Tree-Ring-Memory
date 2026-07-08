@@ -8,6 +8,8 @@ Launch and outreach materials for Tree Ring Memory.
   setup checklist, and profile asset mapping.
 - `account-creation-runbook.md`: owner-side signup order and exact profile
   fields for social, video, and blog accounts without storing secrets.
+- `social-handle-sweep-2026-07-08.md`: public unauthenticated handle/profile
+  checks for the priority social and blog accounts.
 - `launch-kit.md`: channel-specific launch copy for GitHub, Hacker News,
   Reddit, X, YouTube, Product Hunt, LinkedIn, developer blogs, newsletters, and
   directories.

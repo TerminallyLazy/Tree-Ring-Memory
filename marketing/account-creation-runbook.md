@@ -8,6 +8,10 @@ This runbook turns `account-setup.md` into an execution order. It intentionally
 does not store passwords, recovery codes, phone numbers, email aliases, OAuth
 tokens, or private contact details.
 
+Public unauthenticated handle checks are recorded in
+`social-handle-sweep-2026-07-08.md`. Use them as a signup starting point, not
+as proof that a platform will reserve the handle after verification.
+
 ## Owner-Side Ground Rules
 
 - Create accounts from an owner-controlled browser session.
