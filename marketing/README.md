@@ -156,6 +156,14 @@ Launch and outreach materials for Tree Ring Memory.
   structured issue-form submission packet and validation notes.
 - `danielrosehill-awesome-ai-coding-tools-pr.md`: Daniel Rosehill Awesome AI
   Coding Tools PR packet and validation notes.
+- `ai-for-developers-awesome-ai-coding-tools-pr.md`: AI for Developers Awesome
+  AI Coding Tools PR packet and validation notes.
+- `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
+  merged listing and validation notes.
+- `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
+  scanner proof, and marketplace packaging notes.
+- `hashgraph-awesome-codex-plugins-pr.md`: Hashgraph Awesome Codex Plugins PR
+  packet and validation notes.
 - `agent-memory-search-holds.md`: Agent-memory search hold notes for mirrors,
   archived repos, and product-repo scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
