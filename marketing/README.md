@@ -96,6 +96,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `getstream-ai-agent-tools-catalog-pr.md`: GetStream AI Agent Tools Catalog PR
   packet and validation notes.
+- `aiagenta2z-ai-agent-marketplace-pr.md`: AI Agent Marketplace PR packet and
+  validation notes.
 - `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
   Infrastructure PR packet and validation notes.
 - `mrtnrocks-awesome-agent-infrastructure-pr.md`: Mrtnrocks Awesome Agent
@@ -390,6 +392,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/sumanth-dhanya/llm-toolkit/pull/4`
 - GetStream AI Agent Tools Catalog PR:
   `https://github.com/GetStream/ai-agent-tools-catalog/pull/15`
+- AI Agent Marketplace PR:
+  `https://github.com/aiagenta2z/ai-agent-marketplace/pull/24`
 - Awesome Skills ZH PR:
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
 - Junminhong Awesome Agent Skills PR:
@@ -646,6 +650,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/GetStream/ai-agent-tools-catalog/pull/15`
 - GetStream AI Agent Tools Catalog evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4916160526`
+- AI Agent Marketplace PR:
+  `https://github.com/aiagenta2z/ai-agent-marketplace/pull/24`
+- AI Agent Marketplace evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4916244166`
 - Awesome Skills ZH PR:
   `https://github.com/yzfly/awesome-skills-zh/pull/8`
 - Awesome Skills ZH evidence update:
