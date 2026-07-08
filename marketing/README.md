@@ -211,6 +211,8 @@ Launch and outreach materials for Tree Ring Memory.
   notes.
 - `darknorth-awesome-codex-plugins-pr.md`: Darknorth Awesome Codex Plugins PR
   packet and validation notes.
+- `noah-awesome-codex-plugins-pr.md`: Noah Awesome Codex Plugins PR packet and
+  validation notes.
 - `dmgrok-agent-plugins-source-issue.md`: Agent Plugins provider issue,
   validation proof, and auto-created PR tracking.
 - `0xnyk-awesome-hermes-agent-issue.md`: Awesome Hermes Agent resource
