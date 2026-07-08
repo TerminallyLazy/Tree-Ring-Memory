@@ -84,6 +84,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `mdruhulkuddus-awesome-free-ai-tools-pr.md`: Awesome Free AI Tools PR packet
   and validation notes.
+- `alexbevi-awesome-agent-frameworks-pr.md`: Alexbevi Awesome Agent Frameworks
+  PR packet and validation notes.
 - `sam-blackfly-awesome-llm-tools-pr.md`: Sam Blackfly Awesome LLM Tools PR
   packet and validation notes.
 - `las-wg-awesome-agent-infrastructure-pr.md`: LAS-WG Awesome Agent
@@ -341,6 +343,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Oakeighty5 Awesome AI Agents PR: `https://github.com/oakeighty5/awesome-ai-agents/pull/7`
 - ChatTeach Awesome AI Agents PR:
   `https://github.com/ChatTeach/Awesome-AI-Agents/pull/26`
+- Alexbevi Awesome Agent Frameworks PR:
+  `https://github.com/alexbevi/awesome-agent-frameworks/pull/2`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
 - Sam Blackfly Awesome LLM Tools PR:
   `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
