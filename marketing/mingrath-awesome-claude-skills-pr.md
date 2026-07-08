@@ -28,7 +28,8 @@
 - Read `CONTRIBUTING.md`; the entry follows the target format and keeps the
   description to 89 characters, under the 150 character limit.
 - Ran `git diff --check`.
-- PR state: open, ready, mergeable, with CodeRabbit pending at submission time.
+- PR state: open, ready, mergeable.
+- Check status after submission: CodeRabbit succeeded.
 
 ## Notes
 
