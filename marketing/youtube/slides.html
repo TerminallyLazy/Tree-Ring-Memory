@@ -41,7 +41,10 @@
         radial-gradient(circle at 12% 88%, rgba(1, 134, 149, 0.18), transparent 24%);
     }
 
-    .slide.active { display: grid; }
+    .slide.active {
+      display: grid;
+      align-content: start;
+    }
 
     .brand-strip {
       display: grid;
@@ -122,6 +125,25 @@
     .ring:nth-child(4) { border-left-color: var(--brown); }
     .ring:nth-child(5) { border-left-color: var(--coral); }
     .ring:nth-child(6) { border-left-color: var(--navy); }
+
+    .ring-model h2 {
+      font-size: 98px;
+    }
+
+    .ring-model .rings {
+      gap: 18px;
+      margin-top: 42px;
+    }
+
+    .ring-model .card {
+      min-height: 138px;
+      padding: 22px 26px;
+      font-size: 31px;
+    }
+
+    .ring-model .card small {
+      font-size: 22px;
+    }
 
     .terminal {
       margin-top: 46px;
@@ -207,7 +229,7 @@
       <div class="footer"><span>Memory needs a lifecycle.</span><span class="url">Tree Ring Memory</span></div>
     </section>
 
-    <section class="slide" data-slide="3">
+    <section class="slide ring-model" data-slide="3">
       <p class="eyebrow">The model</p>
       <h2>Memory should age like rings.</h2>
       <div class="rings">
