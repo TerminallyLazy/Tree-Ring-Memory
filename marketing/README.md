@@ -70,6 +70,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `pingan-awesome-ai-tools-pr.md`: Pingan Awesome AI Tools PR packet and
   validation notes.
+- `aliammari-awesome-ai-tools-pr.md`: Aliammari Awesome AI Tools PR packet and
+  validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -310,6 +312,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/pingan8787/awesome-ai-tools/pull/169`
 - Pingan Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910093876`
+- Aliammari Awesome AI Tools PR:
+  `https://github.com/aliammari1/awesome-ai-tools/pull/118`
+- Aliammari Awesome AI Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910135658`
 
 ## Drafted For Owner Review
 
@@ -355,6 +361,11 @@ python3 marketing/scripts/build-campaign-cards.py
   AI assistants and agents.
 - Best of AI: held because the contribution guide says not to submit your own
   tool unless it is already well-known in the community.
+- Tankvn Awesome AI Tools: held because its contribution rules require more
+  than 128 GitHub stars and Tree Ring currently has 3 stars.
+- JMcrafter26 Awesome AI Tools: held because its contribution rules treat
+  self-owned repos under 50 stars as advertising and Tree Ring currently has 3
+  stars.
 
 ## Account-Creation Boundary
 

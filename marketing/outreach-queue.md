@@ -159,6 +159,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | OpenBestOf Awesome AI PR | Submitted | https://github.com/openbestof/awesome-ai/pull/84 | Adds Tree Ring Memory to the LLMs Framework table in a broad AI tools and frameworks list; duplicate PR/README search, table-shape check, URL checks, and `git diff --check` passed; PR is ready for review, mergeable, and reports no checks; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910036594. |
 | 0voice Awesome AI Tools PR | Submitted | https://github.com/0voice/awesome-ai-tools/pull/71 | Adds Tree Ring Memory to 编程开发类 / AI代理与智能体开发 in a Chinese AI tools directory; duplicate PR/issue/README search, table-shape check, URL check, and `git diff --check` passed; PR is ready for review, mergeable, and reports no checks; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910064921. |
 | Pingan Awesome AI Tools PR | Submitted | https://github.com/pingan8787/awesome-ai-tools/pull/169 | Adds Tree Ring Memory to the Dev section in a broad AI tools directory; duplicate PR/issue/README search, single-entry check, URL check, and `git diff --check` passed; PR is ready for review, mergeable, and GitGuardian Security Checks passed; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910093876. |
+| Aliammari Awesome AI Tools PR | Submitted | https://github.com/aliammari1/awesome-ai-tools/pull/118 | Adds Tree Ring Memory to AI Agents & Automation in a broad AI tools list; duplicate PR/issue search, source URL check, and `git diff --check` passed; PR is ready for review and mergeable; GitGuardian, Sourcery, SonarCloud, DeepScan, CodeRabbit, and Cubic passed; evidence comments: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910135658 and https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910149365. |
 
 ## Drafted For Owner Review
 
@@ -199,6 +200,8 @@ posted unless the post exists publicly and the URL is recorded here.
 | Best of AI | Hold | https://github.com/best-of-ai/best-of-ai | Contribution guide says not to submit your own tool unless it is already well-known in the community; revisit after stronger community proof or third-party nomination. |
 | EthicalML Awesome Production Agentic Systems | Hold | https://github.com/EthicalML/awesome-production-agentic-systems | Contribution rules require tools to have at least 500 GitHub stars; Tree Ring does not meet that threshold. |
 | Agent-Tools Awesome Autonomous Web | Hold | https://github.com/Agent-Tools/awesome-autonomous-web | Scope is browser/web automation, auth, web search, CAPTCHA, and GraphQL consumption for agents; Tree Ring is memory infrastructure, so no PR was opened. |
+| Tankvn Awesome AI Tools | Hold | https://github.com/tankvn/awesome-ai-tools | Contribution rules require more than 128 GitHub stars; Tree Ring had 3 stars when checked on July 7, 2026. |
+| JMcrafter26 Awesome AI Tools | Hold | https://github.com/JMcrafter26/awesome-ai-tools | Contribution rules treat self-owned repos under 50 GitHub stars as advertising; Tree Ring had 3 stars when checked on July 7, 2026. |
 
 ## Ready To Post After Account Verification
 
