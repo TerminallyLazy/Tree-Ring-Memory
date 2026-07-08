@@ -121,6 +121,8 @@ Launch and outreach materials for Tree Ring Memory.
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
   and validation notes.
+- `siilwyn-awesome-cli-tools-pr.md`: Siilwyn Awesome CLI Tools PR packet and
+  validation notes.
 - `coderperseus-awesome-cli-tools-for-agents-pr.md`: Awesome CLI Tools For
   Agents PR packet and validation notes.
 - `openbestof-awesome-ai-pr.md`: OpenBestOf Awesome AI PR packet and validation
