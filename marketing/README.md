@@ -242,6 +242,8 @@ Launch and outreach materials for Tree Ring Memory.
   ZH PR packet and validation notes.
 - `bbylw-awesome-claude-skills-cn-pr.md`: Bbylw Awesome Claude Skills CN PR
   packet and validation notes.
+- `ammosu-awesome-claude-skills-zh-tw-pr.md`: Ammosu Awesome Claude Skills
+  ZH-TW PR packet and validation notes.
 - `shajith003-awesome-claude-skills-hold.md`: Awesome Claude Skills hold note
   for malformed ZIP-only catalog links.
 - `openclaw-skills-hold.md`: OpenClaw skills list hold note for the ClawHub
@@ -443,6 +445,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/shishirui/awesome-claude-skills-zh/pull/8`
 - Bbylw Awesome Claude Skills CN PR:
   `https://github.com/bbylw/awesome-claude-skills-cn/pull/8`
+- Ammosu Awesome Claude Skills ZH-TW PR:
+  `https://github.com/ammosu/awesome-claude-skills-zh-TW/pull/7`
 - Ishandutta Awesome Claude Skills PR:
   `https://github.com/ishandutta2007/Awesome-Claude-Skills/pull/7`
 - Awesome LLM Knowledge Systems issue:
