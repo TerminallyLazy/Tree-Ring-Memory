@@ -37,9 +37,10 @@ Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 
 ## This Week In Rust PR Snippet
 
-Use this only after checking the current draft file in
-`rust-lang/this-week-in-rust`. The TWiR guidelines prefer useful Rust-specific
-write-ups over bare repository links.
+Historical record only. Do not use this snippet for TWiR in the current
+AI-driven launch campaign. PR #8346 was closed without merge on 2026-07-08
+after a maintainer requested that TWiR not be included in an AI-driven mass
+submission campaign.
 
 ```markdown
 - [Building A Rust-Native Memory Lifecycle CLI For AI Agents](https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md)

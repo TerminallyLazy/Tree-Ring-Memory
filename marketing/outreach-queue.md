@@ -19,7 +19,7 @@ posted unless the post exists publicly and the URL is recorded here.
 | Atom launch feed | Live | https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml | Syndication and crawler surface. |
 | Rust-native CLI article | Live | https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md | Rust-specific article for newsletters and developer-tool submissions. |
 | IndexNow launch URL batch | Submitted | https://api.indexnow.org/indexnow | Public key file is live at `https://terminallylazy.github.io/Tree-Ring-Memory/0bfd1a9f8a68e38d590817b8ea1ed1e2.txt`; bulk URL POST returned HTTP `202` for seven launch URLs; evidence comment: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4909613838. |
-| This Week in Rust PR | Submitted | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Adds the Rust article to issue 659 Project/Tooling Updates. |
+| This Week in Rust PR | Closed | https://github.com/rust-lang/this-week-in-rust/pull/8346 | Closed without merge on 2026-07-08 after maintainer feedback requested that TWiR not be included in an AI-driven mass submission campaign. Do not resubmit through this campaign. |
 | Awesome Context Engineering PR | Submitted | https://github.com/jihoo-kim/awesome-context-engineering/pull/23 | Adds Tree Ring Memory to Long-term memory in a context-engineering library directory; PR is clean and reports no checks. |
 | Meirtz Awesome Context Engineering PR | Submitted | https://github.com/Meirtz/Awesome-Context-Engineering/pull/89 | Adds Tree Ring Memory to Developer Tools with Context Engineering in a large survey directory; PR is clean and reports no checks. |
 | Yzfly Awesome Context Engineering PR | Submitted | https://github.com/yzfly/awesome-context-engineering/pull/20 | Adds Tree Ring Memory to Memory & Compression in English and Chinese context-engineering docs; PR is clean and reports no checks. |
@@ -278,7 +278,7 @@ posted unless the post exists publicly and the URL is recorded here.
 
 ### Developer Newsletters
 
-- Rust This Week.
+- Rust This Week: closed for this campaign after maintainer feedback on PR #8346.
 - console.dev.
 - This Week in AI.
 - Latent Space community links.
