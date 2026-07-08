@@ -164,6 +164,8 @@ Launch and outreach materials for Tree Ring Memory.
   adapter PR packet and validation notes.
 - `aleksei-agent-memory-benchmark-pr.md`: Aleksei Agent Memory Benchmark Tree
   Ring adapter PR packet and validation notes.
+- `daksh-agent-memory-benchmarker-pr.md`: Daksh Jain Agent Memory Benchmarker
+  Tree Ring backend PR packet and validation notes.
 - `master-ai-finder-submission.md`: Master AI Finder free directory submission
   packet and accepted response notes.
 - `ghimiresunil-top-ai-tools-pr.md`: Top AI Tools PR packet, validation notes,
