@@ -166,6 +166,8 @@ Launch and outreach materials for Tree Ring Memory.
   packet and validation notes.
 - `hashgraph-awesome-ai-plugins-pr.md`: Hashgraph Awesome AI Plugins PR packet
   and validation notes.
+- `sickn33-antigravity-awesome-skills-pr.md`: Antigravity Awesome Skills PR
+  packet and validation notes.
 - `kareldo-awesome-codex-pr.md`: KarelDO Awesome Codex PR packet and validation
   notes.
 - `darknorth-awesome-codex-plugins-pr.md`: Darknorth Awesome Codex Plugins PR
