@@ -76,6 +76,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `correia-awesome-ai-tools-pr.md`: Correia Awesome AI Tools PR packet and
   validation notes.
+- `sam-blackfly-awesome-llm-tools-pr.md`: Sam Blackfly Awesome LLM Tools PR
+  packet and validation notes.
 - `runaicode-awesome-ai-coding-tools-pr.md`: Runaicode Awesome AI Coding Tools
   PR packet and validation notes.
 - `lgaggini-awesome-cli-tui-software-pr.md`: Awesome CLI/TUI Software PR packet
@@ -180,6 +182,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - ChatTeach Awesome AI Agents PR:
   `https://github.com/ChatTeach/Awesome-AI-Agents/pull/26`
 - Awesome LLM Agent Frameworks PR: `https://github.com/kaushikb11/awesome-llm-agents/pull/282`
+- Sam Blackfly Awesome LLM Tools PR:
+  `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
 - Awesome Harness Engineering PR: `https://github.com/ai-boost/awesome-harness-engineering/pull/108`
 - Schickling Awesome Local-First PR: `https://github.com/schickling/awesome-local-first/pull/39`
 - Awesome AI Coding Tools PR: `https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/514`
@@ -352,6 +356,10 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/Correia-jpv/fucking-awesome-ai-tools/pull/30`
 - Correia Awesome AI Tools evidence update:
   `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910275592`
+- Sam Blackfly Awesome LLM Tools PR:
+  `https://github.com/sam-blackfly/awesome-llm-tools/pull/4`
+- Sam Blackfly Awesome LLM Tools evidence update:
+  `https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26#issuecomment-4910305889`
 
 ## Drafted For Owner Review
 
