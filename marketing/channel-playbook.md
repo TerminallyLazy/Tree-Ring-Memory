@@ -13,6 +13,10 @@ for manual posting from verified owner-controlled accounts.
 - Press kit: <https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md>
 - LLM summary: <https://terminallylazy.github.io/Tree-Ring-Memory/llms.txt>
 - Feed: <https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml>
+- Agent-Skills.md listing:
+  <https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory>
+- HeyClaude / Awesome Claude source entry:
+  <https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx>
 
 ## Official Guardrails Checked
 
@@ -103,6 +107,8 @@ tree-ring recall "release changes"
 
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
 Release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0
+Agent skill listing: https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+HeyClaude source entry: https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
 ````
 
 Execution notes:

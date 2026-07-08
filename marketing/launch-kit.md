@@ -38,6 +38,8 @@ remain visible, and durable truths become heartwood.
 - DOX and Revolve sync adapters.
 - Framework discovery for common agent harnesses.
 - Terminal onboarding and Ratatui operator console.
+- Third-party discovery proof: Tree Ring Memory is indexed on Agent-Skills.md
+  and merged into HeyClaude / Awesome Claude as a source-backed skills entry.
 
 ### Install Command
 
@@ -173,6 +175,8 @@ tree-ring recall "release changes"
 ```
 
 Repo: https://github.com/TerminallyLazy/Tree-Ring-Memory
+Agent skill listing: https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+HeyClaude source listing: https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
 ````
 
 ### HN Reply Angles
@@ -234,6 +238,10 @@ tree-ring tui
 
 I would value feedback on the Rust CLI/storage shape, the SQLite/FTS approach,
 and what should stay deterministic versus adapter-driven.
+
+The portable skill package is also indexed here if you want to inspect the
+agent-facing instructions before installing:
+https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
 ````
 
 ### r/LocalLLaMA
@@ -271,6 +279,9 @@ https://terminallylazy.github.io/Tree-Ring-Memory/
 
 I am looking for feedback from people running local agent stacks: what adapter
 or workflow would make this useful in your setup?
+
+For agent-skill users, the source-backed HeyClaude entry is here:
+https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
 ```
 
 ### r/opensource

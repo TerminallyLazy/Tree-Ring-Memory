@@ -46,6 +46,12 @@ redact, import, export, and adapt.
 
 The goal is portability across frameworks rather than another agent harness.
 
+If you want the agent-facing package instead of the whole repo, the portable
+skill is indexed on Agent-Skills.md and has a source-backed HeyClaude entry:
+
+- https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+- https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
+
 ## Does It Record Everything Automatically?
 
 No. Tree Ring Memory does not run a hidden recorder or scrape transcripts.
