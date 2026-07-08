@@ -166,6 +166,8 @@ Launch and outreach materials for Tree Ring Memory.
   validation notes.
 - `rafska-awesome-local-llm-pr.md`: Awesome Local LLM PR packet and validation
   notes.
+- `tensorchord-awesome-llmops-pr.md`: Awesome LLMOps PR packet and validation
+  notes.
 - `awakehsh-awesome-agent-tools-listing.md`: Awakehsh Awesome Agent Tools
   merged listing and validation notes.
 - `tree-ring-memory-codex-plugin-repo.md`: public Codex plugin wrapper repo,
