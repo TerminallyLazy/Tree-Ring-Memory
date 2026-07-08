@@ -138,6 +138,10 @@ Launch and outreach materials for Tree Ring Memory.
   and validation notes.
 - `frangelbarrera-awesome-ai-agents-pr.md`: Frangel Barrera Awesome AI Agents
   PR packet and validation notes.
+- `jmanhype-awesome-claude-code-pr.md`: Jmanhype Awesome Claude Code PR packet
+  and validation notes.
+- `claude-code-and-coding-agents-holds.md`: Claude Code and coding-agent list
+  hold notes for star-threshold and scope mismatches.
 - `submission-ledger.csv`: platform-by-platform status tracker for external
   outlets.
 - Pages discovery files: `docs/robots.txt`, `docs/sitemap.xml`, `docs/llms.txt`,
@@ -220,6 +224,8 @@ python3 marketing/scripts/build-campaign-cards.py
 - Awesome Coding Agents listing: `https://github.com/kailiu42/awesome-coding-agents#cli-agent-helpers`
 - Wdzhwsh Awesome Coding Agents PR:
   `https://github.com/wdzhwsh4067/awesome-coding-agents/pull/9`
+- Jmanhype Awesome Claude Code PR:
+  `https://github.com/jmanhype/awesome-claude-code/pull/74`
 - Command Line Tools listing: `https://github.com/linsa-io/command-line-tools#rust`
 - Awesome AI Agents PR: `https://github.com/jim-schwoebel/awesome_ai_agents/pull/382`
 - Thulas Awesome AI Agents PR: `https://github.com/thulas42/awesome-ai-agents/pull/3`
