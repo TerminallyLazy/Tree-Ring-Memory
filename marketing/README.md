@@ -194,6 +194,8 @@ Launch and outreach materials for Tree Ring Memory.
   Engineering PR packet and validation notes.
 - `astek-awesome-context-engineering-pr.md`: Astek Awesome Context Engineering
   PR packet and validation notes.
+- `claudier-awesome-context-engineering-pr.md`: ClaudierOrlandi Awesome Context
+  Engineering PR packet and validation notes.
 - `qainsights-awesome-ai-tools-submission.md`: QAInsights Awesome AI Tools
   structured issue-form submission packet and validation notes.
 - `danielrosehill-awesome-ai-coding-tools-pr.md`: Daniel Rosehill Awesome AI
@@ -317,6 +319,8 @@ python3 marketing/scripts/build-campaign-cards.py
   `https://github.com/ranjithrajv/awesome-context-engineering/pull/2`
 - Astek Awesome Context Engineering PR:
   `https://github.com/AstekGroup/awesome-context-engineering/pull/10`
+- ClaudierOrlandi Awesome Context Engineering PR:
+  `https://github.com/ClaudierOrlandi/Awesome-Context-Engineering/pull/2`
 - QAInsights Awesome AI Tools submission:
   `https://github.com/QAInsights/awesome-ai-tools/issues/87`
 - Daniel Rosehill Awesome AI Coding Tools PR:
