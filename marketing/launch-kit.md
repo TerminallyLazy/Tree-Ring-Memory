@@ -317,6 +317,77 @@ Feedback wanted: docs clarity, install friction, privacy/forgetting model, and
 which agent integrations should come first.
 ```
 
+### r/commandline
+
+Title:
+
+```text
+Tree Ring Memory: a Rust CLI/TUI for local AI-agent memory
+```
+
+Body:
+
+````markdown
+I built Tree Ring Memory as a command-line memory lifecycle tool for AI-agent
+workflows.
+
+The public runtime is Rust-native and local-first:
+
+- explicit durable writes through `tree-ring remember`
+- scoped SQLite/FTS recall through `tree-ring recall`
+- audit, consolidation, maintenance, forgetting, and redaction flows
+- JSONL import/export for portability
+- DOX/Revolve source adapters
+- Ratatui `tree-ring tui` for terminal review
+
+Repo:
+https://github.com/TerminallyLazy/Tree-Ring-Memory
+
+Install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+tree-ring init
+tree-ring tui
+```
+
+Feedback wanted: command names, output shape, install friction, TUI usefulness,
+and whether the import/export flow feels Unix-friendly.
+````
+
+### r/AI_Agents
+
+Title:
+
+```text
+Framework-agnostic memory lifecycle for AI agents
+```
+
+Body:
+
+````markdown
+I built Tree Ring Memory as a local-first memory lifecycle layer for AI-agent
+workflows.
+
+It is not another agent framework. It handles the memory substrate beside one:
+remember, recall, evidence, audit, consolidate, forget, redact, import, export,
+and adapt.
+
+The current runtime is a Rust CLI with local SQLite/FTS storage. The model is
+tree-ring based: fresh context stays detailed, older learning compresses,
+negative lessons stay visible as scars, durable truths become heartwood, and
+unresolved follow-ups remain seeds.
+
+Repo:
+https://github.com/TerminallyLazy/Tree-Ring-Memory
+
+Agent-facing package:
+https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+
+I am looking for feedback from people building agents: where should adapter
+writes sit so memory is useful without becoming automatic transcript hoarding?
+````
+
 ## X
 
 ### Launch Thread

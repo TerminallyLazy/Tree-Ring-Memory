@@ -235,6 +235,104 @@ Feedback wanted: docs clarity, install friction, privacy/forgetting model, and
 which agent integrations should come first.
 ```
 
+### r/commandline
+
+Title:
+
+```text
+Tree Ring Memory: a Rust CLI/TUI for local AI-agent memory
+```
+
+Body:
+
+````markdown
+I built Tree Ring Memory as a command-line memory lifecycle tool for AI-agent
+workflows.
+
+The public runtime is Rust-native and local-first:
+
+- `tree-ring remember` for explicit durable lessons, warnings, preferences,
+  evidence, scars, and seeds
+- `tree-ring recall` for scoped SQLite/FTS recall
+- `tree-ring audit` and maintenance flows for stale/sensitive memory
+- JSONL import/export for portability
+- DOX/Revolve source adapters
+- Ratatui `tree-ring tui` for reviewing memory state in the terminal
+
+It is not a hidden transcript recorder. The CLI is meant to make memory
+inspectable, explainable, and forgettable.
+
+Repo:
+https://github.com/TerminallyLazy/Tree-Ring-Memory
+
+Install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+tree-ring init
+tree-ring remember "Prefer project-scoped recall before risky changes." --event-type lesson --scope project
+tree-ring recall "risky changes"
+tree-ring tui
+```
+
+I would value command-line feedback: naming, output shape, install friction,
+TUI usefulness, and what a Unix-friendly memory export/import flow should look
+like.
+````
+
+Execution notes:
+
+- Read current `r/commandline` rules before posting.
+- Prefer the repo link over the landing page if link-post rules are strict.
+- Keep replies about CLI behavior, storage, portability, and terminal UX.
+
+### r/AI_Agents
+
+Title:
+
+```text
+Framework-agnostic memory lifecycle for AI agents
+```
+
+Body:
+
+````markdown
+I built Tree Ring Memory as a local-first memory lifecycle layer for AI-agent
+workflows.
+
+It is not another agent framework. It is the memory substrate beside one:
+explicit writes, scoped recall, evidence records, audit, consolidation,
+forgetting, redaction, JSONL import/export, and adapter hooks.
+
+The current runtime is a Rust CLI with local SQLite/FTS storage. The model uses
+tree-ring lifecycle states:
+
+- fresh context stays detailed
+- older learning compresses into rings
+- negative lessons stay visible as scars
+- durable truths become heartwood
+- unresolved follow-ups remain seeds
+
+Repo:
+https://github.com/TerminallyLazy/Tree-Ring-Memory
+
+Portable skill package:
+https://agent-skills.md/skills/TerminallyLazy/tree-ring-memory-skill/tree-ring-memory
+
+Source-backed HeyClaude entry:
+https://github.com/JSONbored/awesome-claude/blob/main/content/skills/tree-ring-memory.mdx
+
+I am looking for feedback from people building agents: where should the adapter
+boundary sit so memory is useful without becoming automatic transcript hoarding?
+````
+
+Execution notes:
+
+- Read current `r/AI_Agents` self-promotion and project-post rules before
+  posting.
+- Disclose maintainer affiliation in the post or first comment.
+- Stay focused on agent memory lifecycle and adapters, not broad AI hype.
+
 ## X
 
 Pinned profile link:
