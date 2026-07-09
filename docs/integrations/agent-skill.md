@@ -93,6 +93,9 @@ Use these gates when wiring Tree Ring into an agent harness:
 - Write gates: reject transient planning chatter, duplicate wording, tool noise, and unsupported claims; require evidence refs for promoted or rejected evaluated outcomes.
 
 The certification suite includes quality scenarios that exercise missed constraints, memory spam, stale truth suppression, and behavior proof.
+Quality artifacts are written to
+`target/tree-ring-certification/quality/quality-report.json` and
+`target/tree-ring-certification/quality/quality-summary.md`.
 
 ## Source Adapter Flow
 
