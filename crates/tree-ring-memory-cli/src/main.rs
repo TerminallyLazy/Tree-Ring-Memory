@@ -15,6 +15,9 @@ use actions::export_import::{
     ImportActionRequest,
 };
 use actions::integrations::{scan as integration_scan_action, IntegrationScanRequest};
+use harness_evidence::{
+    certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
+};
 use actions::lifecycle::{
     consolidate, consolidate_dry_run_from_path, maintain, ConsolidateActionRequest,
     MaintainActionRequest,
@@ -254,6 +257,16 @@ enum IntegrationCommand {
         #[arg(long, default_value = ".", help = "project root to scan")]
         source_root: PathBuf,
     },
+    #[command(about = "write non-mutating harness certification evidence")]
+    Certify {
+        #[arg(long, default_value = ".", help = "project root to certify")]
+        source_root: PathBuf,
+        #[arg(
+            long,
+            help = "evidence output directory; defaults to <source-root>/target/tree-ring-certification"
+        )]
+        out_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -323,6 +336,25 @@ fn run(cli: Cli) -> Result<(), String> {
             source_root: source_root.clone(),
         });
         print_integration_report(&report.report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
+            IntegrationCommand::Certify {
+                source_root,
+                out_dir,
+            },
+    } = &cli.command
+    {
+        let evidence_dir = out_dir
+            .clone()
+            .unwrap_or_else(|| evidence::certification_dir_for_project(source_root));
+        let report = certify_harnesses(HarnessCertificationRequest {
+            source_root: source_root.clone(),
+            evidence_dir,
+        })?;
+        print_harness_certification_report(&report, cli.json)?;
         return Ok(());
     }
 
@@ -646,7 +678,7 @@ fn run(cli: Cli) -> Result<(), String> {
             unreachable!("welcome returns before opening the scriptable store")
         }
         Command::Integrations { .. } => {
-            unreachable!("integrations scan returns before opening the scriptable store")
+            unreachable!("integrations commands return before opening the scriptable store")
         }
         Command::Dox {
             command:
@@ -1002,6 +1034,39 @@ fn print_integration_report(
     Ok(())
 }
 
+fn print_harness_certification_report(
+    report: &HarnessCertificationReport,
+    json_output: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            json!({
+                "ok": true,
+                "report": report,
+            })
+        );
+    } else {
+        println!(
+            "Tree Ring Memory harness certification: pass={} fail={} skip={} evidence={}",
+            report.pass_count,
+            report.fail_count,
+            report.skip_count,
+            report.evidence_dir.display()
+        );
+        for record in &report.records {
+            println!(
+                "{} [{}] {}",
+                record.name,
+                record.status.as_str(),
+                record.summary
+            );
+            println!("  next: {}", record.next_step);
+        }
+    }
+    Ok(())
+}
+
 fn print_agent_awareness_summary(report: &agent_awareness::AgentAwarenessReport) {
     if !report.created.is_empty() {
         println!("Agent awareness files created:");
@@ -1156,6 +1221,65 @@ mod tests {
         .unwrap();
 
         assert!(!root.join("memory.sqlite").exists());
+    }
+
+    #[test]
+    fn integrations_certify_writes_harness_evidence_without_memory_store() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
+        fs::create_dir_all(dir.path().join(".tree-ring")).unwrap();
+        fs::write(
+            dir.path().join(".tree-ring/SKILL.md"),
+            "Use `tree-ring recall` and `tree-ring remember`.",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".tree-ring/CLI.md"),
+            "`tree-ring recall` and `tree-ring remember` are available.",
+        )
+        .unwrap();
+        let root = dir.path().join(".tree-ring-memory");
+        let out_dir = dir.path().join("proof");
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "--json",
+            "integrations",
+            "certify",
+            "--source-root",
+            dir.path().to_str().unwrap(),
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+        ]))
+        .unwrap();
+
+        assert!(!root.join("memory.sqlite").exists());
+        assert!(out_dir.join("harness/codex.json").exists());
+        let index = fs::read_to_string(out_dir.join("evidence-index.json")).unwrap();
+        assert!(index.contains("\"codex\""));
+        let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
+        assert_eq!(parsed["harness"]["codex"]["status"], "pass");
+    }
+
+    #[test]
+    fn integrations_certify_defaults_to_project_certification_dir() {
+        let dir = tempdir().unwrap();
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "integrations",
+            "certify",
+            "--source-root",
+            dir.path().to_str().unwrap(),
+        ]))
+        .unwrap();
+
+        assert!(dir
+            .path()
+            .join("target/tree-ring-certification/harness/codex.json")
+            .exists());
     }
 
     #[test]
