@@ -15,6 +15,7 @@ use tree_ring_memory_core::{MemoryEvent, MemoryLink};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 mod agent_awareness;
+mod actions;
 mod integrations;
 mod ring_mark;
 mod tui;
