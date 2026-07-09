@@ -13,6 +13,7 @@ pub enum SlashCommand {
     Export(String),
     Sync,
     Integrations,
+    Evidence(String),
     Stream,
     Watch,
     Unknown(String),
@@ -38,6 +39,7 @@ pub fn parse_slash_command(input: &str) -> SlashCommand {
         "export" => SlashCommand::Export(argument),
         "sync" => SlashCommand::Sync,
         "integrations" | "connect" => SlashCommand::Integrations,
+        "evidence" | "proof" => SlashCommand::Evidence(argument),
         "stream" => SlashCommand::Stream,
         "watch" => SlashCommand::Watch,
         "" => SlashCommand::Unknown(String::new()),
@@ -46,7 +48,7 @@ pub fn parse_slash_command(input: &str) -> SlashCommand {
 }
 
 pub fn command_help() -> &'static str {
-    "/rings /search <q> /remember <summary> /forget /redact /promote /scar /seed /supersede <old_id> /consolidate /export <file> /sync /integrations"
+    "/rings /search <q> /remember <summary> /forget /redact /promote /scar /seed /supersede <old_id> /consolidate /export <file> /sync /integrations /evidence"
 }
 
 #[cfg(test)]
@@ -89,5 +91,17 @@ mod tests {
             SlashCommand::Integrations
         );
         assert_eq!(parse_slash_command("/connect"), SlashCommand::Integrations);
+    }
+
+    #[test]
+    fn parses_evidence_command_and_refresh_argument() {
+        assert_eq!(
+            parse_slash_command("/evidence"),
+            SlashCommand::Evidence(String::new())
+        );
+        assert_eq!(
+            parse_slash_command("/proof refresh"),
+            SlashCommand::Evidence("refresh".to_string())
+        );
     }
 }

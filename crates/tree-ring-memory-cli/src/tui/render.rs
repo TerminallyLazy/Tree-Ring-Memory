@@ -96,6 +96,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
         AppMode::Stream => "stream",
         AppMode::Watch => "watch",
         AppMode::Integrations => "integrations",
+        AppMode::Evidence => "evidence",
     };
     let header = Paragraph::new(Line::from(vec![
         Span::styled("TREE RING MEMORY", theme::brand()),

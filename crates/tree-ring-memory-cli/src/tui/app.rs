@@ -7,6 +7,7 @@ use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
 use crate::actions::export_import::{export_jsonl, ExportActionRequest};
 use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
 use crate::actions::remember::{remember, RememberRequest};
+use crate::evidence::{certification_dir_for_project, load_snapshot, EvidenceSnapshot};
 use crate::integrations::IntegrationScanReport;
 
 use super::actions::{ActionKind, PendingAction};
@@ -24,6 +25,7 @@ pub enum AppMode {
     Stream,
     Watch,
     Integrations,
+    Evidence,
 }
 
 pub struct App {
@@ -44,6 +46,7 @@ pub struct App {
     pub status: String,
     pub live_events: Vec<LiveEvent>,
     pub integration_report: Option<IntegrationScanReport>,
+    pub evidence_snapshot: Option<EvidenceSnapshot>,
     event_stream: Option<EventStreamReader>,
     pub tick: u64,
     pub should_quit: bool,
@@ -71,6 +74,7 @@ impl App {
             status: format!("Store {}", db_path.display()),
             live_events: Vec::new(),
             integration_report: None,
+            evidence_snapshot: None,
             event_stream: event_stream_path.map(EventStreamReader::new),
             tick: 0,
             should_quit: false,
@@ -249,6 +253,15 @@ impl App {
             SlashCommand::Export(target) => self.pending_export(target),
             SlashCommand::Sync => self.pending_action = Some(PendingAction::sync_placeholder()),
             SlashCommand::Integrations => self.show_integrations(),
+            SlashCommand::Evidence(argument) => {
+                if argument.eq_ignore_ascii_case("refresh") {
+                    self.pending_action = Some(PendingAction::refresh_certification(
+                        "sh scripts/certify-tree-ring.sh",
+                    ));
+                } else {
+                    self.show_evidence();
+                }
+            }
             SlashCommand::Stream => {
                 self.mode = AppMode::Stream;
                 self.status = "showing recent event-stream signals".to_string();
@@ -388,6 +401,9 @@ impl App {
             ActionKind::Sync => {
                 self.status = "sync adapters are available through CLI commands".to_string();
             }
+            ActionKind::RefreshCertification { command } => {
+                self.status = format!("run externally: {command}");
+            }
         }
         self.refresh_store()
     }
@@ -423,6 +439,15 @@ impl App {
         );
         self.integration_report = Some(report.report);
         self.mode = AppMode::Integrations;
+    }
+
+    fn show_evidence(&mut self) {
+        let project_root = project_root_for_memory_root(&self.root);
+        let evidence_dir = certification_dir_for_project(&project_root);
+        let snapshot = load_snapshot(&evidence_dir);
+        self.status = format!("evidence: {}", snapshot.message);
+        self.evidence_snapshot = Some(snapshot);
+        self.mode = AppMode::Evidence;
     }
 
     pub fn run_search(&mut self) -> Result<(), String> {
@@ -788,5 +813,31 @@ mod tests {
         let report = app.integration_report.as_ref().unwrap();
         assert!(report.detected_count >= 2);
         assert!(app.status.contains("integration scan"));
+    }
+
+    #[test]
+    fn slash_evidence_opens_missing_evidence_state() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/evidence").unwrap();
+
+        assert_eq!(app.mode, AppMode::Evidence);
+        let snapshot = app.evidence_snapshot.as_ref().unwrap();
+        assert_eq!(snapshot.status, crate::evidence::EvidenceStatus::Missing);
+        assert!(app.status.contains("evidence"));
+    }
+
+    #[test]
+    fn slash_evidence_refresh_requires_confirmation_without_running() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/evidence refresh").unwrap();
+
+        assert!(app.pending_action.is_some());
+        assert!(app.pending_action.as_ref().unwrap().summary.contains("Refresh certification"));
+        confirm(&mut app);
+        assert!(app.status.contains("run externally: sh scripts/certify-tree-ring.sh"));
     }
 }
