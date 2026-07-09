@@ -586,7 +586,10 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
             ]));
             lines.push(Line::from(vec![
                 Span::styled("metrics ", theme::dim()),
-                Span::raw(truncate(&certification.metrics_path.display().to_string(), 53)),
+                Span::raw(truncate(
+                    &certification.metrics_path.display().to_string(),
+                    53,
+                )),
             ]));
         } else {
             lines.push(Line::from(snapshot.message.clone()));

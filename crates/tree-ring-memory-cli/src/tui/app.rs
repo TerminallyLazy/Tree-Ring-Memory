@@ -836,8 +836,15 @@ mod tests {
         app.execute_slash_command("/evidence refresh").unwrap();
 
         assert!(app.pending_action.is_some());
-        assert!(app.pending_action.as_ref().unwrap().summary.contains("Refresh certification"));
+        assert!(app
+            .pending_action
+            .as_ref()
+            .unwrap()
+            .summary
+            .contains("Refresh certification"));
         confirm(&mut app);
-        assert!(app.status.contains("run externally: sh scripts/certify-tree-ring.sh"));
+        assert!(app
+            .status
+            .contains("run externally: sh scripts/certify-tree-ring.sh"));
     }
 }
