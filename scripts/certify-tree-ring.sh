@@ -200,6 +200,16 @@ if [ "$EXTENDED" = "1" ]; then
   [ -n "$perf_50k_json" ] || fail "missing 50k performance metrics"
 fi
 
+quality_out="$OUT_DIR/quality"
+mkdir -p "$quality_out"
+run cargo run --release -p tree-ring-memory-cli --example quality_scenarios -- "$ROOT/fixtures/quality" "$quality_out" \
+  > "$OUT_DIR/quality-run.out" 2>&1
+require_file "$quality_out/quality-report.json"
+require_file "$quality_out/quality-summary.md"
+grep -F '"quality_pass": true' "$quality_out/quality-report.json" > /dev/null \
+  || fail "memory quality scenarios did not pass"
+quality_json=$(cat "$quality_out/quality-report.json")
+
 agent_zero_status='"skipped"'
 agent_zero_note='"TREE_RING_AGENT_ZERO_ROOT not set"'
 if [ -n "$AGENT_ZERO_ROOT" ]; then
@@ -247,6 +257,7 @@ cat > "$METRICS" <<EOF
     "records_30000": $perf_30k_json,
     "records_50000": $perf_50k_json
   },
+  "quality": $quality_json,
   "agent_zero": {
     "status": $agent_zero_status,
     "note": $agent_zero_note
@@ -266,6 +277,8 @@ Generated: $created_at
 - 10k performance metrics: recorded in \`performance-10000.out\`
 - 30k performance metrics: recorded in \`performance-30000.out\`
 - 50k extended metrics: $([ "$EXTENDED" = "1" ] && printf 'recorded in `performance-50000.out`' || printf 'skipped')
+- memory quality scenarios: passed
+- memory quality summary: \`quality/quality-summary.md\`
 - Agent Zero plugin smoke: $(printf '%s' "$agent_zero_status" | tr -d '"')
 
 Machine-readable metrics: \`metrics.json\`
