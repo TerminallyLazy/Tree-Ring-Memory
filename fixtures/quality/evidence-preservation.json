@@ -1,0 +1,84 @@
+{
+  "name": "evidence-preservation",
+  "category": "evidence_preservation",
+  "query": "preserve evidence for evaluated outcomes",
+  "write_candidates": [
+    {
+      "id": "mem_evaluation_missing_source",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "cambium",
+      "event_type": "evaluation_outcome",
+      "summary": "An evaluated outcome without its source reference.",
+      "details": "The quality gate must require evidence before accepting it.",
+      "source": {
+        "type": "evidence",
+        "ref": "",
+        "quote": ""
+      },
+      "tags": ["evaluation", "evidence"],
+      "salience": 0.8,
+      "confidence": 0.8,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    },
+    {
+      "id": "mem_evaluation_preserved_source",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "cambium",
+      "event_type": "evaluation_outcome",
+      "summary": "An evaluated outcome that preserves its required source reference.",
+      "details": "The matching evidence reference makes this candidate acceptable.",
+      "source": {
+        "type": "evidence",
+        "ref": "evals/evidence/run-021",
+        "quote": ""
+      },
+      "tags": ["evaluation", "evidence"],
+      "salience": 0.8,
+      "confidence": 0.8,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_write_decisions": [
+    {
+      "memory_id": "mem_evaluation_missing_source",
+      "decision": "require_evidence",
+      "reason": "evaluated outcomes without a source ref require evidence"
+    },
+    {
+      "memory_id": "mem_evaluation_preserved_source",
+      "decision": "accept",
+      "reason": "the evaluated outcome preserves the required evidence ref"
+    }
+  ],
+  "evidence_refs": ["evals/evidence/run-021"]
+}

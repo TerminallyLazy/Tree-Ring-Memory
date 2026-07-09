@@ -281,7 +281,32 @@ impl SQLiteMemoryStore {
         let Some(fts_query) = format_plain_text_fts_query(query) else {
             return Ok(Vec::new());
         };
+        self.search_fts_filtered_limited(
+            &fts_query,
+            project,
+            agent_profile,
+            scope,
+            rings,
+            event_types,
+            include_sensitive,
+            include_superseded,
+            limit,
+        )
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn search_fts_filtered_limited(
+        &self,
+        fts_query: &str,
+        project: Option<&str>,
+        agent_profile: Option<&str>,
+        scope: Option<&str>,
+        rings: Option<&[String]>,
+        event_types: Option<&[String]>,
+        include_sensitive: bool,
+        include_superseded: bool,
+        limit: Option<usize>,
+    ) -> TreeRingResult<Vec<MemoryEvent>> {
         let mut sql = String::from(
             r#"
             SELECT memories.raw_json
@@ -290,7 +315,7 @@ impl SQLiteMemoryStore {
             WHERE memory_fts MATCH ?
             "#,
         );
-        let mut parameters = vec![Value::Text(fts_query)];
+        let mut parameters = vec![Value::Text(fts_query.to_string())];
 
         if !include_superseded {
             sql.push_str(" AND memories.superseded_by IS NULL");
@@ -773,11 +798,11 @@ impl<'a> MemoryRetriever<'a> {
 
         let mut candidates = Vec::new();
         let mut seen_queries = HashSet::new();
+        let candidate_limit = Some(limit.saturating_mul(128).clamp(256, 2048));
         for search_query in search_queries(query) {
             if !seen_queries.insert(search_query.clone()) {
                 continue;
             }
-            let candidate_limit = Some(limit.saturating_mul(128).clamp(256, 2048));
             candidates = self.store.search_text_filtered_limited(
                 &search_query,
                 project,
@@ -791,6 +816,21 @@ impl<'a> MemoryRetriever<'a> {
             )?;
             if !candidates.is_empty() {
                 break;
+            }
+        }
+        if candidates.is_empty() {
+            if let Some(fts_query) = format_plain_text_fts_or_query(query) {
+                candidates = self.store.search_fts_filtered_limited(
+                    &fts_query,
+                    project,
+                    agent_profile,
+                    scope,
+                    rings,
+                    event_types,
+                    include_sensitive,
+                    include_superseded,
+                    candidate_limit,
+                )?;
             }
         }
 
@@ -931,6 +971,14 @@ fn sqlite_error_from_rusqlite(error: rusqlite::Error) -> TreeRingError {
 }
 
 fn format_plain_text_fts_query(query: &str) -> Option<String> {
+    format_plain_text_fts_query_with_operator(query, " AND ")
+}
+
+fn format_plain_text_fts_or_query(query: &str) -> Option<String> {
+    format_plain_text_fts_query_with_operator(query, " OR ")
+}
+
+fn format_plain_text_fts_query_with_operator(query: &str, operator: &str) -> Option<String> {
     let terms: Vec<String> = tree_ring_memory_core::recall::terms(query)
         .into_iter()
         .filter(|term| !SEARCH_FILLER_TERMS.contains(&term.as_str()))
@@ -939,7 +987,7 @@ fn format_plain_text_fts_query(query: &str) -> Option<String> {
     if terms.is_empty() {
         return None;
     }
-    Some(terms.join(" AND "))
+    Some(terms.join(operator))
 }
 
 const SEARCH_FILLER_TERMS: &[&str] = &[
@@ -1120,6 +1168,123 @@ mod tests {
         let results = MemoryRetriever::new(&store)
             .recall(
                 "shared bottleneck recall",
+                Some("target-project"),
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                1,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].memory.id, target_id);
+    }
+
+    #[test]
+    fn recall_strict_all_term_match_wins_before_fallback() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut partial =
+            MemoryEvent::new("Cache invalidation rollout reminder.", "lesson").unwrap();
+        partial.salience = 1.0;
+        partial.confidence = 1.0;
+        let partial_id = partial.id.clone();
+        let mut strict =
+            MemoryEvent::new("Cache invalidation canary rollout reminder.", "lesson").unwrap();
+        strict.salience = 0.1;
+        strict.confidence = 0.1;
+        let strict_id = strict.id.clone();
+        store.put(&partial).unwrap();
+        store.put(&strict).unwrap();
+
+        let results = MemoryRetriever::new(&store)
+            .recall(
+                "cache invalidation canary",
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                8,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].memory.id, strict_id);
+        assert!(!results.iter().any(|result| result.memory.id == partial_id));
+    }
+
+    #[test]
+    fn recall_falls_back_to_partial_term_match_after_strict_misses() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let target = MemoryEvent::new(
+            "Quality adapter recalled approved fixture evidence.",
+            "lesson",
+        )
+        .unwrap();
+        let target_id = target.id.clone();
+        store.put(&target).unwrap();
+
+        let results = MemoryRetriever::new(&store)
+            .recall(
+                "quality adapter missing transcript",
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                8,
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].memory.id, target_id);
+    }
+
+    #[test]
+    fn recall_fallback_keeps_default_filters_before_candidate_limit() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut events = Vec::new();
+        for index in 0..300 {
+            let mut event = MemoryEvent::new(
+                format!("Workflow fallback recall distractor {index}"),
+                "lesson",
+            )
+            .unwrap();
+            event.project = Some("other-project".to_string());
+            events.push(event);
+        }
+        let mut sensitive =
+            MemoryEvent::new("Workflow fallback recall sensitive target", "lesson").unwrap();
+        sensitive.project = Some("target-project".to_string());
+        sensitive.sensitivity = "private".to_string();
+        events.push(sensitive);
+        let mut superseded =
+            MemoryEvent::new("Workflow fallback recall superseded target", "lesson").unwrap();
+        superseded.project = Some("target-project".to_string());
+        superseded.superseded_by = Some("replacement-memory".to_string());
+        events.push(superseded);
+        let mut target = MemoryEvent::new("Workflow fallback recall target", "lesson").unwrap();
+        target.project = Some("target-project".to_string());
+        let target_id = target.id.clone();
+        events.push(target);
+        store.put_many(&events).unwrap();
+
+        let results = MemoryRetriever::new(&store)
+            .recall(
+                "workflow fallback recall impossible",
                 Some("target-project"),
                 None,
                 None,

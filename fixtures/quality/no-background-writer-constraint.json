@@ -1,0 +1,45 @@
+{
+  "name": "no-background-writer-constraint",
+  "category": "constraint_recall",
+  "query": "proof loop background writer hidden durable writes",
+  "seed_memories": [
+    {
+      "id": "mem_quality_no_background_writer",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Do not add a background proof runner, hidden recorder, or autonomous durable writer to Tree Ring proof-loop work.",
+      "details": "Quality proof must remain explicit, visible, and certification-owned.",
+      "source": {
+        "type": "evidence",
+        "ref": "docs/superpowers/specs/2026-07-09-tree-ring-memory-quality-proof-loop-design.md#non-goals",
+        "quote": ""
+      },
+      "tags": ["proof-loop", "agent-mediated", "no-daemon"],
+      "salience": 0.95,
+      "confidence": 0.95,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_recall": [
+    {
+      "memory_id": "mem_quality_no_background_writer",
+      "reason": "proof-loop work must recall the explicit no-background-writer constraint"
+    }
+  ]
+}

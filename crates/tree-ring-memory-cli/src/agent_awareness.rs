@@ -1,9 +1,19 @@
 use serde::Serialize;
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const SKILL_TEMPLATE: &str = include_str!("../../../skills/tree-ring-memory/SKILL.md");
 const DOX_TEMPLATE: &str = include_str!("../../../templates/dox/AGENTS.md");
+const AGENT_HEADER: &str = "# Tree Ring Memory Agent Instructions";
+const CLI_HEADER: &str = "# Tree Ring Memory CLI Quick Reference";
+const SKILL_FRONT_MATTER_MARKER: &str = "name: tree-ring-memory";
+const AGENT_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
+const AGENT_QUALITY_GATES_ANCHOR: &str = "## DOX Integration";
+const CLI_QUALITY_GATES_HEADING: &str = "Memory quality gates:";
+const CLI_QUALITY_GATES_ANCHOR: &str = "Safety rules:";
+const SKILL_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
+const SKILL_QUALITY_GATES_ANCHOR: &str = "## Ring Selection";
 const CLI_REFERENCE: &str = r#"# Tree Ring Memory CLI Quick Reference
 
 Tree Ring Memory is a local-first memory lifecycle layer for AI agents.
@@ -51,6 +61,18 @@ Adapter rules:
 - Run adapter commands with `--dry-run` before writing memory.
 - `tree-ring integrations scan` is read-only; add harness bridge references manually until a link command is available.
 
+Memory quality gates:
+
+- Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds.
+- Before risky changes, recall warnings and evidence-linked prior failures.
+- Before repeating a workflow, recall prior errors and accepted procedures.
+- Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons.
+- Before trusting memory, prefer source-linked, non-superseded, high-confidence results.
+- Re-read source files, tests, explicit user instructions, DOX contracts, or Revolve evidence when memory conflicts with current sources.
+- Before writing memory, reject transient planning chatter, duplicate wording, tool noise, and unsupported claims.
+- Require evidence refs for promoted or rejected evaluated outcomes.
+- Require user confirmation before creating or promoting broad cross-project heartwood.
+
 Safety rules:
 
 - Do not store secrets, credentials, private keys, or raw chain-of-thought.
@@ -73,19 +95,61 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
         existing: Vec::new(),
     };
 
-    write_if_missing(&root.join("AGENTS.md"), &agent_contract(root), &mut report)?;
-    write_if_missing(&root.join("SKILL.md"), SKILL_TEMPLATE, &mut report)?;
-    write_if_missing(&root.join("CLI.md"), CLI_REFERENCE, &mut report)?;
+    let agent_contract = agent_contract(root);
+    write_if_missing_or_backfill(
+        &root.join("AGENTS.md"),
+        &agent_contract,
+        &mut report,
+        is_generated_agents_file,
+        AGENT_QUALITY_GATES_HEADING,
+        AGENT_QUALITY_GATES_ANCHOR,
+        extract_section(
+            &agent_contract,
+            AGENT_QUALITY_GATES_HEADING,
+            AGENT_QUALITY_GATES_ANCHOR,
+        ),
+    )?;
+    write_if_missing_or_backfill(
+        &root.join("SKILL.md"),
+        SKILL_TEMPLATE,
+        &mut report,
+        is_generated_skill_file,
+        SKILL_QUALITY_GATES_HEADING,
+        SKILL_QUALITY_GATES_ANCHOR,
+        extract_section(
+            SKILL_TEMPLATE,
+            SKILL_QUALITY_GATES_HEADING,
+            SKILL_QUALITY_GATES_ANCHOR,
+        ),
+    )?;
+    write_if_missing_or_backfill(
+        &root.join("CLI.md"),
+        CLI_REFERENCE,
+        &mut report,
+        is_generated_cli_file,
+        CLI_QUALITY_GATES_HEADING,
+        CLI_QUALITY_GATES_ANCHOR,
+        extract_section(
+            CLI_REFERENCE,
+            CLI_QUALITY_GATES_HEADING,
+            CLI_QUALITY_GATES_ANCHOR,
+        ),
+    )?;
 
     Ok(report)
 }
 
-fn write_if_missing(
+fn write_if_missing_or_backfill(
     path: &Path,
     content: &str,
     report: &mut AgentAwarenessReport,
+    recognizer: fn(&str) -> bool,
+    section_heading: &str,
+    anchor: &str,
+    section: Option<&str>,
 ) -> Result<(), String> {
     if path.exists() {
+        maybe_backfill_generated_file(path, recognizer, section_heading, anchor, section)?;
         report.existing.push(path.to_path_buf());
         return Ok(());
     }
@@ -97,9 +161,81 @@ fn write_if_missing(
     Ok(())
 }
 
+fn maybe_backfill_generated_file(
+    path: &Path,
+    recognizer: fn(&str) -> bool,
+    section_heading: &str,
+    anchor: &str,
+    section: Option<&str>,
+) -> Result<(), String> {
+    let Some(section) = section else {
+        return Ok(());
+    };
+
+    let existing = fs::read_to_string(path).map_err(|err| err.to_string())?;
+    if !recognizer(&existing) || existing.contains(section_heading) {
+        return Ok(());
+    }
+
+    let Some(updated) = insert_section_before_anchor(&existing, section, anchor) else {
+        return Ok(());
+    };
+    if updated != existing {
+        fs::write(path, updated).map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+fn extract_section<'a>(content: &'a str, heading: &str, anchor: &str) -> Option<&'a str> {
+    let (start, end) = managed_section_range(content, heading, anchor)?;
+    Some(&content[start..end])
+}
+
+#[cfg(test)]
+fn remove_managed_section(content: &str, heading: &str, anchor: &str) -> Option<String> {
+    let (start, end) = managed_section_range(content, heading, anchor)?;
+    let mut stale = String::with_capacity(content.len() - (end - start));
+    stale.push_str(&content[..start]);
+    stale.push_str(&content[end..]);
+    Some(stale)
+}
+
+fn managed_section_range(content: &str, heading: &str, anchor: &str) -> Option<(usize, usize)> {
+    let start = content.find(heading)?;
+    let end = content[start..].find(anchor)? + start;
+    Some((start, end))
+}
+
+fn insert_section_before_anchor(content: &str, section: &str, anchor: &str) -> Option<String> {
+    let anchor_index = content.find(anchor)?;
+    let section = if content.contains("\r\n") {
+        Cow::Owned(section.replace('\n', "\r\n"))
+    } else {
+        Cow::Borrowed(section)
+    };
+    let mut updated = String::with_capacity(content.len() + section.len());
+    updated.push_str(&content[..anchor_index]);
+    updated.push_str(&section);
+    updated.push_str(&content[anchor_index..]);
+    Some(updated)
+}
+
+fn is_generated_agents_file(content: &str) -> bool {
+    content.starts_with(AGENT_HEADER)
+}
+
+fn is_generated_cli_file(content: &str) -> bool {
+    content.starts_with(CLI_HEADER)
+}
+
+fn is_generated_skill_file(content: &str) -> bool {
+    (content.starts_with("---\n") || content.starts_with("---\r\n"))
+        && content.contains(SKILL_FRONT_MATTER_MARKER)
+}
+
 fn agent_contract(root: &Path) -> String {
     format!(
-        r#"# Tree Ring Memory Agent Instructions
+        r#"{AGENT_HEADER}
 
 This directory contains Tree Ring Memory's local project memory store.
 
@@ -154,6 +290,28 @@ call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
 `tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
 They do not authorize hidden transcript scraping or autonomous durable writes.
 
+## Memory Quality Gates
+
+Recall gates:
+
+- Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds.
+- Before risky changes, recall warnings and evidence-linked prior failures.
+- Before repeating a workflow, recall prior errors and accepted procedures.
+- Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons.
+
+Trust gates:
+
+- Prefer source-linked, non-superseded, high-confidence memories.
+- Re-read source files, tests, explicit user instructions, DOX contracts, or Revolve evidence when memory conflicts with current sources.
+- Do not treat sensitive or hidden-by-default memory as ordinary recall context.
+
+Write gates:
+
+- Remember only durable decisions, validated lessons, reusable warnings, corrections, future seeds, and evidence-backed outcomes.
+- Reject transient planning chatter, duplicate wording, tool noise, and unsupported claims.
+- Require evidence refs for promoted or rejected evaluated outcomes.
+- Require user confirmation before creating or promoting broad cross-project heartwood.
+
 ## DOX Integration
 
 If this project uses DOX-style `AGENTS.md` traversal, merge the relevant
@@ -181,6 +339,7 @@ outcomes become seeds, and observed outcomes become outer-ring evidence.
 
 {DOX_TEMPLATE}
 "#,
+        AGENT_HEADER = AGENT_HEADER,
         root = shell_path(root)
     )
 }
@@ -198,6 +357,33 @@ fn shell_path(path: &Path) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn generated_canonical_managed_section_can_be_removed_and_reinserted() {
+        let root = Path::new("/tmp/tree-ring-quality-fixture");
+        let canonical = agent_contract(root);
+        let section = extract_section(
+            &canonical,
+            AGENT_QUALITY_GATES_HEADING,
+            AGENT_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+
+        let stale = remove_managed_section(
+            &canonical,
+            AGENT_QUALITY_GATES_HEADING,
+            AGENT_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+        let restored =
+            insert_section_before_anchor(&stale, section, AGENT_QUALITY_GATES_ANCHOR).unwrap();
+
+        assert_eq!(restored, canonical);
+    }
+
+    fn stale_fixture(content: &str, heading: &str, anchor: &str) -> String {
+        remove_managed_section(content, heading, anchor).unwrap()
+    }
 
     #[test]
     fn init_writes_agent_awareness_files_without_overwriting() {
@@ -232,6 +418,322 @@ mod tests {
         assert!(agents.contains("revolve sync --source-root"));
         assert!(agents.contains("integrations scan --source-root"));
         assert!(agents.contains("Tree Ring Memory Project Contract"));
+    }
+
+    #[test]
+    fn generated_agents_file_mentions_quality_gates() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+
+        assert!(agents.contains("Memory Quality Gates"));
+        assert!(agents.contains("Recall gates"));
+        assert!(agents.contains("Trust gates"));
+        assert!(agents.contains("Write gates"));
+        assert!(agents.contains("Reject transient planning chatter"));
+    }
+
+    #[test]
+    fn generated_cli_reference_mentions_quality_gates() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+
+        assert!(cli.contains("Memory quality gates"));
+        assert!(cli.contains("Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds."));
+        assert!(cli
+            .contains("Before risky changes, recall warnings and evidence-linked prior failures."));
+        assert!(cli
+            .contains("Before repeating a workflow, recall prior errors and accepted procedures."));
+        assert!(cli.contains("Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons."));
+        assert!(cli.contains("Before trusting memory, prefer source-linked"));
+        assert!(cli.contains("Before writing memory, reject transient planning chatter"));
+    }
+
+    #[test]
+    fn generated_backfills_quality_gates_into_recognized_stale_generated_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+        let agent_section = extract_section(
+            &canonical_agents,
+            AGENT_QUALITY_GATES_HEADING,
+            AGENT_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+        let cli_section = extract_section(
+            CLI_REFERENCE,
+            CLI_QUALITY_GATES_HEADING,
+            CLI_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+        let skill_section = extract_section(
+            SKILL_TEMPLATE,
+            SKILL_QUALITY_GATES_HEADING,
+            SKILL_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("AGENTS.md"),
+            stale_fixture(
+                &canonical_agents,
+                AGENT_QUALITY_GATES_HEADING,
+                AGENT_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            stale_fixture(
+                CLI_REFERENCE,
+                CLI_QUALITY_GATES_HEADING,
+                CLI_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            stale_fixture(
+                SKILL_TEMPLATE,
+                SKILL_QUALITY_GATES_HEADING,
+                SKILL_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+
+        let report = ensure_agent_awareness(&root).unwrap();
+        assert_eq!(report.created.len(), 0);
+        assert_eq!(report.existing.len(), 3);
+
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+
+        assert!(agents.contains(agent_section.trim()));
+        assert!(cli.contains(cli_section.trim()));
+        assert!(skill.contains(skill_section.trim()));
+    }
+
+    #[test]
+    fn generated_backfill_recognizes_and_preserves_crlf_skill_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let stale_skill = stale_fixture(
+            SKILL_TEMPLATE,
+            SKILL_QUALITY_GATES_HEADING,
+            SKILL_QUALITY_GATES_ANCHOR,
+        )
+        .replace('\n', "\r\n");
+        fs::write(root.join("SKILL.md"), stale_skill).unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert!(skill.contains("## Memory Quality Gates\r\n"));
+        assert!(!skill.replace("\r\n", "").contains('\n'));
+    }
+
+    #[test]
+    fn generated_backfill_inserts_quality_gates_at_canonical_anchors() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+        let agent_section = extract_section(
+            &canonical_agents,
+            AGENT_QUALITY_GATES_HEADING,
+            AGENT_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+        let cli_section = extract_section(
+            CLI_REFERENCE,
+            CLI_QUALITY_GATES_HEADING,
+            CLI_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+        let skill_section = extract_section(
+            SKILL_TEMPLATE,
+            SKILL_QUALITY_GATES_HEADING,
+            SKILL_QUALITY_GATES_ANCHOR,
+        )
+        .unwrap();
+
+        fs::write(
+            root.join("AGENTS.md"),
+            stale_fixture(
+                &canonical_agents,
+                AGENT_QUALITY_GATES_HEADING,
+                AGENT_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            stale_fixture(
+                CLI_REFERENCE,
+                CLI_QUALITY_GATES_HEADING,
+                CLI_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            stale_fixture(
+                SKILL_TEMPLATE,
+                SKILL_QUALITY_GATES_HEADING,
+                SKILL_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+
+        assert!(agents.contains(&format!("{}{}", agent_section, AGENT_QUALITY_GATES_ANCHOR)));
+        assert!(cli.contains(&format!("{}{}", cli_section, CLI_QUALITY_GATES_ANCHOR)));
+        assert!(skill.contains(&format!("{}{}", skill_section, SKILL_QUALITY_GATES_ANCHOR)));
+    }
+
+    #[test]
+    fn generated_backfill_preserves_custom_content_in_recognized_generated_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+
+        let agents_custom = "\nCustom note: keep me.\n";
+        let cli_custom = "\nCustom alias note: keep me.\n";
+        let skill_custom = "\nCustom workflow note: keep me.\n";
+        let canonical_agents = agent_contract(&root);
+
+        fs::write(
+            root.join("AGENTS.md"),
+            stale_fixture(
+                &canonical_agents,
+                AGENT_QUALITY_GATES_HEADING,
+                AGENT_QUALITY_GATES_ANCHOR,
+            ) + agents_custom,
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            stale_fixture(
+                CLI_REFERENCE,
+                CLI_QUALITY_GATES_HEADING,
+                CLI_QUALITY_GATES_ANCHOR,
+            ) + cli_custom,
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            stale_fixture(
+                SKILL_TEMPLATE,
+                SKILL_QUALITY_GATES_HEADING,
+                SKILL_QUALITY_GATES_ANCHOR,
+            ) + skill_custom,
+        )
+        .unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        assert!(fs::read_to_string(root.join("AGENTS.md"))
+            .unwrap()
+            .ends_with(agents_custom));
+        assert!(fs::read_to_string(root.join("CLI.md"))
+            .unwrap()
+            .ends_with(cli_custom));
+        assert!(fs::read_to_string(root.join("SKILL.md"))
+            .unwrap()
+            .ends_with(skill_custom));
+    }
+
+    #[test]
+    fn generated_backfill_leaves_arbitrary_custom_files_untouched() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+
+        fs::write(root.join("AGENTS.md"), "# Custom project contract\n").unwrap();
+        fs::write(root.join("CLI.md"), "# Custom CLI guide\n").unwrap();
+        fs::write(root.join("SKILL.md"), "# Custom skill\n").unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            "# Custom project contract\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("CLI.md")).unwrap(),
+            "# Custom CLI guide\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("SKILL.md")).unwrap(),
+            "# Custom skill\n"
+        );
+    }
+
+    #[test]
+    fn generated_backfill_is_idempotent_for_recognized_stale_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+
+        fs::write(
+            root.join("AGENTS.md"),
+            stale_fixture(
+                &canonical_agents,
+                AGENT_QUALITY_GATES_HEADING,
+                AGENT_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            stale_fixture(
+                CLI_REFERENCE,
+                CLI_QUALITY_GATES_HEADING,
+                CLI_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            stale_fixture(
+                SKILL_TEMPLATE,
+                SKILL_QUALITY_GATES_HEADING,
+                SKILL_QUALITY_GATES_ANCHOR,
+            ),
+        )
+        .unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+        let first_agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let first_cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let first_skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let second_agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let second_cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let second_skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+
+        assert_eq!(first_agents, second_agents);
+        assert_eq!(first_cli, second_cli);
+        assert_eq!(first_skill, second_skill);
+        assert_eq!(second_agents.matches("## Memory Quality Gates").count(), 1);
+        assert_eq!(second_cli.matches("Memory quality gates:").count(), 1);
+        assert_eq!(second_skill.matches("## Memory Quality Gates").count(), 1);
     }
 
     #[test]

@@ -1,0 +1,86 @@
+{
+  "name": "transient-planning-spam",
+  "category": "spam_prevention",
+  "query": "memory spam transient planning durable heartwood",
+  "seed_memories": [
+    {
+      "id": "mem_quality_store_only_durable",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Store only durable decisions, validated lessons, reusable warnings, corrections, future seeds, and evidence-backed outcomes.",
+      "details": "",
+      "source": {
+        "type": "evidence",
+        "ref": "docs/superpowers/specs/2026-07-09-tree-ring-memory-quality-proof-loop-design.md#agent-guidance-gates",
+        "quote": ""
+      },
+      "tags": ["write-gate", "memory-quality"],
+      "salience": 0.9,
+      "confidence": 0.9,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_recall": [
+    {
+      "memory_id": "mem_quality_store_only_durable",
+      "reason": "the write gate should be recalled before evaluating candidate memories"
+    }
+  ],
+  "write_candidates": [
+    {
+      "id": "mem_candidate_planning_chatter",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "lesson",
+      "summary": "We discussed maybe doing the quality proof loop next.",
+      "details": "Transient planning chatter should not become durable heartwood.",
+      "source": {
+        "type": "manual",
+        "ref": "",
+        "quote": ""
+      },
+      "tags": ["planning-chatter", "transient"],
+      "salience": 0.2,
+      "confidence": 0.4,
+      "sensitivity": "normal",
+      "retention": "normal",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_write_decisions": [
+    {
+      "memory_id": "mem_candidate_planning_chatter",
+      "decision": "reject",
+      "reason": "transient planning chatter is memory spam"
+    }
+  ]
+}

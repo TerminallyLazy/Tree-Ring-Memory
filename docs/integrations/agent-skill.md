@@ -83,6 +83,20 @@ Outcome mapping:
 Plain `remember` is still appropriate for user preferences, explicit decisions,
 and project lessons that do not come from a formal evaluated outcome.
 
+## Memory Quality Gates
+
+Tree Ring guidance is meant to improve agent behavior, not increase memory volume.
+Use these gates when wiring Tree Ring into an agent harness:
+
+- Recall gates: before substantial or risky work, recall constraints, scars, preferences, and unresolved seeds.
+- Trust gates: prefer source-linked, non-superseded, high-confidence memories and re-read authoritative sources when memory conflicts with source files or user instructions.
+- Write gates: reject transient planning chatter, duplicate wording, tool noise, and unsupported claims; require evidence refs for promoted or rejected evaluated outcomes.
+
+The certification suite includes quality scenarios that exercise missed constraints, memory spam, stale truth suppression, and behavior proof.
+Quality artifacts are written to
+`target/tree-ring-certification/quality/quality-report.json` and
+`target/tree-ring-certification/quality/quality-summary.md`.
+
 ## Source Adapter Flow
 
 Use DOX and Revolve adapters when the source artifacts already exist locally:

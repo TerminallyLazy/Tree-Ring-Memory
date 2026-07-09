@@ -1,0 +1,53 @@
+{
+  "name": "scar-failure-recall",
+  "category": "behavior_proof",
+  "query": "failure stale cache rollback",
+  "seed_memories": [
+    {
+      "id": "mem_scar_stale_cache",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "scar",
+      "event_type": "warning",
+      "summary": "Aggressive caching caused a stale rollback failure; recall this scar before cache-related workflow changes.",
+      "details": "",
+      "source": {
+        "type": "evidence",
+        "ref": "evals/cache-branch/run-013",
+        "quote": ""
+      },
+      "tags": ["failure", "cache", "rollback"],
+      "salience": 0.95,
+      "confidence": 0.9,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_recall": [
+    {
+      "memory_id": "mem_scar_stale_cache",
+      "ring": "scar",
+      "reason": "failure-like queries should surface scar memory"
+    }
+  ],
+  "behavior_expectation": {
+    "required_memory_id": "mem_scar_stale_cache",
+    "baseline_decision": "retry the cache migration unchanged",
+    "memory_informed_decision": "roll back the cache migration and inspect stale state before retrying",
+    "expected_decision": "roll back the cache migration and inspect stale state before retrying",
+    "reason": "the recalled failure scar changes the workflow to rollback-safe recovery"
+  }
+}

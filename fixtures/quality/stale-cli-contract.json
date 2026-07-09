@@ -1,0 +1,83 @@
+{
+  "name": "stale-cli-contract",
+  "category": "stale_truth_suppression",
+  "query": "tree ring helper script cli contract remember recall forget",
+  "seed_memories": [
+    {
+      "id": "mem_stale_cli_contract",
+      "created_at": "2026-07-08T00:00:00Z",
+      "updated_at": "2026-07-08T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Old helper scripts can call remember recall and forget without required arguments.",
+      "details": "This stale CLI contract must not guide current helper-script reviews.",
+      "source": {
+        "type": "manual",
+        "ref": "old-review-note",
+        "quote": ""
+      },
+      "tags": ["cli-contract", "stale"],
+      "salience": 0.8,
+      "confidence": 0.6,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": "mem_current_cli_contract",
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    },
+    {
+      "id": "mem_current_cli_contract",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "warning",
+      "summary": "Review Tree Ring helper scripts against the current CLI contract: remember needs --event-type, recall needs a query, and forget needs a memory id.",
+      "details": "Current source in crates/tree-ring-memory-cli/src/main.rs remains authoritative.",
+      "source": {
+        "type": "file",
+        "ref": "crates/tree-ring-memory-cli/src/main.rs",
+        "quote": ""
+      },
+      "tags": ["cli-contract", "current"],
+      "salience": 0.95,
+      "confidence": 0.95,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": ["mem_stale_cli_contract"],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_recall": [
+    {
+      "memory_id": "mem_current_cli_contract",
+      "reason": "current CLI contract should be recalled"
+    }
+  ],
+  "forbidden_recall": [
+    {
+      "memory_id": "mem_stale_cli_contract",
+      "reason": "superseded stale CLI contract must be suppressed"
+    }
+  ]
+}

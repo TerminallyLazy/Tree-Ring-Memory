@@ -456,6 +456,13 @@ Most recent branch-local certification run, generated at
 - Agent Zero plugin smoke: skipped because `TREE_RING_AGENT_ZERO_ROOT` was not
   set.
 
+Certification also runs the default memory quality scenario pack under
+`fixtures/quality/`. Those scenarios prove recall gates, spam rejection,
+stale-truth suppression, evidence requirements, and behavior-proof outcomes.
+The quality report is written to
+`target/tree-ring-certification/quality/quality-report.json` with a readable
+summary at `target/tree-ring-certification/quality/quality-summary.md`.
+
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
 run the release artifact workflow for Linux and macOS.
