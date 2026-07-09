@@ -175,10 +175,10 @@ fn evaluate_query(
     if let Some(expected_top_id) = expected_top_id {
         match returned.iter().find(|item| item.id == expected_top_id) {
             Some(item) => {
-                if max_expected_rank.is_some_and(|expected_rank| item.rank != expected_rank) {
+                if max_expected_rank.is_some_and(|expected_rank| item.rank > expected_rank) {
                     status = RecallQualityQueryStatus::NeedsReview;
                     notes.push(format!(
-                        "expected memory {expected_top_id} returned at rank {} instead of {}",
+                        "expected memory {expected_top_id} returned at rank {} which is worse than allowed rank {}",
                         item.rank,
                         max_expected_rank.unwrap_or(item.rank)
                     ));
@@ -279,8 +279,12 @@ fn write_report_and_index(
         generated_at: generated_at.to_string(),
     });
     index.missing.retain(|item| item != "recall_quality");
-    if index.harness.is_empty() && !index.missing.iter().any(|item| item == "harness") {
-        index.missing.push("harness".to_string());
+    if index.harness.is_empty() {
+        if !index.missing.iter().any(|item| item == "harness") {
+            index.missing.push("harness".to_string());
+        }
+    } else {
+        index.missing.retain(|item| item != "harness");
     }
     index.missing.sort();
     index.missing.dedup();
@@ -428,7 +432,8 @@ fn evaluate_query_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::EvidenceStatus;
+    use crate::evidence::{EvidenceIndex, EvidenceStatus};
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
@@ -466,16 +471,126 @@ mod tests {
 
     #[test]
     fn query_evaluation_distinguishes_fail_and_needs_review() {
-        let returned = vec![
+        let passing_returned = vec![
             returned_memory_for_test("other", 1),
             returned_memory_for_test("expected", 2),
         ];
-        let review = evaluate_query_for_test(Some("expected"), Some(3), &[], &returned);
+        let passing = evaluate_query_for_test(Some("expected"), Some(3), &[], &passing_returned);
+        assert_eq!(passing.status, RecallQualityQueryStatus::Pass);
+
+        let review_returned = vec![
+            returned_memory_for_test("other", 1),
+            returned_memory_for_test("expected", 4),
+        ];
+        let review = evaluate_query_for_test(Some("expected"), Some(3), &[], &review_returned);
         assert_eq!(review.status, RecallQualityQueryStatus::NeedsReview);
 
-        let failed = evaluate_query_for_test(Some("missing"), Some(1), &["other"], &returned);
+        let failed =
+            evaluate_query_for_test(Some("missing"), Some(1), &["other"], &passing_returned);
         assert_eq!(failed.status, RecallQualityQueryStatus::Fail);
         assert!(failed.notes.iter().any(|note| note.contains("missing")));
         assert!(failed.notes.iter().any(|note| note.contains("forbidden")));
+    }
+
+    #[test]
+    fn recall_quality_index_merge_preserves_existing_certification_and_harness_entries() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(&evidence_dir).unwrap();
+        std::fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-09T05:44:48Z"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+              "generated_at": "2026-07-09T05:44:48Z",
+              "overall_status": "pass",
+              "certification": {
+                "category": "certification",
+                "status": "pass",
+                "label": "Local certification",
+                "path": "metrics.json",
+                "summary_path": "summary.md",
+                "generated_at": "2026-07-09T05:44:48Z"
+              },
+              "harness": {
+                "codex": {
+                  "category": "harness",
+                  "status": "pass",
+                  "label": "Codex",
+                  "path": "harness/codex.json",
+                  "summary_path": null,
+                  "generated_at": "2026-07-09T05:44:48Z"
+                },
+                "manual-harness": {
+                  "category": "harness",
+                  "status": "skip",
+                  "label": "Manual Harness",
+                  "path": "harness/manual.json",
+                  "summary_path": null,
+                  "generated_at": "2026-07-09T05:44:48Z"
+                }
+              },
+              "recall_quality": null,
+              "missing": ["harness", "recall_quality"],
+              "stale": []
+            }"#,
+        )
+        .unwrap();
+
+        let report = RecallQualityReport {
+            schema_version: 1,
+            generated_at: "2026-07-09T06:00:00Z".to_string(),
+            query_set_id: RECALL_QUALITY_QUERY_SET_ID.to_string(),
+            status: EvidenceStatus::Pass,
+            source_root: dir.path().to_path_buf(),
+            evidence_dir: evidence_dir.clone(),
+            record_path: evidence_dir.join(format!(
+                "recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json"
+            )),
+            summary: RecallQualitySummary {
+                query_count: 4,
+                pass_count: 4,
+                fail_count: 0,
+                needs_review_count: 0,
+                avg_latency_ms: 1.0,
+                max_latency_ms: 2.0,
+                fixture_memory_count: 5,
+                private_payloads_used: true,
+            },
+            queries: Vec::new(),
+        };
+
+        write_report_and_index(&evidence_dir, &report.generated_at, &report).unwrap();
+
+        let index: EvidenceIndex = serde_json::from_str(
+            &std::fs::read_to_string(evidence_dir.join("evidence-index.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            index.certification.as_ref().map(|record| record.path.clone()),
+            Some(PathBuf::from("metrics.json"))
+        );
+        assert_eq!(
+            index.harness.get("codex").map(|record| record.path.clone()),
+            Some(PathBuf::from("harness/codex.json"))
+        );
+        assert_eq!(
+            index
+                .harness
+                .get("manual-harness")
+                .map(|record| record.path.clone()),
+            Some(PathBuf::from("harness/manual.json"))
+        );
+        assert_eq!(
+            index.recall_quality.as_ref().map(|record| record.path.clone()),
+            Some(PathBuf::from(format!(
+                "recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json"
+            )))
+        );
+        assert_eq!(index.missing, Vec::<String>::new());
+        assert_eq!(index.overall_status, EvidenceStatus::Pass);
     }
 }
