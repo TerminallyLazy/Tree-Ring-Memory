@@ -425,7 +425,7 @@ fn load_recall_quality(
         })
         .unwrap_or_default();
     Ok(RecallQualityEvidence {
-        status: record.status,
+        status: get_status(&value, &["status"]).unwrap_or(record.status),
         generated_at: get_string(&value, &["generated_at"])
             .unwrap_or_else(|| record.generated_at.clone()),
         record_path,
@@ -469,6 +469,19 @@ fn get_string(value: &Value, path: &[&str]) -> Option<String> {
     get_value(value, path)
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn get_status(value: &Value, path: &[&str]) -> Option<EvidenceStatus> {
+    match get_value(value, path).and_then(Value::as_str)? {
+        "pass" => Some(EvidenceStatus::Pass),
+        "fail" => Some(EvidenceStatus::Fail),
+        "skip" => Some(EvidenceStatus::Skip),
+        "missing" => Some(EvidenceStatus::Missing),
+        "stale" => Some(EvidenceStatus::Stale),
+        "needs_review" => Some(EvidenceStatus::NeedsReview),
+        "error" => Some(EvidenceStatus::Error),
+        _ => None,
+    }
 }
 
 fn get_value<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
@@ -715,6 +728,71 @@ mod tests {
         assert_eq!(
             recall_quality.queries[0].returned_ids,
             vec!["rq_scar_stale_cache"]
+        );
+    }
+
+    #[test]
+    fn evidence_snapshot_uses_recall_quality_payload_status_as_source_of_truth() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = certification_dir_for_project(dir.path());
+        fs::create_dir_all(evidence_dir.join("recall-quality")).unwrap();
+        fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-09T04:22:38Z"}"#,
+        )
+        .unwrap();
+        fs::write(
+            evidence_dir.join("recall-quality/default-fixture-v1.json"),
+            r#"{
+          "schema_version": 1,
+          "generated_at": "2026-07-09T06:00:00Z",
+          "query_set_id": "default-fixture-v1",
+          "status": "needs_review",
+          "summary": {
+            "query_count": 1,
+            "pass_count": 0,
+            "fail_count": 0,
+            "needs_review_count": 1,
+            "avg_latency_ms": 1.25,
+            "max_latency_ms": 2.5
+          },
+          "queries": []
+        }"#,
+        )
+        .unwrap();
+        fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T06:00:00Z",
+          "overall_status": "pass",
+          "certification": {
+            "category": "certification",
+            "status": "pass",
+            "label": "Local certification",
+            "path": "metrics.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T04:22:38Z"
+          },
+          "harness": {},
+          "recall_quality": {
+            "category": "recall_quality",
+            "status": "pass",
+            "label": "Recall quality",
+            "path": "recall-quality/default-fixture-v1.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T06:00:00Z"
+          },
+          "missing": [],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+
+        let snapshot = load_snapshot(&evidence_dir);
+
+        assert_eq!(
+            snapshot.recall_quality.unwrap().status,
+            EvidenceStatus::NeedsReview
         );
     }
 
