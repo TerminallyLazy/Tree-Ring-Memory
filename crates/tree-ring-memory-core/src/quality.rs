@@ -84,8 +84,14 @@ impl QualityScenario {
         for expectation in &self.expected_recall {
             expectation.validate("expected_recall", &self.name)?;
         }
-        for expectation in &self.forbidden_recall {
+        for (index, expectation) in self.forbidden_recall.iter().enumerate() {
             expectation.validate("forbidden_recall", &self.name)?;
+            if matching_seed_memory_ids(expectation, &self.seed_memories).is_empty() {
+                return Err(TreeRingError::Validation(format!(
+                    "quality scenario {} forbidden_recall[{}] does not match a seed_memory",
+                    self.name, index
+                )));
+            }
         }
         for decision in &self.expected_write_decisions {
             decision.validate(&self.name)?;
@@ -675,6 +681,17 @@ fn matching_recall_ids(expectation: &RecallExpectation, recalls: &[QualityRecall
         .collect()
 }
 
+fn matching_seed_memory_ids(
+    expectation: &RecallExpectation,
+    seed_memories: &[MemoryEvent],
+) -> Vec<String> {
+    seed_memories
+        .iter()
+        .filter(|memory| expectation_matches_memory(expectation, memory))
+        .map(|memory| memory.id.clone())
+        .collect()
+}
+
 fn expectation_matches_memory(expectation: &RecallExpectation, memory: &MemoryEvent) -> bool {
     if expectation
         .memory_id
@@ -1069,6 +1086,29 @@ mod tests {
                     "name": "irrelevant constraint threshold",
                     "category": "stale_truth_suppression",
                     "query": "stale rule",
+                    "seed_memories": [{
+                        "id": "mem_stale",
+                        "created_at": "2026-07-09T00:00:00Z",
+                        "updated_at": "2026-07-09T00:00:00Z",
+                        "project": "tree-ring",
+                        "agent_profile": null,
+                        "scope": "project",
+                        "ring": "heartwood",
+                        "event_type": "lesson",
+                        "summary": "Stale instruction",
+                        "details": "",
+                        "source": {"type": "evidence", "ref": "docs/spec.md", "quote": ""},
+                        "tags": [],
+                        "salience": 0.8,
+                        "confidence": 0.8,
+                        "sensitivity": "normal",
+                        "retention": "durable",
+                        "expires_at": null,
+                        "supersedes": [],
+                        "superseded_by": null,
+                        "links": [],
+                        "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+                    }],
                     "forbidden_recall": [{"memory_id": "mem_stale"}],
                     "thresholds": {"min_constraint_recall_rate": 1.0}
                 }),
@@ -1317,6 +1357,14 @@ mod tests {
     #[test]
     fn forbidden_run_rate_uses_failures_over_applicable_expectations() {
         let mut mixed = scenario("mixed forbidden recall", "stale_truth_suppression");
+        mixed.seed_memories = vec![
+            memory("mem_forbidden_recalled", "Stale instruction.", "heartwood"),
+            memory(
+                "mem_forbidden_hidden",
+                "Hidden stale instruction.",
+                "heartwood",
+            ),
+        ];
         mixed.forbidden_recall = vec![
             RecallExpectation {
                 memory_id: Some("mem_forbidden_recalled".to_string()),
@@ -1376,6 +1424,7 @@ mod tests {
         assert_eq!(report_json(&recall, &recalls)["quality_pass"], false);
 
         let mut forbidden = scenario("forbidden threshold", "stale_truth_suppression");
+        forbidden.seed_memories = vec![memory("mem_stale", "Stale instruction.", "heartwood")];
         forbidden.forbidden_recall = vec![RecallExpectation {
             memory_id: Some("mem_stale".to_string()),
             ..Default::default()
@@ -1666,7 +1715,14 @@ mod tests {
         let scenario = QualityScenario {
             name: "recall gate".to_string(),
             category: "constraint_recall".to_string(),
-            seed_memories: Vec::new(),
+            seed_memories: vec![
+                memory(
+                    "mem_required",
+                    "Do not add a background writer.",
+                    "heartwood",
+                ),
+                memory("mem_forbidden", "Stale instruction.", "heartwood"),
+            ],
             query: Some("background writer".to_string()),
             workflow_prompt: None,
             expected_recall: vec![RecallExpectation {
@@ -1708,11 +1764,62 @@ mod tests {
     }
 
     #[test]
+    fn validates_forbidden_recall_against_seed_memories() {
+        let scenario = QualityScenario {
+            name: "stale recall seed coverage".to_string(),
+            category: "stale_truth_suppression".to_string(),
+            seed_memories: vec![memory("mem_stale", "Old CLI contract.", "heartwood")],
+            query: Some("cli contract".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: vec![RecallExpectation {
+                ring: Some("heartwood".to_string()),
+                reason: "seeded stale memory".to_string(),
+                ..Default::default()
+            }],
+            write_candidates: Vec::new(),
+            expected_write_decisions: Vec::new(),
+            evidence_refs: Vec::new(),
+            behavior_expectation: None,
+            thresholds: QualityThresholds::default(),
+        };
+
+        scenario.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_forbidden_recall_with_missing_seed_selector() {
+        let scenario = QualityScenario {
+            name: "stale recall typo".to_string(),
+            category: "stale_truth_suppression".to_string(),
+            seed_memories: vec![memory("mem_stale", "Old CLI contract.", "heartwood")],
+            query: Some("cli contract".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: vec![RecallExpectation {
+                memory_id: Some("mem_typo".to_string()),
+                reason: "typo selector".to_string(),
+                ..Default::default()
+            }],
+            write_candidates: Vec::new(),
+            expected_write_decisions: Vec::new(),
+            evidence_refs: Vec::new(),
+            behavior_expectation: None,
+            thresholds: QualityThresholds::default(),
+        };
+
+        let error = scenario.validate().unwrap_err().to_string();
+
+        assert!(error.contains("forbidden_recall[0]"));
+        assert!(error.contains("does not match a seed_memory"));
+    }
+
+    #[test]
     fn fails_when_forbidden_memory_is_recalled() {
         let scenario = QualityScenario {
             name: "stale recall".to_string(),
             category: "stale_truth_suppression".to_string(),
-            seed_memories: Vec::new(),
+            seed_memories: vec![memory("mem_stale", "Old CLI contract.", "heartwood")],
             query: Some("cli contract".to_string()),
             workflow_prompt: None,
             expected_recall: Vec::new(),
