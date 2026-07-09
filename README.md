@@ -260,7 +260,9 @@ tree-ring integrations scan --source-root .
 
 It looks for local markers for DOX, Revolve, Codex, Claude Code, Agent Zero/A0,
 Goose, OpenCode, Hermes, and Pi, then suggests next steps without editing those
-tools' configuration.
+tools' configuration. JSON output records whether each marker came from the
+project or from the user's home configuration, so harness readiness is not
+overstated when only global config exists.
 
 Agent-mediated bridge linking is the planned next step after read-only
 discovery. The design keeps `.tree-ring` as the canonical memory root while
@@ -276,8 +278,8 @@ OpenCode, or other agent configuration.
 `tree_ring_memory_export` header with schema and plugin version metadata; each
 remaining line is a `memory_event` envelope. The command excludes sensitive and
 superseded memories unless `--include-sensitive` or `--include-superseded` is
-set. Import validates all events, skips duplicate ids by default, and replaces
-existing ids only with `--replace-existing`.
+set. Import validates all events, batches writes through SQLite, skips duplicate
+ids by default, and replaces existing ids only with `--replace-existing`.
 
 `tree-ring audit` is non-mutating. It reports deterministic local findings for
 stale expiry, sensitive retention, low-confidence durable memory, supersession
@@ -362,6 +364,7 @@ cargo run -p tree-ring-memory-cli -- dox sync --help
 cargo run -p tree-ring-memory-cli -- revolve sync --help
 cargo run -p tree-ring-memory-cli -- integrations scan --help
 cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000
+sh scripts/certify-tree-ring.sh
 sh scripts/package-release.sh
 ```
 
@@ -369,6 +372,23 @@ The Rust CLI writes the canonical SQLite/raw JSON shape. The performance smoke
 asserts nonempty recalls, emits a `METRICS_JSON=` line, and uses conservative
 local thresholds of at least 500 inserts/sec and max recall latency of 250 ms
 for the synthetic workload.
+
+`scripts/certify-tree-ring.sh` runs the fuller local certification suite:
+formatting, tests, Clippy, release build, isolated project/global installs, CLI
+JSON smokes, DOX/Revolve adapter smokes, integration-scan origin checks, import
+throughput, and 10k/30k recall timing. It writes
+`target/tree-ring-certification/summary.md` and `metrics.json`.
+
+Latest local certification run, generated at `2026-07-09T02:42:24Z` with
+Agent Zero plugin smoke enabled:
+
+- Release binary: 6,104,272 bytes.
+- Project install with init: 6,032 KB.
+- Global install: 5,988 KB.
+- CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
+- 10k recall max: 6.740 ms.
+- 30k recall max: 14.705 ms.
+- Agent Zero plugin smoke: passed.
 
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes

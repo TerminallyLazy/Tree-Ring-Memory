@@ -137,7 +137,7 @@ mod tests {
     fn encodes_header_and_event_envelopes() {
         let event = MemoryEvent::new("Export this memory.", "lesson").unwrap();
 
-        let jsonl = encode_jsonl(&[event.clone()], false).unwrap();
+        let jsonl = encode_jsonl(std::slice::from_ref(&event), false).unwrap();
         let lines: Vec<_> = jsonl.lines().collect();
 
         assert_eq!(lines.len(), 2);
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn decodes_export_envelope_jsonl() {
         let event = MemoryEvent::new("Import this memory.", "lesson").unwrap();
-        let jsonl = encode_jsonl(&[event.clone()], false).unwrap();
+        let jsonl = encode_jsonl(std::slice::from_ref(&event), false).unwrap();
 
         let decoded = decode_jsonl(&jsonl).unwrap();
 

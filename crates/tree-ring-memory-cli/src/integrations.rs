@@ -15,8 +15,21 @@ pub struct AgentIntegration {
     pub name: &'static str,
     pub status: IntegrationStatus,
     pub confidence: f64,
-    pub markers: Vec<String>,
+    pub markers: Vec<IntegrationMarker>,
     pub next_step: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IntegrationMarker {
+    pub path: String,
+    pub origin: MarkerOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkerOrigin {
+    Project,
+    Home,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -28,12 +41,24 @@ pub enum IntegrationStatus {
 
 pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
     let home = env::var_os("HOME").map(PathBuf::from);
+    scan_integrations_with_home(root, home.as_deref())
+}
+
+pub fn format_markers(markers: &[IntegrationMarker]) -> String {
+    markers
+        .iter()
+        .map(|marker| format!("{}:{}", marker.origin.as_str(), marker.path))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn scan_integrations_with_home(root: &Path, home: Option<&Path>) -> IntegrationScanReport {
     let mut integrations = vec![
         detect(
             "dox",
             "DOX / AGENTS.md",
             root,
-            home.as_deref(),
+            home,
             &["AGENTS.md"],
             &[],
             "Run `tree-ring dox sync --source-root . --dry-run`, then sync when the preview looks right.",
@@ -42,7 +67,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "revolve",
             "Revolve",
             root,
-            home.as_deref(),
+            home,
             &["revolve", ".revolve"],
             &[],
             "Run `tree-ring revolve sync --source-root revolve --dry-run` to import promoted lessons, scars, and seeds.",
@@ -51,7 +76,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "codex",
             "Codex",
             root,
-            home.as_deref(),
+            home,
             &[".codex", "AGENTS.md"],
             &[".codex"],
             "Reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from project guidance.",
@@ -60,7 +85,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "claude-code",
             "Claude Code",
             root,
-            home.as_deref(),
+            home,
             &[".claude", "CLAUDE.md"],
             &[".claude"],
             "Reference `.tree-ring/SKILL.md` from `CLAUDE.md` or `.claude` project instructions.",
@@ -69,7 +94,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "agent-zero",
             "Agent Zero / A0",
             root,
-            home.as_deref(),
+            home,
             &["usr/plugins", "a0", "agent-zero", ".a0"],
             &[".a0"],
             "Use the generated skill/CLI guidance, or bridge via an Agent Zero plugin without modifying core code.",
@@ -78,7 +103,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "goose",
             "Goose",
             root,
-            home.as_deref(),
+            home,
             &[".goose", "goosehints"],
             &[".goose"],
             "Add Tree Ring Memory recall and remember commands to Goose project instructions.",
@@ -87,7 +112,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "opencode",
             "OpenCode",
             root,
-            home.as_deref(),
+            home,
             &[".opencode", "opencode.json", "opencode.toml"],
             &[".opencode"],
             "Reference the Tree Ring CLI from OpenCode project configuration or instructions.",
@@ -96,7 +121,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "hermes",
             "Hermes",
             root,
-            home.as_deref(),
+            home,
             &[".hermes", "hermes.toml"],
             &[".hermes"],
             "Reference Tree Ring Memory as a local CLI memory lifecycle layer.",
@@ -105,7 +130,7 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
             "pi",
             "Pi",
             root,
-            home.as_deref(),
+            home,
             &[".pi", "pi.toml"],
             &[".pi"],
             "Use the generated portable skill and CLI reference as project instructions.",
@@ -129,6 +154,15 @@ pub fn scan_integrations(root: &Path) -> IntegrationScanReport {
     }
 }
 
+impl MarkerOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Home => "home",
+        }
+    }
+}
+
 fn detect(
     id: &'static str,
     name: &'static str,
@@ -142,18 +176,28 @@ fn detect(
     for marker in project_markers {
         let path = root.join(marker);
         if path.exists() {
-            markers.push(path.display().to_string());
+            markers.push(IntegrationMarker {
+                path: path.display().to_string(),
+                origin: MarkerOrigin::Project,
+            });
         }
     }
     if let Some(home) = home {
         for marker in home_markers {
             let path = home.join(marker);
             if path.exists() {
-                markers.push(path.display().to_string());
+                markers.push(IntegrationMarker {
+                    path: path.display().to_string(),
+                    origin: MarkerOrigin::Home,
+                });
             }
         }
     }
-    markers.sort();
+    markers.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.origin.as_str().cmp(right.origin.as_str()))
+    });
     markers.dedup();
     let confidence = if markers.is_empty() {
         0.0
@@ -198,6 +242,37 @@ mod tests {
     }
 
     #[test]
+    fn marks_project_and_home_marker_origins() {
+        let project = tempdir().unwrap();
+        let home = tempdir().unwrap();
+        fs::write(project.path().join("CLAUDE.md"), "# Claude instructions").unwrap();
+        fs::create_dir_all(project.path().join(".codex")).unwrap();
+        fs::create_dir_all(home.path().join(".claude")).unwrap();
+
+        let report = scan_integrations_with_home(project.path(), Some(home.path()));
+
+        let claude = integration(&report, "claude-code");
+        assert!(claude
+            .markers
+            .iter()
+            .any(|marker| marker.origin == MarkerOrigin::Project
+                && marker.path.ends_with("CLAUDE.md")));
+        assert!(claude
+            .markers
+            .iter()
+            .any(|marker| marker.origin == MarkerOrigin::Home && marker.path.ends_with(".claude")));
+
+        let codex = integration(&report, "codex");
+        assert!(codex.markers.iter().any(
+            |marker| marker.origin == MarkerOrigin::Project && marker.path.ends_with(".codex")
+        ));
+        assert!(!codex
+            .markers
+            .iter()
+            .any(|marker| marker.origin == MarkerOrigin::Home));
+    }
+
+    #[test]
     fn unavailable_integrations_still_include_onboarding_next_steps() {
         let dir = tempdir().unwrap();
 
@@ -216,5 +291,13 @@ mod tests {
         report.integrations.iter().any(|integration| {
             integration.id == id && integration.status == IntegrationStatus::Detected
         })
+    }
+
+    fn integration<'a>(report: &'a IntegrationScanReport, id: &str) -> &'a AgentIntegration {
+        report
+            .integrations
+            .iter()
+            .find(|integration| integration.id == id)
+            .unwrap()
     }
 }
