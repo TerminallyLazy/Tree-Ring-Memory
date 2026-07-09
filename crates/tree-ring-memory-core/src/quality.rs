@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::models::{MemoryEvent, TreeRingError, TreeRingResult};
 
@@ -81,6 +82,7 @@ impl QualityScenario {
         for decision in &self.expected_write_decisions {
             decision.validate(&self.name)?;
         }
+        validate_write_decision_coverage(self)?;
         for (index, evidence_ref) in self.evidence_refs.iter().enumerate() {
             if evidence_ref.trim().is_empty() {
                 return Err(TreeRingError::Validation(format!(
@@ -269,7 +271,7 @@ pub fn evaluate_quality_scenario(
         .expected_write_decisions
         .iter()
         .map(|expectation| write_decision_report(expectation, scenario))
-        .collect::<Vec<_>>();
+        .collect::<TreeRingResult<Vec<_>>>()?;
 
     let constraint_recall_rate = pass_rate(&expected_recall);
     let forbidden_recall_rate = failure_rate(&forbidden_recall);
@@ -279,6 +281,7 @@ pub fn evaluate_quality_scenario(
         constraint_recall_rate >= scenario.thresholds.min_constraint_recall_rate
             && forbidden_recall_rate <= scenario.thresholds.max_forbidden_recall_rate;
     let quality_pass = behavior_proof_pass
+        && write_decisions.iter().all(|report| report.passed)
         && spam_rejection_rate >= scenario.thresholds.min_spam_rejection_rate
         && evidence_required_rate >= scenario.thresholds.min_evidence_required_rate;
 
@@ -348,6 +351,52 @@ fn one() -> f64 {
     1.0
 }
 
+fn validate_write_decision_coverage(scenario: &QualityScenario) -> TreeRingResult<()> {
+    let mut candidate_ids = HashSet::new();
+    for (index, candidate) in scenario.write_candidates.iter().enumerate() {
+        if !candidate_ids.insert(candidate.id.as_str()) {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} write_candidates[{index}] duplicates memory_id {}",
+                scenario.name, candidate.id
+            )));
+        }
+    }
+
+    let candidate_index_by_id = scenario
+        .write_candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| (candidate.id.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    let mut decision_index_by_id = HashMap::new();
+
+    for (index, decision) in scenario.expected_write_decisions.iter().enumerate() {
+        if let Some(previous_index) = decision_index_by_id.insert(decision.memory_id.as_str(), index) {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} expected_write_decisions[{index}] duplicates memory_id {} from expected_write_decisions[{previous_index}]",
+                scenario.name, decision.memory_id
+            )));
+        }
+        if !candidate_index_by_id.contains_key(decision.memory_id.as_str()) {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} expected_write_decisions[{index}] memory_id {} does not match any write_candidate",
+                scenario.name, decision.memory_id
+            )));
+        }
+    }
+
+    for (index, candidate) in scenario.write_candidates.iter().enumerate() {
+        if !decision_index_by_id.contains_key(candidate.id.as_str()) {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} write_candidates[{index}] id {} is missing expected_write_decision coverage",
+                scenario.name, candidate.id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 fn expected_recall_report(
     expectation: &RecallExpectation,
     recalls: &[QualityRecall],
@@ -415,20 +464,25 @@ fn expectation_matches_memory(expectation: &RecallExpectation, memory: &MemoryEv
 fn write_decision_report(
     expectation: &WriteDecisionExpectation,
     scenario: &QualityScenario,
-) -> WriteDecisionReport {
-    let actual = scenario
+) -> TreeRingResult<WriteDecisionReport> {
+    let candidate = scenario
         .write_candidates
         .iter()
         .find(|candidate| candidate.id == expectation.memory_id)
-        .map(|candidate| classify_write_candidate(candidate, &scenario.evidence_refs))
-        .unwrap_or_else(|| "reject".to_string());
-    WriteDecisionReport {
+        .ok_or_else(|| {
+            TreeRingError::Validation(format!(
+                "quality scenario {} expected write decision for memory_id {} could not resolve a write_candidate",
+                scenario.name, expectation.memory_id
+            ))
+        })?;
+    let actual = classify_write_candidate(candidate, &scenario.evidence_refs);
+    Ok(WriteDecisionReport {
         memory_id: expectation.memory_id.clone(),
         expected: expectation.decision.clone(),
         passed: actual == expectation.decision,
         actual,
         reason: expectation.reason.clone(),
-    }
+    })
 }
 
 fn classify_write_candidate(candidate: &MemoryEvent, required_evidence_refs: &[String]) -> String {
@@ -622,6 +676,104 @@ mod tests {
     }
 
     #[test]
+    fn rejects_uncovered_write_candidate() {
+        let input = r#"{
+          "name": "missing decision",
+          "category": "spam_prevention",
+          "query": "write gates",
+          "write_candidates": [
+            {
+              "id": "mem_candidate",
+              "created_at": "2026-07-09T00:00:00Z",
+              "updated_at": "2026-07-09T00:00:00Z",
+              "project": "tree-ring",
+              "agent_profile": null,
+              "scope": "project",
+              "ring": "heartwood",
+              "event_type": "decision",
+              "summary": "Candidate without expected decision.",
+              "details": "",
+              "source": {"type": "evidence", "ref": "docs/spec.md", "quote": ""},
+              "tags": [],
+              "salience": 0.8,
+              "confidence": 0.8,
+              "sensitivity": "normal",
+              "retention": "durable",
+              "expires_at": null,
+              "supersedes": [],
+              "superseded_by": null,
+              "links": [],
+              "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+            }
+          ]
+        }"#;
+
+        let error = parse_quality_scenario(input).unwrap_err().to_string();
+
+        assert!(error.contains("write_candidates[0]"));
+        assert!(error.contains("missing expected_write_decision"));
+    }
+
+    #[test]
+    fn rejects_orphan_write_decision_mapping() {
+        let scenario = QualityScenario {
+            name: "orphan decision".to_string(),
+            category: "spam_prevention".to_string(),
+            seed_memories: Vec::new(),
+            query: Some("write gates".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: vec![memory("mem_real", "Real candidate.", "heartwood")],
+            expected_write_decisions: vec![WriteDecisionExpectation {
+                memory_id: "mem_missing".to_string(),
+                decision: "reject".to_string(),
+                reason: "orphan mapping".to_string(),
+            }],
+            evidence_refs: Vec::new(),
+            thresholds: QualityThresholds::default(),
+        };
+
+        let error = scenario.validate().unwrap_err().to_string();
+
+        assert!(error.contains("expected_write_decisions[0]"));
+        assert!(error.contains("does not match any write_candidate"));
+    }
+
+    #[test]
+    fn rejects_duplicate_write_decision_mapping() {
+        let scenario = QualityScenario {
+            name: "duplicate decision".to_string(),
+            category: "spam_prevention".to_string(),
+            seed_memories: Vec::new(),
+            query: Some("write gates".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: vec![memory("mem_real", "Real candidate.", "heartwood")],
+            expected_write_decisions: vec![
+                WriteDecisionExpectation {
+                    memory_id: "mem_real".to_string(),
+                    decision: "reject".to_string(),
+                    reason: "first mapping".to_string(),
+                },
+                WriteDecisionExpectation {
+                    memory_id: "mem_real".to_string(),
+                    decision: "accept".to_string(),
+                    reason: "duplicate mapping".to_string(),
+                },
+            ],
+            evidence_refs: Vec::new(),
+            thresholds: QualityThresholds::default(),
+        };
+
+        let error = scenario.validate().unwrap_err().to_string();
+
+        assert!(error.contains("expected_write_decisions[1]"));
+        assert!(error.contains("duplicate"));
+    }
+
+    #[test]
     fn evaluates_required_and_forbidden_recall() {
         let scenario = QualityScenario {
             name: "recall gate".to_string(),
@@ -744,6 +896,87 @@ mod tests {
         assert_eq!(report.spam_rejection_rate, 1.0);
         assert_eq!(report.evidence_required_rate, 1.0);
         assert_eq!(report.write_decisions.len(), 3);
+    }
+
+    #[test]
+    fn quality_pass_fails_when_expected_reject_is_accepted() {
+        let scenario = QualityScenario {
+            name: "reject mismatch".to_string(),
+            category: "spam_prevention".to_string(),
+            seed_memories: Vec::new(),
+            query: Some("write gates".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            expected_write_decisions: vec![WriteDecisionExpectation {
+                memory_id: "mem_accept".to_string(),
+                decision: "reject".to_string(),
+                reason: "should have been rejected".to_string(),
+            }],
+            evidence_refs: Vec::new(),
+            thresholds: QualityThresholds::default(),
+        };
+
+        let report = evaluate_quality_scenario(&scenario, &[]).unwrap();
+
+        assert!(!report.quality_pass);
+        assert_eq!(report.write_decisions[0].actual, "accept");
+        assert!(!report.write_decisions[0].passed);
+    }
+
+    #[test]
+    fn quality_pass_fails_when_expected_require_evidence_is_accepted() {
+        let scenario = QualityScenario {
+            name: "require evidence mismatch".to_string(),
+            category: "spam_prevention".to_string(),
+            seed_memories: Vec::new(),
+            query: Some("write gates".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            expected_write_decisions: vec![WriteDecisionExpectation {
+                memory_id: "mem_accept".to_string(),
+                decision: "require_evidence".to_string(),
+                reason: "should need evidence".to_string(),
+            }],
+            evidence_refs: Vec::new(),
+            thresholds: QualityThresholds::default(),
+        };
+
+        let report = evaluate_quality_scenario(&scenario, &[]).unwrap();
+
+        assert!(!report.quality_pass);
+        assert_eq!(report.write_decisions[0].actual, "accept");
+        assert!(!report.write_decisions[0].passed);
+    }
+
+    #[test]
+    fn quality_pass_fails_when_confirmation_mismatch_occurs() {
+        let scenario = QualityScenario {
+            name: "confirmation mismatch".to_string(),
+            category: "spam_prevention".to_string(),
+            seed_memories: Vec::new(),
+            query: Some("write gates".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            expected_write_decisions: vec![WriteDecisionExpectation {
+                memory_id: "mem_accept".to_string(),
+                decision: "require_user_confirmation".to_string(),
+                reason: "should require confirmation".to_string(),
+            }],
+            evidence_refs: Vec::new(),
+            thresholds: QualityThresholds::default(),
+        };
+
+        let report = evaluate_quality_scenario(&scenario, &[]).unwrap();
+
+        assert!(!report.quality_pass);
+        assert_eq!(report.write_decisions[0].actual, "accept");
+        assert!(!report.write_decisions[0].passed);
     }
 
     #[test]
