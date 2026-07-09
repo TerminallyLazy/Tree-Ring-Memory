@@ -547,9 +547,8 @@ mod tests {
             status: EvidenceStatus::Pass,
             source_root: dir.path().to_path_buf(),
             evidence_dir: evidence_dir.clone(),
-            record_path: evidence_dir.join(format!(
-                "recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json"
-            )),
+            record_path: evidence_dir
+                .join(format!("recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json")),
             summary: RecallQualitySummary {
                 query_count: 4,
                 pass_count: 4,
@@ -570,7 +569,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            index.certification.as_ref().map(|record| record.path.clone()),
+            index
+                .certification
+                .as_ref()
+                .map(|record| record.path.clone()),
             Some(PathBuf::from("metrics.json"))
         );
         assert_eq!(
@@ -585,7 +587,10 @@ mod tests {
             Some(PathBuf::from("harness/manual.json"))
         );
         assert_eq!(
-            index.recall_quality.as_ref().map(|record| record.path.clone()),
+            index
+                .recall_quality
+                .as_ref()
+                .map(|record| record.path.clone()),
             Some(PathBuf::from(format!(
                 "recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json"
             )))
