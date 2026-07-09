@@ -110,7 +110,7 @@ Each scenario should include:
 
 - `name`: stable scenario id.
 - `category`: `constraint_recall`, `spam_prevention`,
-  `stale_truth_suppression`, or `behavior_proof`.
+  `stale_truth_suppression`, `behavior_proof`, or `evidence_preservation`.
 - `seed_memories`: memory events loaded into a temporary store.
 - `query` or `workflow_prompt`: simulated agent task context.
 - `expected_recall`: memory ids, rings, tags, or source refs that should appear.
@@ -120,6 +120,9 @@ Each scenario should include:
 - `expected_write_decisions`: `accept`, `reject`, `require_evidence`, or
   `require_user_confirmation`.
 - `evidence_refs`: source refs required for accepted outcome memories.
+- `behavior_expectation`: required recalled memory id, baseline decision,
+  memory-informed decision, expected decision, and an optional reason. It is
+  required for `behavior_proof` scenarios.
 - `thresholds`: per-scenario minimums or tolerances.
 
 First scenario pack:
@@ -133,7 +136,9 @@ First scenario pack:
 - Synthetic edge case: sensitive memory is blocked or hidden by default.
 - Synthetic edge case: superseded heartwood does not outrank its replacement.
 - Synthetic edge case: failed approach surfaces as a scar for a failure-like
-  query.
+  query and changes a baseline retry into the expected rollback-safe decision.
+- Synthetic edge case: evaluated outcomes without evidence are held while an
+  outcome preserving the required evidence ref is accepted.
 
 ## Data Flow
 
@@ -193,15 +198,24 @@ The quality report should include:
 - `forbidden_recall_rate`: stale, sensitive, superseded, or weak memories
   returned when they should not be.
 - `spam_rejection_rate`: low-value write candidates rejected.
-- `evidence_required_rate`: accepted outcome memories that preserve required
-  evidence refs.
+- `evidence_required_rate`: evaluated candidates correctly held when evidence
+  is missing or accepted when the required evidence ref is preserved.
 - `behavior_proof_pass_rate`: scenarios where memory changed the expected
   decision path.
 - `quality_pass`: boolean certification gate.
 
+Rates are observation-weighted across applicable expectations, not averaged
+from per-scenario defaults. A scenario or run emits JSON `null` for a dimension
+with no observations. Constraint and forbidden recall use their respective
+expectation counts; spam uses expected `reject` decisions; evidence uses every
+`evaluation_` write candidate; behavior uses scenarios with an explicit
+behavior expectation. The default seven-scenario certification pack observes
+all five dimensions, so its aggregate metrics remain numeric.
+
 `quality_pass` should fail when required constraints are missed, forbidden
 recall exceeds tolerance, spam candidates are accepted, or required evidence
-refs are lost.
+refs are lost. Scenario thresholds apply only to dimensions with observations,
+every write-decision report must match, and an empty run cannot pass.
 
 ## TUI Contract
 
@@ -227,13 +241,17 @@ or warning behavior.
 
 ## Error Handling
 
-- Invalid scenario fixtures should report the scenario name, file path, and
-  invalid field.
+- Fixture-facing objects reject unknown fields. Invalid scenario fixtures
+  should report the scenario name, file path, and invalid field.
 - Missing expected recall should produce a precise failed expectation.
 - Forbidden recall should include the returned memory id and reason.
 - Write-decision mismatches should show the candidate id or summary and the
   expected decision.
-- Certification should preserve partial quality artifacts on failure.
+- Certification should preserve completed scenarios in partial JSON and
+  markdown artifacts on failure. Reports include one terminal structured error
+  with scenario and path when known, a stable stage, and a privacy-safe message.
+- Markdown renders null rates as `n/a` and adds an Errors section when errors
+  are present.
 - Scenario runs should clean up temporary stores on success and avoid touching
   real user memory roots.
 
@@ -265,6 +283,19 @@ Add tests in layers:
 7. Generated guidance includes explicit recall, trust, and write gates.
 8. TUI fullness semantics are documented as hybrid relative-share first,
    calibrated thresholds later.
+9. The seven-scenario default pack includes evidence preservation and produces
+   numeric passing aggregate values for every quality metric.
+10. Runner failures preserve structured partial artifacts without embedding
+    fixture contents or memory payloads in error messages.
+
+## Final-Review Hardening
+
+The final review replaced inferred behavior proof with an explicit decision
+change contract, made non-applicable metrics nullable and observation-weighted,
+added strict fixture fields and the `evidence_preservation` category, and made
+runner failures artifact-producing. This section and the seven-scenario pack
+supersede the original six-fixture count while preserving the certification
+gate's exact top-level `"quality_pass": true` JSON line.
 
 ## Rollout
 

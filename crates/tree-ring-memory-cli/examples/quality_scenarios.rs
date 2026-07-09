@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tree_ring_memory_core::{
     evaluate_quality_scenario, parse_quality_scenario, summarize_quality_run, QualityRecall,
-    QualityRunReport, QualityScenario, QualityScenarioReport,
+    QualityRunError, QualityRunReport, QualityScenario, QualityScenarioReport,
 };
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
@@ -33,17 +33,7 @@ fn run() -> Result<(), String> {
         return Err(USAGE.to_string());
     }
 
-    fs::create_dir_all(&output_dir)
-        .map_err(|err| format!("create output dir {}: {err}", output_dir.display()))?;
-
-    let scenarios = load_scenarios(&fixture_dir)?;
-    let mut reports = Vec::with_capacity(scenarios.len());
-    for scenario in &scenarios {
-        reports.push(run_scenario(scenario)?);
-    }
-
-    let run_report = summarize_quality_run(reports);
-    write_reports(&output_dir, &run_report)?;
+    let run_report = run_quality_scenarios(&fixture_dir, &output_dir)?;
     if !run_report.quality_pass {
         return Err(format!(
             "quality run failed: {} scenarios evaluated",
@@ -58,51 +48,156 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn load_scenarios(fixture_dir: &Path) -> Result<Vec<QualityScenario>, String> {
-    let mut paths = fs::read_dir(fixture_dir)
-        .map_err(|err| format!("read fixture dir {}: {err}", fixture_dir.display()))?
+fn run_quality_scenarios(
+    fixture_dir: &Path,
+    output_dir: &Path,
+) -> Result<QualityRunReport, String> {
+    fs::create_dir_all(output_dir)
+        .map_err(|err| format!("create output dir {}: {err}", output_dir.display()))?;
+
+    let paths = match fixture_paths(fixture_dir) {
+        Ok(paths) if !paths.is_empty() => paths,
+        Ok(_) => {
+            return write_failed_report(
+                output_dir,
+                Vec::new(),
+                QualityRunError {
+                    scenario: None,
+                    path: Some(fixture_dir.display().to_string()),
+                    stage: "fixture_directory".to_string(),
+                    message: "no quality scenario JSON files found".to_string(),
+                },
+            );
+        }
+        Err(error) => return write_failed_report(output_dir, Vec::new(), error),
+    };
+
+    let mut reports = Vec::with_capacity(paths.len());
+    for path in paths {
+        let input = match fs::read_to_string(&path) {
+            Ok(input) => input,
+            Err(err) => {
+                return write_failed_report(
+                    output_dir,
+                    reports,
+                    QualityRunError {
+                        scenario: None,
+                        path: Some(path.display().to_string()),
+                        stage: "file_read".to_string(),
+                        message: err.to_string(),
+                    },
+                );
+            }
+        };
+        let scenario_name = scenario_name_hint(&input);
+        let scenario = match parse_quality_scenario(&input) {
+            Ok(scenario) => scenario,
+            Err(err) => {
+                return write_failed_report(
+                    output_dir,
+                    reports,
+                    QualityRunError {
+                        scenario: scenario_name,
+                        path: Some(path.display().to_string()),
+                        stage: "parse".to_string(),
+                        message: err.to_string(),
+                    },
+                );
+            }
+        };
+        match run_scenario(&scenario) {
+            Ok(report) => reports.push(report),
+            Err(failure) => {
+                return write_failed_report(
+                    output_dir,
+                    reports,
+                    QualityRunError {
+                        scenario: Some(scenario.name),
+                        path: Some(path.display().to_string()),
+                        stage: failure.stage.to_string(),
+                        message: failure.message,
+                    },
+                );
+            }
+        }
+    }
+
+    let report = summarize_quality_run(reports);
+    write_reports(output_dir, &report)?;
+    Ok(report)
+}
+
+fn fixture_paths(fixture_dir: &Path) -> Result<Vec<PathBuf>, QualityRunError> {
+    let entries = fs::read_dir(fixture_dir).map_err(|err| QualityRunError {
+        scenario: None,
+        path: Some(fixture_dir.display().to_string()),
+        stage: "fixture_directory".to_string(),
+        message: err.to_string(),
+    })?;
+    let mut paths = entries
         .map(|entry| {
             entry
                 .map(|entry| entry.path())
-                .map_err(|err| err.to_string())
+                .map_err(|err| QualityRunError {
+                    scenario: None,
+                    path: Some(fixture_dir.display().to_string()),
+                    stage: "fixture_directory".to_string(),
+                    message: err.to_string(),
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    paths.retain(|path| path.extension() == Some(OsStr::new("json")));
     paths.sort();
-
-    let mut scenarios = Vec::new();
-    for path in paths {
-        if path.extension() != Some(OsStr::new("json")) {
-            continue;
-        }
-        let input = fs::read_to_string(&path)
-            .map_err(|err| format!("read fixture {}: {err}", path.display()))?;
-        let scenario =
-            parse_quality_scenario(&input).map_err(|err| format!("{}: {err}", path.display()))?;
-        scenarios.push(scenario);
-    }
-
-    if scenarios.is_empty() {
-        return Err(format!(
-            "no quality scenario json files in {}",
-            fixture_dir.display()
-        ));
-    }
-
-    Ok(scenarios)
+    Ok(paths)
 }
 
-fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, String> {
-    let root = TemporaryRoot::new(&scenario.name)?;
+fn scenario_name_hint(input: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()?
+        .get("name")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn write_failed_report(
+    output_dir: &Path,
+    reports: Vec<QualityScenarioReport>,
+    error: QualityRunError,
+) -> Result<QualityRunReport, String> {
+    let mut report = summarize_quality_run(reports);
+    report.ok = false;
+    report.quality_pass = false;
+    report.errors.push(error);
+    write_reports(output_dir, &report)?;
+    Ok(report)
+}
+
+struct ScenarioRunFailure {
+    stage: &'static str,
+    message: String,
+}
+
+fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, ScenarioRunFailure> {
+    let root = TemporaryRoot::new(&scenario.name).map_err(|message| ScenarioRunFailure {
+        stage: "store_open",
+        message,
+    })?;
     let db_path = root.path().join("memory.sqlite");
-    let mut store = SQLiteMemoryStore::open(&db_path)
-        .map_err(|err| format!("open scenario store {}: {err}", scenario.name))?;
+    let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| ScenarioRunFailure {
+        stage: "store_open",
+        message: err.to_string(),
+    })?;
     store
         .put_many(&scenario.seed_memories)
-        .map_err(|err| format!("seed scenario store {}: {err}", scenario.name))?;
+        .map_err(|err| ScenarioRunFailure {
+            stage: "seed",
+            message: err.to_string(),
+        })?;
 
-    let prompt = scenario
-        .prompt()
-        .ok_or_else(|| format!("quality scenario {} has no prompt", scenario.name))?;
+    let prompt = scenario.prompt().ok_or_else(|| ScenarioRunFailure {
+        stage: "evaluation",
+        message: "validated scenario has no prompt".to_string(),
+    })?;
     let recalls = MemoryRetriever::new(&store)
         .recall(
             prompt,
@@ -116,7 +211,10 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Str
             RECALL_LIMIT,
             true,
         )
-        .map_err(|err| format!("recall scenario {}: {err}", scenario.name))?
+        .map_err(|err| ScenarioRunFailure {
+            stage: "recall",
+            message: err.to_string(),
+        })?
         .into_iter()
         .map(|result| QualityRecall {
             memory: result.memory,
@@ -124,8 +222,10 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Str
         })
         .collect::<Vec<_>>();
 
-    evaluate_quality_scenario(scenario, &recalls)
-        .map_err(|err| format!("evaluate scenario {}: {err}", scenario.name))
+    evaluate_quality_scenario(scenario, &recalls).map_err(|err| ScenarioRunFailure {
+        stage: "evaluation",
+        message: err.to_string(),
+    })
 }
 
 fn write_reports(output_dir: &Path, report: &QualityRunReport) -> Result<(), String> {
@@ -147,21 +247,24 @@ fn markdown_summary(report: &QualityRunReport) -> String {
         format!("- quality pass: {}", report.quality_pass),
         format!("- scenarios: {}", report.scenario_count),
         format!(
-            "- constraint recall rate: {:.3}",
-            report.constraint_recall_rate
+            "- constraint recall rate: {}",
+            format_rate(report.constraint_recall_rate)
         ),
         format!(
-            "- forbidden recall rate: {:.3}",
-            report.forbidden_recall_rate
-        ),
-        format!("- spam rejection rate: {:.3}", report.spam_rejection_rate),
-        format!(
-            "- evidence required rate: {:.3}",
-            report.evidence_required_rate
+            "- forbidden recall rate: {}",
+            format_rate(report.forbidden_recall_rate)
         ),
         format!(
-            "- behavior proof pass rate: {:.3}",
-            report.behavior_proof_pass_rate
+            "- spam rejection rate: {}",
+            format_rate(report.spam_rejection_rate)
+        ),
+        format!(
+            "- evidence required rate: {}",
+            format_rate(report.evidence_required_rate)
+        ),
+        format!(
+            "- behavior proof pass rate: {}",
+            format_rate(report.behavior_proof_pass_rate)
         ),
         String::new(),
         "## Scenarios".to_string(),
@@ -175,8 +278,24 @@ fn markdown_summary(report: &QualityRunReport) -> String {
         ));
     }
 
+    if !report.errors.is_empty() {
+        lines.extend([String::new(), "## Errors".to_string(), String::new()]);
+        for error in &report.errors {
+            let scenario = error.scenario.as_deref().unwrap_or("unknown");
+            let path = error.path.as_deref().unwrap_or("unknown");
+            lines.push(format!(
+                "- stage={} scenario=`{scenario}` path=`{path}`: {}",
+                error.stage, error.message
+            ));
+        }
+    }
+
     lines.push(String::new());
     lines.join("\n")
+}
+
+fn format_rate(rate: Option<f64>) -> String {
+    rate.map_or_else(|| "n/a".to_string(), |rate| format!("{rate:.3}"))
 }
 
 struct TemporaryRoot {
@@ -217,5 +336,76 @@ impl Drop for TemporaryRoot {
         if self.path.exists() {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn copy_valid_fixture(fixture_dir: &Path, name: &str) {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures/quality/no-background-writer-constraint.json");
+        fs::copy(source, fixture_dir.join(name)).unwrap();
+    }
+
+    #[test]
+    fn writes_partial_artifacts_when_a_later_fixture_fails_to_parse() {
+        let fixtures = tempdir().unwrap();
+        let output = tempdir().unwrap();
+        copy_valid_fixture(fixtures.path(), "01-valid.json");
+        fs::write(
+            fixtures.path().join("02-private-invalid.json"),
+            r#"{
+              "name": "invalid-private-fixture",
+              "category": "constraint_recall",
+              "query": "private-memory-payload",
+              "expected_recal": []
+            }"#,
+        )
+        .unwrap();
+
+        let report = run_quality_scenarios(fixtures.path(), output.path()).unwrap();
+
+        assert!(!report.ok);
+        assert!(!report.quality_pass);
+        assert_eq!(report.scenario_count, 1);
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].stage, "parse");
+        assert_eq!(
+            report.errors[0].scenario.as_deref(),
+            Some("invalid-private-fixture")
+        );
+        assert!(report.errors[0]
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with("02-private-invalid.json")));
+
+        let json = fs::read_to_string(output.path().join("quality-report.json")).unwrap();
+        let markdown = fs::read_to_string(output.path().join("quality-summary.md")).unwrap();
+        assert!(!json.contains("private-memory-payload"));
+        assert!(!markdown.contains("private-memory-payload"));
+        assert!(markdown.contains("## Errors"));
+        assert!(markdown.contains("stage=parse"));
+    }
+
+    #[test]
+    fn writes_failed_artifacts_for_an_empty_fixture_directory() {
+        let fixtures = tempdir().unwrap();
+        let output = tempdir().unwrap();
+
+        let report = run_quality_scenarios(fixtures.path(), output.path()).unwrap();
+
+        assert!(!report.ok);
+        assert!(!report.quality_pass);
+        assert_eq!(report.scenario_count, 0);
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].stage, "fixture_directory");
+        assert!(output.path().join("quality-report.json").is_file());
+        let markdown = fs::read_to_string(output.path().join("quality-summary.md")).unwrap();
+        assert!(markdown.contains("constraint recall rate: n/a"));
+        assert!(markdown.contains("## Errors"));
     }
 }

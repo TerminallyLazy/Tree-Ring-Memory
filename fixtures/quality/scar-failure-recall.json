@@ -42,5 +42,12 @@
       "ring": "scar",
       "reason": "failure-like queries should surface scar memory"
     }
-  ]
+  ],
+  "behavior_expectation": {
+    "required_memory_id": "mem_scar_stale_cache",
+    "baseline_decision": "retry the cache migration unchanged",
+    "memory_informed_decision": "roll back the cache migration and inspect stale state before retrying",
+    "expected_decision": "roll back the cache migration and inspect stale state before retrying",
+    "reason": "the recalled failure scar changes the workflow to rollback-safe recovery"
+  }
 }

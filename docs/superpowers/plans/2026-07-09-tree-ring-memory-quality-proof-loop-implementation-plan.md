@@ -2193,3 +2193,19 @@ git commit -m "Verify memory quality proof loop"
 ```
 
 Expected: create a commit only when verification produced tracked file changes.
+
+---
+
+## Final-Review Hardening Addendum
+
+This addendum supersedes the historical six-fixture exact count and related
+non-null default assumptions in the task evidence above. The final default pack
+contains seven fixtures, including `evidence-preservation.json`. Fixture-facing
+types reject unknown fields; behavior proof requires an explicit recalled-memory
+and decision-change expectation; scenario and run metrics are nullable and
+aggregate applicable raw observations; and runner errors preserve completed
+scenarios in JSON and markdown with one privacy-safe structured terminal error.
+
+The final default run must contain seven scenarios, zero errors, numeric values
+for all five aggregate metrics, and top-level `"quality_pass": true`. The
+certification shell's dependency-free exact line gate remains unchanged.

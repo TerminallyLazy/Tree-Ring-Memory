@@ -8,6 +8,7 @@ pub const QUALITY_CATEGORIES: &[&str] = &[
     "spam_prevention",
     "stale_truth_suppression",
     "behavior_proof",
+    "evidence_preservation",
 ];
 
 pub const WRITE_DECISIONS: &[&str] = &[
@@ -18,6 +19,7 @@ pub const WRITE_DECISIONS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QualityScenario {
     pub name: String,
     pub category: String,
@@ -37,6 +39,8 @@ pub struct QualityScenario {
     pub expected_write_decisions: Vec<WriteDecisionExpectation>,
     #[serde(default)]
     pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub behavior_expectation: Option<BehaviorExpectation>,
     #[serde(default)]
     pub thresholds: QualityThresholds,
 }
@@ -95,12 +99,22 @@ impl QualityScenario {
                 )));
             }
         }
+        if self.category == "behavior_proof" && self.behavior_expectation.is_none() {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} category behavior_proof requires behavior_expectation",
+                self.name
+            )));
+        }
+        if let Some(expectation) = &self.behavior_expectation {
+            expectation.validate(self)?;
+        }
         self.thresholds.validate(&self.name)?;
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecallExpectation {
     #[serde(default)]
     pub memory_id: Option<String>,
@@ -136,6 +150,7 @@ impl RecallExpectation {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WriteDecisionExpectation {
     pub memory_id: String,
     pub decision: String,
@@ -154,7 +169,61 @@ impl WriteDecisionExpectation {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BehaviorExpectation {
+    pub required_memory_id: String,
+    pub baseline_decision: String,
+    pub memory_informed_decision: String,
+    pub expected_decision: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl BehaviorExpectation {
+    fn validate(&self, scenario: &QualityScenario) -> TreeRingResult<()> {
+        for (field, value) in [
+            ("required_memory_id", self.required_memory_id.as_str()),
+            ("baseline_decision", self.baseline_decision.as_str()),
+            (
+                "memory_informed_decision",
+                self.memory_informed_decision.as_str(),
+            ),
+            ("expected_decision", self.expected_decision.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(TreeRingError::Validation(format!(
+                    "quality scenario {} behavior_expectation {field} must not be blank",
+                    scenario.name
+                )));
+            }
+        }
+        if self
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.trim().is_empty())
+        {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} behavior_expectation reason must not be blank when provided",
+                scenario.name
+            )));
+        }
+        if !scenario
+            .seed_memories
+            .iter()
+            .any(|memory| memory.id == self.required_memory_id)
+        {
+            return Err(TreeRingError::Validation(format!(
+                "quality scenario {} behavior_expectation required_memory_id {} does not match a seed_memory",
+                scenario.name, self.required_memory_id
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QualityThresholds {
     #[serde(default = "one")]
     pub min_constraint_recall_rate: f64,
@@ -228,34 +297,58 @@ pub struct WriteDecisionReport {
     pub actual: String,
     pub passed: bool,
     pub reason: String,
+    #[serde(default)]
+    pub evidence_applicable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BehaviorExpectationReport {
+    pub expectation: BehaviorExpectation,
+    pub required_memory_recalled: bool,
+    pub decision_changed: bool,
+    pub expected_decision_reached: bool,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QualityScenarioReport {
     pub name: String,
     pub category: String,
-    pub constraint_recall_rate: f64,
-    pub forbidden_recall_rate: f64,
-    pub spam_rejection_rate: f64,
-    pub evidence_required_rate: f64,
-    pub behavior_proof_pass: bool,
+    pub constraint_recall_rate: Option<f64>,
+    pub forbidden_recall_rate: Option<f64>,
+    pub spam_rejection_rate: Option<f64>,
+    pub evidence_required_rate: Option<f64>,
+    pub behavior_proof_pass: Option<bool>,
+    pub behavior_expectation: Option<BehaviorExpectationReport>,
     pub quality_pass: bool,
     pub expected_recall: Vec<RecallExpectationReport>,
     pub forbidden_recall: Vec<RecallExpectationReport>,
     pub write_decisions: Vec<WriteDecisionReport>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualityRunError {
+    #[serde(default)]
+    pub scenario: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    pub stage: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QualityRunReport {
     pub ok: bool,
     pub scenario_count: usize,
-    pub constraint_recall_rate: f64,
-    pub forbidden_recall_rate: f64,
-    pub spam_rejection_rate: f64,
-    pub evidence_required_rate: f64,
-    pub behavior_proof_pass_rate: f64,
+    pub constraint_recall_rate: Option<f64>,
+    pub forbidden_recall_rate: Option<f64>,
+    pub spam_rejection_rate: Option<f64>,
+    pub evidence_required_rate: Option<f64>,
+    pub behavior_proof_pass_rate: Option<f64>,
     pub quality_pass: bool,
     pub scenarios: Vec<QualityScenarioReport>,
+    #[serde(default)]
+    pub errors: Vec<QualityRunError>,
 }
 
 pub fn evaluate_quality_scenario(
@@ -282,15 +375,35 @@ pub fn evaluate_quality_scenario(
 
     let constraint_recall_rate = pass_rate(&expected_recall);
     let forbidden_recall_rate = failure_rate(&forbidden_recall);
-    let spam_rejection_rate = decision_pass_rate(&write_decisions, "reject");
-    let evidence_required_rate = decision_pass_rate(&write_decisions, "require_evidence");
-    let behavior_proof_pass = constraint_recall_rate
-        >= scenario.thresholds.min_constraint_recall_rate
-        && forbidden_recall_rate <= scenario.thresholds.max_forbidden_recall_rate;
-    let quality_pass = behavior_proof_pass
-        && write_decisions.iter().all(|report| report.passed)
-        && spam_rejection_rate >= scenario.thresholds.min_spam_rejection_rate
-        && evidence_required_rate >= scenario.thresholds.min_evidence_required_rate;
+    let spam_rejection_rate =
+        decision_pass_rate(&write_decisions, |report| report.expected == "reject");
+    let evidence_required_rate =
+        decision_pass_rate(&write_decisions, |report| report.evidence_applicable);
+    let behavior_expectation = scenario
+        .behavior_expectation
+        .as_ref()
+        .map(|expectation| behavior_expectation_report(expectation, recalls));
+    let behavior_proof_pass = behavior_expectation.as_ref().map(|report| report.passed);
+    let behavior_rate = behavior_proof_pass.map(|passed| if passed { 1.0 } else { 0.0 });
+    let quality_pass = minimum_met(
+        constraint_recall_rate,
+        scenario.thresholds.min_constraint_recall_rate,
+    ) && maximum_met(
+        forbidden_recall_rate,
+        scenario.thresholds.max_forbidden_recall_rate,
+    ) && write_decisions.iter().all(|report| report.passed)
+        && minimum_met(
+            spam_rejection_rate,
+            scenario.thresholds.min_spam_rejection_rate,
+        )
+        && minimum_met(
+            evidence_required_rate,
+            scenario.thresholds.min_evidence_required_rate,
+        )
+        && minimum_met(
+            behavior_rate,
+            scenario.thresholds.min_behavior_proof_pass_rate,
+        );
 
     Ok(QualityScenarioReport {
         name: scenario.name.clone(),
@@ -300,6 +413,7 @@ pub fn evaluate_quality_scenario(
         spam_rejection_rate,
         evidence_required_rate,
         behavior_proof_pass,
+        behavior_expectation,
         quality_pass,
         expected_recall,
         forbidden_recall,
@@ -309,33 +423,36 @@ pub fn evaluate_quality_scenario(
 
 pub fn summarize_quality_run(reports: Vec<QualityScenarioReport>) -> QualityRunReport {
     let scenario_count = reports.len();
-    let denominator = scenario_count.max(1) as f64;
-    let constraint_recall_rate = reports
-        .iter()
-        .map(|report| report.constraint_recall_rate)
-        .sum::<f64>()
-        / denominator;
-    let forbidden_recall_rate = reports
-        .iter()
-        .map(|report| report.forbidden_recall_rate)
-        .sum::<f64>()
-        / denominator;
-    let spam_rejection_rate = reports
-        .iter()
-        .map(|report| report.spam_rejection_rate)
-        .sum::<f64>()
-        / denominator;
-    let evidence_required_rate = reports
-        .iter()
-        .map(|report| report.evidence_required_rate)
-        .sum::<f64>()
-        / denominator;
-    let behavior_proof_pass_rate = reports
-        .iter()
-        .filter(|report| report.behavior_proof_pass)
-        .count() as f64
-        / denominator;
-    let quality_pass = reports.iter().all(|report| report.quality_pass);
+    let constraint_recall_rate = aggregate_rate(
+        reports
+            .iter()
+            .flat_map(|report| report.expected_recall.iter().map(|item| item.passed)),
+    );
+    let forbidden_recall_rate = aggregate_rate(
+        reports
+            .iter()
+            .flat_map(|report| report.forbidden_recall.iter().map(|item| !item.passed)),
+    );
+    let spam_rejection_rate = aggregate_rate(reports.iter().flat_map(|report| {
+        report
+            .write_decisions
+            .iter()
+            .filter(|item| item.expected == "reject")
+            .map(|item| item.passed)
+    }));
+    let evidence_required_rate = aggregate_rate(reports.iter().flat_map(|report| {
+        report
+            .write_decisions
+            .iter()
+            .filter(|item| item.evidence_applicable)
+            .map(|item| item.passed)
+    }));
+    let behavior_proof_pass_rate = aggregate_rate(
+        reports
+            .iter()
+            .filter_map(|report| report.behavior_proof_pass),
+    );
+    let quality_pass = scenario_count > 0 && reports.iter().all(|report| report.quality_pass);
 
     QualityRunReport {
         ok: quality_pass,
@@ -347,6 +464,7 @@ pub fn summarize_quality_run(reports: Vec<QualityScenarioReport>) -> QualityRunR
         behavior_proof_pass_rate,
         quality_pass,
         scenarios: reports,
+        errors: Vec::new(),
     }
 }
 
@@ -442,6 +560,25 @@ fn forbidden_recall_report(
     }
 }
 
+fn behavior_expectation_report(
+    expectation: &BehaviorExpectation,
+    recalls: &[QualityRecall],
+) -> BehaviorExpectationReport {
+    let required_memory_recalled = recalls
+        .iter()
+        .any(|recall| recall.memory.id == expectation.required_memory_id);
+    let decision_changed = expectation.baseline_decision != expectation.memory_informed_decision;
+    let expected_decision_reached =
+        expectation.memory_informed_decision == expectation.expected_decision;
+    BehaviorExpectationReport {
+        expectation: expectation.clone(),
+        required_memory_recalled,
+        decision_changed,
+        expected_decision_reached,
+        passed: required_memory_recalled && decision_changed && expected_decision_reached,
+    }
+}
+
 fn matching_recall_ids(expectation: &RecallExpectation, recalls: &[QualityRecall]) -> Vec<String> {
     recalls
         .iter()
@@ -503,6 +640,7 @@ fn write_decision_report(
         passed: actual == expectation.decision,
         actual,
         reason: expectation.reason.clone(),
+        evidence_applicable: candidate.event_type.starts_with("evaluation_"),
     })
 }
 
@@ -537,29 +675,39 @@ fn classify_write_candidate(candidate: &MemoryEvent, required_evidence_refs: &[S
     "accept".to_string()
 }
 
-fn pass_rate(reports: &[RecallExpectationReport]) -> f64 {
-    if reports.is_empty() {
-        return 1.0;
-    }
-    reports.iter().filter(|report| report.passed).count() as f64 / reports.len() as f64
+fn pass_rate(reports: &[RecallExpectationReport]) -> Option<f64> {
+    aggregate_rate(reports.iter().map(|report| report.passed))
 }
 
-fn failure_rate(reports: &[RecallExpectationReport]) -> f64 {
-    if reports.is_empty() {
-        return 0.0;
-    }
-    reports.iter().filter(|report| !report.passed).count() as f64 / reports.len() as f64
+fn failure_rate(reports: &[RecallExpectationReport]) -> Option<f64> {
+    aggregate_rate(reports.iter().map(|report| !report.passed))
 }
 
-fn decision_pass_rate(reports: &[WriteDecisionReport], decision: &str) -> f64 {
-    let relevant = reports
-        .iter()
-        .filter(|report| report.expected == decision)
-        .collect::<Vec<_>>();
-    if relevant.is_empty() {
-        return 1.0;
-    }
-    relevant.iter().filter(|report| report.passed).count() as f64 / relevant.len() as f64
+fn decision_pass_rate(
+    reports: &[WriteDecisionReport],
+    applicable: impl Fn(&WriteDecisionReport) -> bool,
+) -> Option<f64> {
+    aggregate_rate(
+        reports
+            .iter()
+            .filter(|report| applicable(report))
+            .map(|report| report.passed),
+    )
+}
+
+fn aggregate_rate(observations: impl Iterator<Item = bool>) -> Option<f64> {
+    let (passed, total) = observations.fold((0usize, 0usize), |(passed, total), observation| {
+        (passed + usize::from(observation), total + 1)
+    });
+    (total > 0).then_some(passed as f64 / total as f64)
+}
+
+fn minimum_met(rate: Option<f64>, threshold: f64) -> bool {
+    rate.is_none_or(|rate| rate >= threshold)
+}
+
+fn maximum_met(rate: Option<f64>, threshold: f64) -> bool {
+    rate.is_none_or(|rate| rate <= threshold)
 }
 
 #[cfg(test)]
@@ -579,6 +727,287 @@ mod tests {
         event.salience = 0.8;
         event.confidence = 0.8;
         event
+    }
+
+    fn scenario(name: &str, category: &str) -> QualityScenario {
+        QualityScenario {
+            name: name.to_string(),
+            category: category.to_string(),
+            seed_memories: Vec::new(),
+            query: Some("quality proof".to_string()),
+            workflow_prompt: None,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_candidates: Vec::new(),
+            expected_write_decisions: Vec::new(),
+            evidence_refs: Vec::new(),
+            behavior_expectation: None,
+            thresholds: QualityThresholds::default(),
+        }
+    }
+
+    fn report_json(scenario: &QualityScenario, recalls: &[QualityRecall]) -> serde_json::Value {
+        serde_json::to_value(evaluate_quality_scenario(scenario, recalls).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn rejects_unknown_top_level_fixture_field() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "misspelled recall",
+              "category": "constraint_recall",
+              "query": "quality proof",
+              "expected_recal": []
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("unknown field `expected_recal`"), "{error}");
+    }
+
+    #[test]
+    fn rejects_unknown_threshold_field() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "misspelled threshold",
+              "category": "constraint_recall",
+              "query": "quality proof",
+              "thresholds": {"min_constraint_recal_rate": 1.0}
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            error.contains("unknown field `min_constraint_recal_rate`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_nested_expectation_field() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "misspelled nested field",
+              "category": "constraint_recall",
+              "query": "quality proof",
+              "expected_recall": [{"memoryid": "mem_required"}]
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("unknown field `memoryid`"), "{error}");
+    }
+
+    #[test]
+    fn behavior_proof_requires_explicit_expectation() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "implicit behavior proof",
+              "category": "behavior_proof",
+              "query": "quality proof"
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("requires behavior_expectation"), "{error}");
+    }
+
+    #[test]
+    fn behavior_proof_reports_an_observed_decision_change() {
+        let required = memory(
+            "mem_required_behavior",
+            "Rollback instead of retrying the stale cache migration.",
+            "scar",
+        );
+        let input = serde_json::json!({
+            "name": "explicit behavior proof",
+            "category": "behavior_proof",
+            "query": "stale cache migration failed",
+            "seed_memories": [required],
+            "behavior_expectation": {
+                "required_memory_id": "mem_required_behavior",
+                "baseline_decision": "retry the migration unchanged",
+                "memory_informed_decision": "rollback and inspect cache state",
+                "expected_decision": "rollback and inspect cache state",
+                "reason": "the scar changes the recovery decision"
+            }
+        });
+        let scenario = parse_quality_scenario(&input.to_string()).unwrap();
+        let recalls = [QualityRecall {
+            memory: scenario.seed_memories[0].clone(),
+            score: 0.9,
+        }];
+
+        let report = report_json(&scenario, &recalls);
+
+        assert_eq!(report["behavior_proof_pass"], true);
+        assert_eq!(
+            report["behavior_expectation"]["required_memory_recalled"],
+            true
+        );
+        assert_eq!(report["behavior_expectation"]["decision_changed"], true);
+        assert_eq!(
+            report["behavior_expectation"]["expected_decision_reached"],
+            true
+        );
+        assert_eq!(report["behavior_expectation"]["passed"], true);
+    }
+
+    #[test]
+    fn behavior_threshold_applies_to_an_applicable_failure() {
+        let required = memory("mem_behavior_threshold", "Use rollback recovery.", "scar");
+        let input = serde_json::json!({
+            "name": "behavior threshold",
+            "category": "behavior_proof",
+            "query": "failed recovery",
+            "seed_memories": [required],
+            "behavior_expectation": {
+                "required_memory_id": "mem_behavior_threshold",
+                "baseline_decision": "retry unchanged",
+                "memory_informed_decision": "retry unchanged",
+                "expected_decision": "rollback"
+            },
+            "thresholds": {"min_behavior_proof_pass_rate": 0.0}
+        });
+        let mut scenario = parse_quality_scenario(&input.to_string()).unwrap();
+        let recalls = [QualityRecall {
+            memory: scenario.seed_memories[0].clone(),
+            score: 0.9,
+        }];
+
+        assert_eq!(report_json(&scenario, &recalls)["quality_pass"], true);
+        scenario.thresholds.min_behavior_proof_pass_rate = 0.5;
+        assert_eq!(report_json(&scenario, &recalls)["quality_pass"], false);
+    }
+
+    #[test]
+    fn metrics_are_null_without_applicable_observations() {
+        let report = report_json(&scenario("no observations", "constraint_recall"), &[]);
+
+        assert!(report["constraint_recall_rate"].is_null());
+        assert!(report["forbidden_recall_rate"].is_null());
+        assert!(report["spam_rejection_rate"].is_null());
+        assert!(report["evidence_required_rate"].is_null());
+        assert!(report["behavior_proof_pass"].is_null());
+    }
+
+    #[test]
+    fn run_metrics_weight_only_applicable_expectations() {
+        let mut failing = scenario("missed constraint", "constraint_recall");
+        failing.expected_recall = vec![RecallExpectation {
+            memory_id: Some("mem_missing".to_string()),
+            ..Default::default()
+        }];
+        let unrelated = scenario("unrelated", "spam_prevention");
+        let reports = vec![
+            evaluate_quality_scenario(&failing, &[]).unwrap(),
+            evaluate_quality_scenario(&unrelated, &[]).unwrap(),
+        ];
+
+        let run = serde_json::to_value(summarize_quality_run(reports)).unwrap();
+
+        assert_eq!(run["constraint_recall_rate"], 0.0);
+        assert!(run["spam_rejection_rate"].is_null());
+    }
+
+    #[test]
+    fn forbidden_run_rate_uses_failures_over_applicable_expectations() {
+        let mut mixed = scenario("mixed forbidden recall", "stale_truth_suppression");
+        mixed.forbidden_recall = vec![
+            RecallExpectation {
+                memory_id: Some("mem_forbidden_recalled".to_string()),
+                ..Default::default()
+            },
+            RecallExpectation {
+                memory_id: Some("mem_forbidden_hidden".to_string()),
+                ..Default::default()
+            },
+        ];
+        let recalls = [QualityRecall {
+            memory: memory("mem_forbidden_recalled", "Stale instruction.", "heartwood"),
+            score: 0.8,
+        }];
+        let reports = vec![
+            evaluate_quality_scenario(&mixed, &recalls).unwrap(),
+            evaluate_quality_scenario(&scenario("unrelated", "spam_prevention"), &[]).unwrap(),
+        ];
+
+        let run = serde_json::to_value(summarize_quality_run(reports)).unwrap();
+
+        assert_eq!(run["forbidden_recall_rate"], 0.5);
+    }
+
+    #[test]
+    fn applicable_thresholds_gate_scenario_quality() {
+        let required = memory("mem_recalled", "Required constraint.", "heartwood");
+        let mut recall = scenario("threshold gates", "constraint_recall");
+        recall.expected_recall = vec![
+            RecallExpectation {
+                memory_id: Some("mem_recalled".to_string()),
+                ..Default::default()
+            },
+            RecallExpectation {
+                memory_id: Some("mem_missing".to_string()),
+                ..Default::default()
+            },
+        ];
+        recall.thresholds.min_constraint_recall_rate = 0.5;
+        let recalls = [QualityRecall {
+            memory: required,
+            score: 0.9,
+        }];
+        assert_eq!(report_json(&recall, &recalls)["quality_pass"], true);
+        recall.thresholds.min_constraint_recall_rate = 0.6;
+        assert_eq!(report_json(&recall, &recalls)["quality_pass"], false);
+
+        let mut forbidden = scenario("forbidden threshold", "stale_truth_suppression");
+        forbidden.forbidden_recall = vec![RecallExpectation {
+            memory_id: Some("mem_stale".to_string()),
+            ..Default::default()
+        }];
+        forbidden.thresholds.max_forbidden_recall_rate = 0.0;
+        let stale = [QualityRecall {
+            memory: memory("mem_stale", "Stale instruction.", "heartwood"),
+            score: 0.9,
+        }];
+        assert_eq!(report_json(&forbidden, &stale)["quality_pass"], false);
+    }
+
+    #[test]
+    fn evaluation_write_decisions_are_evidence_applicable() {
+        let mut candidate = memory(
+            "mem_evaluation",
+            "Preserve the evaluated outcome with its evidence.",
+            "cambium",
+        );
+        candidate.event_type = "evaluation_result".to_string();
+        candidate.source.ref_.clear();
+        let mut scenario = scenario("evidence applicability", "evidence_preservation");
+        scenario.write_candidates = vec![candidate];
+        scenario.expected_write_decisions = vec![WriteDecisionExpectation {
+            memory_id: "mem_evaluation".to_string(),
+            decision: "accept".to_string(),
+            reason: "accepted outcomes preserve evidence".to_string(),
+        }];
+
+        let report = report_json(&scenario, &[]);
+
+        assert_eq!(report["evidence_required_rate"], 0.0);
+        assert_eq!(report["write_decisions"][0]["evidence_applicable"], true);
+    }
+
+    #[test]
+    fn zero_scenario_run_is_failed_and_has_null_metrics() {
+        let report = serde_json::to_value(summarize_quality_run(Vec::new())).unwrap();
+
+        assert_eq!(report["ok"], false);
+        assert_eq!(report["quality_pass"], false);
+        assert!(report["constraint_recall_rate"].is_null());
+        assert!(report["behavior_proof_pass_rate"].is_null());
     }
 
     #[test]
@@ -657,7 +1086,7 @@ mod tests {
     fn rejects_blank_evidence_refs() {
         let input = r#"{
           "name": "bad evidence refs",
-          "category": "behavior_proof",
+          "category": "constraint_recall",
           "query": "prove behavior",
           "evidence_refs": ["docs/spec.md", "   "]
         }"#;
@@ -689,7 +1118,7 @@ mod tests {
     fn uses_workflow_prompt_when_query_is_blank() {
         let input = r#"{
           "name": "workflow prompt fallback",
-          "category": "behavior_proof",
+          "category": "constraint_recall",
           "query": "   ",
           "workflow_prompt": "  validate behavior proof  "
         }"#;
@@ -755,6 +1184,7 @@ mod tests {
                 reason: "orphan mapping".to_string(),
             }],
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -782,7 +1212,7 @@ mod tests {
             parsed += 1;
         }
 
-        assert_eq!(parsed, 6);
+        assert_eq!(parsed, 7);
     }
 
     #[test]
@@ -809,6 +1239,7 @@ mod tests {
                 },
             ],
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -839,6 +1270,7 @@ mod tests {
             write_candidates: Vec::new(),
             expected_write_decisions: Vec::new(),
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
         scenario.validate().unwrap();
@@ -857,8 +1289,8 @@ mod tests {
         .unwrap();
 
         assert!(report.quality_pass);
-        assert_eq!(report.constraint_recall_rate, 1.0);
-        assert_eq!(report.forbidden_recall_rate, 0.0);
+        assert_eq!(report.constraint_recall_rate, Some(1.0));
+        assert_eq!(report.forbidden_recall_rate, Some(0.0));
         assert!(report.expected_recall[0].passed);
         assert!(report.forbidden_recall[0].passed);
     }
@@ -880,6 +1312,7 @@ mod tests {
             write_candidates: Vec::new(),
             expected_write_decisions: Vec::new(),
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -893,7 +1326,7 @@ mod tests {
         .unwrap();
 
         assert!(!report.quality_pass);
-        assert_eq!(report.forbidden_recall_rate, 1.0);
+        assert_eq!(report.forbidden_recall_rate, Some(1.0));
         assert!(!report.forbidden_recall[0].passed);
     }
 
@@ -946,14 +1379,15 @@ mod tests {
                 },
             ],
             evidence_refs: vec!["evals/run-001".to_string()],
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
         let report = evaluate_quality_scenario(&scenario, &[]).unwrap();
 
         assert!(report.quality_pass);
-        assert_eq!(report.spam_rejection_rate, 1.0);
-        assert_eq!(report.evidence_required_rate, 1.0);
+        assert_eq!(report.spam_rejection_rate, Some(1.0));
+        assert_eq!(report.evidence_required_rate, Some(1.0));
         assert_eq!(report.write_decisions.len(), 3);
     }
 
@@ -978,6 +1412,7 @@ mod tests {
                 reason: "should have been rejected".to_string(),
             }],
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -1009,6 +1444,7 @@ mod tests {
                 reason: "should need evidence".to_string(),
             }],
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -1040,6 +1476,7 @@ mod tests {
                 reason: "should require confirmation".to_string(),
             }],
             evidence_refs: Vec::new(),
+            behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
 
@@ -1055,11 +1492,12 @@ mod tests {
         let passing = QualityScenarioReport {
             name: "pass".to_string(),
             category: "constraint_recall".to_string(),
-            constraint_recall_rate: 1.0,
-            forbidden_recall_rate: 0.0,
-            spam_rejection_rate: 1.0,
-            evidence_required_rate: 1.0,
-            behavior_proof_pass: true,
+            constraint_recall_rate: Some(1.0),
+            forbidden_recall_rate: Some(0.0),
+            spam_rejection_rate: Some(1.0),
+            evidence_required_rate: Some(1.0),
+            behavior_proof_pass: Some(true),
+            behavior_expectation: None,
             quality_pass: true,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
@@ -1070,6 +1508,6 @@ mod tests {
 
         assert!(run.quality_pass);
         assert_eq!(run.scenario_count, 2);
-        assert_eq!(run.behavior_proof_pass_rate, 1.0);
+        assert_eq!(run.behavior_proof_pass_rate, Some(1.0));
     }
 }
