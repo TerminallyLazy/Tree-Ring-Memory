@@ -112,16 +112,16 @@ sh scripts/certify-tree-ring.sh
   conservative synthetic-workload thresholds of at least 500 inserts/sec and max
   recall latency of 250 ms.
 
-Latest local certification run generated at `2026-07-09T04:14:34Z`:
+Latest local certification run generated at `2026-07-09T04:22:38Z`:
 
 - Release binary: 6,137,088 bytes.
 - Project install with init: 6,064 KB.
 - Global install: 6,020 KB.
 - CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
-- 10k performance smoke: 2,182.3 inserts/sec, recall average 3.640 ms,
-  recall max 6.556 ms.
-- 30k performance smoke: 717.5 inserts/sec, recall average 8.004 ms, recall
-  max 14.412 ms.
+- 10k performance smoke: 2,146.6 inserts/sec, recall average 3.729 ms,
+  recall max 6.539 ms.
+- 30k performance smoke: 711.5 inserts/sec, recall average 7.978 ms, recall
+  max 14.444 ms.
 - Agent Zero plugin smoke: skipped because `TREE_RING_AGENT_ZERO_ROOT` was not
   set.
 - Extended 50k smoke was skipped; enable it with `TREE_RING_CERT_EXTENDED=1`.
