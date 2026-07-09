@@ -1,25 +1,29 @@
 use clap::{Parser, Subcommand};
-use serde_json::json;
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
-use tree_ring_memory_core::plan_maintenance;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
-    collect_dox_memories, collect_revolve_memories, consolidate_memories, AuditReport,
-    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, DoxSyncReport, DoxSyncRequest,
-    MaintenanceReport, MaintenanceRequest, RevolveSyncReport, RevolveSyncRequest,
+    AuditReport, ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, DoxSyncReport,
+    MaintenanceReport, RevolveSyncReport,
 };
 use tree_ring_memory_core::{MemoryEvent, MemoryLink};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
+use actions::adapters::{sync_dox, sync_revolve, DoxSyncActionRequest, RevolveSyncActionRequest};
 use actions::audit::{audit_store, AuditActionRequest};
 use actions::export_import::{
     export_jsonl as export_action, import_jsonl as import_action, ExportActionRequest,
     ImportActionRequest,
 };
+use actions::integrations::{scan as integration_scan_action, IntegrationScanRequest};
+use actions::lifecycle::{
+    consolidate, consolidate_dry_run_from_path, maintain, ConsolidateActionRequest,
+    MaintainActionRequest,
+};
 use actions::recall::{recall as recall_action, RecallRequest};
 use actions::remember::{remember as remember_action, RememberRequest};
+use serde_json::json;
 
 mod actions;
 mod agent_awareness;
@@ -315,8 +319,10 @@ fn run(cli: Cli) -> Result<(), String> {
         command: IntegrationCommand::Scan { source_root },
     } = &cli.command
     {
-        let report = integrations::scan_integrations(source_root);
-        print_integration_report(&report, cli.json)?;
+        let report = integration_scan_action(IntegrationScanRequest {
+            source_root: source_root.clone(),
+        });
+        print_integration_report(&report.report, cli.json)?;
         return Ok(());
     }
 
@@ -364,25 +370,20 @@ fn run(cli: Cli) -> Result<(), String> {
         period_type,
         period_key,
         project,
-        dry_run: true,
         force,
+        dry_run: true,
     } = &cli.command
     {
-        let request = consolidation_request(
-            period_type,
-            period_key.clone(),
-            project.clone(),
-            true,
-            *force,
+        let report = consolidate_dry_run_from_path(
+            &db_path,
+            ConsolidateActionRequest {
+                period_type: period_type.clone(),
+                period_key: period_key.clone(),
+                project: project.clone(),
+                dry_run: true,
+                force: *force,
+            },
         )?;
-        let report = if db_path.exists() {
-            let store =
-                SQLiteMemoryStore::open_read_only(&db_path).map_err(|err| err.to_string())?;
-            let events = store.list_all(false).map_err(|err| err.to_string())?;
-            consolidate_memories(&events, &request).map_err(|err| err.to_string())?
-        } else {
-            consolidate_memories(&[], &request).map_err(|err| err.to_string())?
-        };
         print_consolidation_report(&report, cli.json)?;
         return Ok(());
     }
@@ -395,21 +396,15 @@ fn run(cli: Cli) -> Result<(), String> {
         repair_fts,
     } = &cli.command
     {
-        let request = maintenance_request(
-            project.clone(),
-            *include_superseded,
-            *apply_expired,
-            *apply_secret_redactions,
-            *repair_fts,
-        );
-        if request.dry_run {
-            let report = if db_path.exists() {
-                let mut store =
-                    SQLiteMemoryStore::open_read_only(&db_path).map_err(|err| err.to_string())?;
-                store.maintain(&request).map_err(|err| err.to_string())?
-            } else {
-                plan_maintenance(&[], &request)
-            };
+        let request = MaintainActionRequest {
+            project: project.clone(),
+            include_superseded: *include_superseded,
+            apply_expired: *apply_expired,
+            apply_secret_redactions: *apply_secret_redactions,
+            repair_fts: *repair_fts,
+        };
+        if !(request.apply_expired || request.apply_secret_redactions || request.repair_fts) {
+            let report = maintain(&db_path, None, request)?;
             print_maintenance_report(&report, cli.json)?;
             return Ok(());
         }
@@ -424,9 +419,15 @@ fn run(cli: Cli) -> Result<(), String> {
             },
     } = &cli.command
     {
-        let report = collect_dox_memories(&dox_request(source_root.clone(), project.clone()))
-            .map_err(|err| err.to_string())?;
-        print_dox_report(&report, cli.json, true)?;
+        let report = sync_dox(
+            None,
+            DoxSyncActionRequest {
+                source_root: source_root.clone(),
+                project: project.clone(),
+                dry_run: true,
+            },
+        )?;
+        print_dox_report(&report.report, cli.json, report.dry_run)?;
         return Ok(());
     }
 
@@ -439,10 +440,15 @@ fn run(cli: Cli) -> Result<(), String> {
             },
     } = &cli.command
     {
-        let report =
-            collect_revolve_memories(&revolve_request(source_root.clone(), project.clone()))
-                .map_err(|err| err.to_string())?;
-        print_revolve_report(&report, cli.json, true)?;
+        let report = sync_revolve(
+            None,
+            RevolveSyncActionRequest {
+                source_root: source_root.clone(),
+                project: project.clone(),
+                dry_run: true,
+            },
+        )?;
+        print_revolve_report(&report.report, cli.json, report.dry_run)?;
         return Ok(());
     }
 
@@ -603,8 +609,16 @@ fn run(cli: Cli) -> Result<(), String> {
             dry_run,
             force,
         } => {
-            let request = consolidation_request(&period_type, period_key, project, dry_run, force)?;
-            let report = store.consolidate(&request).map_err(|err| err.to_string())?;
+            let report = consolidate(
+                &mut store,
+                ConsolidateActionRequest {
+                    period_type,
+                    period_key,
+                    project,
+                    dry_run,
+                    force,
+                },
+            )?;
             print_consolidation_report(&report, cli.json)?;
         }
         Command::Maintain {
@@ -614,14 +628,17 @@ fn run(cli: Cli) -> Result<(), String> {
             apply_secret_redactions,
             repair_fts,
         } => {
-            let request = maintenance_request(
-                project,
-                include_superseded,
-                apply_expired,
-                apply_secret_redactions,
-                repair_fts,
-            );
-            let report = store.maintain(&request).map_err(|err| err.to_string())?;
+            let report = maintain(
+                &db_path,
+                Some(&mut store),
+                MaintainActionRequest {
+                    project,
+                    include_superseded,
+                    apply_expired,
+                    apply_secret_redactions,
+                    repair_fts,
+                },
+            )?;
             print_maintenance_report(&report, cli.json)?;
         }
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
@@ -639,14 +656,15 @@ fn run(cli: Cli) -> Result<(), String> {
                     dry_run,
                 },
         } => {
-            let report = collect_dox_memories(&dox_request(source_root, project))
-                .map_err(|err| err.to_string())?;
-            if !dry_run {
-                store
-                    .put_many(&report.events)
-                    .map_err(|err| err.to_string())?;
-            }
-            print_dox_report(&report, cli.json, dry_run)?;
+            let report = sync_dox(
+                if dry_run { None } else { Some(&mut store) },
+                DoxSyncActionRequest {
+                    source_root,
+                    project,
+                    dry_run,
+                },
+            )?;
+            print_dox_report(&report.report, cli.json, report.dry_run)?;
         }
         Command::Revolve {
             command:
@@ -656,62 +674,18 @@ fn run(cli: Cli) -> Result<(), String> {
                     dry_run,
                 },
         } => {
-            let report = collect_revolve_memories(&revolve_request(source_root, project))
-                .map_err(|err| err.to_string())?;
-            if !dry_run {
-                store
-                    .put_many(&report.events)
-                    .map_err(|err| err.to_string())?;
-            }
-            print_revolve_report(&report, cli.json, dry_run)?;
+            let report = sync_revolve(
+                if dry_run { None } else { Some(&mut store) },
+                RevolveSyncActionRequest {
+                    source_root,
+                    project,
+                    dry_run,
+                },
+            )?;
+            print_revolve_report(&report.report, cli.json, report.dry_run)?;
         }
     }
     Ok(())
-}
-
-fn dox_request(source_root: PathBuf, project: Option<String>) -> DoxSyncRequest {
-    let mut request = DoxSyncRequest::new(source_root);
-    request.project = project;
-    request
-}
-
-fn revolve_request(source_root: PathBuf, project: Option<String>) -> RevolveSyncRequest {
-    let mut request = RevolveSyncRequest::new(source_root);
-    request.project = project;
-    request
-}
-
-fn maintenance_request(
-    project: Option<String>,
-    include_superseded: bool,
-    apply_expired: bool,
-    apply_secret_redactions: bool,
-    repair_fts: bool,
-) -> MaintenanceRequest {
-    MaintenanceRequest {
-        dry_run: !(apply_expired || apply_secret_redactions || repair_fts),
-        apply_expired,
-        apply_secret_redactions,
-        repair_fts,
-        include_superseded,
-        project,
-    }
-}
-
-fn consolidation_request(
-    period_type: &str,
-    period_key: Option<String>,
-    project: Option<String>,
-    dry_run: bool,
-    force: bool,
-) -> Result<ConsolidationRequest, String> {
-    Ok(ConsolidationRequest {
-        period_type: ConsolidationPeriod::parse(period_type).map_err(|err| err.to_string())?,
-        period_key,
-        project,
-        dry_run,
-        force,
-    })
 }
 
 fn evidence_event(

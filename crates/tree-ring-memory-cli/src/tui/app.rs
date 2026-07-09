@@ -4,9 +4,10 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
 
-use crate::integrations::{scan_integrations, IntegrationScanReport};
 use crate::actions::export_import::{export_jsonl, ExportActionRequest};
+use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
 use crate::actions::remember::{remember, RememberRequest};
+use crate::integrations::IntegrationScanReport;
 
 use super::actions::{ActionKind, PendingAction};
 use super::input::{parse_slash_command, SlashCommand};
@@ -414,13 +415,13 @@ impl App {
 
     fn show_integrations(&mut self) {
         let root = project_root_for_memory_root(&self.root);
-        let report = scan_integrations(&root);
+        let report = scan_integrations_action(IntegrationScanRequest { source_root: root });
         self.status = format!(
             "integration scan: {} detected under {}",
-            report.detected_count,
-            report.root.display()
+            report.report.detected_count,
+            report.report.root.display()
         );
-        self.integration_report = Some(report);
+        self.integration_report = Some(report.report);
         self.mode = AppMode::Integrations;
     }
 
