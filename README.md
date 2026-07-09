@@ -2,9 +2,11 @@
 
 ![Tree Ring Memory retro roller-rink banner](assets/tree-ring-memory-banner.png)
 
-Tree Ring Memory is a framework-agnostic memory lifecycle layer for AI agents.
-
-It helps agents remember useful decisions, warnings, preferences, and lessons without turning memory into a transcript dump. Fresh memory stays detailed, older memory compresses into rings, important scars remain visible, and durable truths become heartwood.
+Tree Ring Memory is a framework-agnostic, local-first memory lifecycle layer for
+AI agents. It helps agents remember useful decisions, warnings, preferences,
+and lessons without turning memory into a transcript dump. Fresh memory stays
+detailed, older memory compresses into rings, important scars remain visible,
+and durable truths become heartwood.
 
 Tree Ring Memory is inspired by the spatial project-memory patterns in
 [DOX](https://github.com/agent0ai/dox) and the evidence-driven improvement loop
@@ -12,37 +14,43 @@ in [Revolve](https://github.com/agent0ai/revolve), with a deliberate nod to
 their original creator, [Jan Tomášek](https://github.com/frdel). This project is
 framework-agnostic and does not replace either protocol.
 
-## Status
+Tree Ring Memory is in protocol-preview status. Current launch links:
 
-Tree Ring Memory is in protocol-preview status.
+- Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
+- Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
+- Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
+- Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
+- Homebrew tap: <https://github.com/TerminallyLazy/homebrew-tree-ring>
 
-Launch feedback is being collected in
-[GitHub issue #26](https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26):
-try the installer, run the first commands, and report where agent memory breaks
-or which framework bridge should come next.
-
-Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-
-Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
-
-Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
-
-Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
-
-Homebrew tap: <https://github.com/TerminallyLazy/homebrew-tree-ring>
+<details>
+<summary>Protocol preview history</summary>
 
 - v0.1 provided the initial local reference implementation with SQLite storage and no required cloud services.
 - v0.2 moved durable behavior into a Rust core.
 - v0.3 explored host bindings during the Rust migration.
-- v0.4 adds Rust-owned JSONL import/export with privacy-preserving defaults across the CLI.
-- v0.5 adds Rust-owned audit checks for stale, sensitive, low-confidence, supersession, and contradiction candidates.
-- v0.6 adds Rust-owned deterministic consolidation with idempotent summary records and cautious sensitive-memory handling.
-- v0.7 makes the public facade Rust-native only and adds Rust-owned maintenance for expiry, secret redaction, and FTS repair.
-- v0.8 removes Python-owned runtime behavior.
-- v0.9 removes tracked Python source, tests, smoke scripts, and the optional CPython extension from the canonical repo.
-- v0.10 adds a one-line installer plus Rust-native terminal onboarding with animated terminal tree rings.
-- v0.11 makes the repo fully Rust-native, wires TUI export/consolidation actions, adds DOX/Revolve sync adapters, and adds agent-framework discovery.
-- The Rust CLI also includes a Ratatui operator console behind `tree-ring tui`.
+- v0.4 added Rust-owned JSONL import/export with privacy-preserving defaults across the CLI.
+- v0.5 added Rust-owned audit checks for stale, sensitive, low-confidence, supersession, and contradiction candidates.
+- v0.6 added Rust-owned deterministic consolidation with idempotent summary records and cautious sensitive-memory handling.
+- v0.7 made the public facade Rust-native only and added Rust-owned maintenance for expiry, secret redaction, and FTS repair.
+- v0.8 removed Python-owned runtime behavior.
+- v0.9 removed tracked Python source, tests, smoke scripts, and the optional CPython extension from the canonical repo.
+- v0.10 added a one-line installer plus Rust-native terminal onboarding with animated terminal tree rings.
+- v0.11 made the repo fully Rust-native, wired TUI export/consolidation actions, added DOX/Revolve sync adapters, and added agent-framework discovery.
+
+</details>
+
+## What It Gives Agents
+
+- Explicit local recall with SQLite/FTS storage and no required cloud service.
+- Source-linked memories for decisions, scars, lessons, evidence, and durable
+  project truths.
+- Rust-native import/export, audit, consolidation, maintenance, DOX/Revolve
+  adapters, harness discovery, and terminal UI.
+- Evidence artifacts for install size, recall speed, harness readiness, and
+  recall quality.
+- Privacy defaults that block secret-like memory, hide sensitive details, and
+  keep transcript capture out of scope.
 
 The Rust workspace currently includes:
 
@@ -55,7 +63,16 @@ recall, import/export, audit, consolidation, maintenance, and terminal UI
 behavior. There is no tracked root Python package, Python wrapper layer, pytest
 suite, Python smoke script, PyO3 crate, or CPython extension.
 
-## Install
+## Screenshots
+
+These are captured from the actual `tree-ring tui` app running against a local
+`.tree-ring` store and the current certification artifacts.
+
+![Tree Ring TUI dashboard showing ring activity, ambient rings, memories, and detail panels](docs/assets/readme-tui-dashboard.png)
+
+![Tree Ring TUI evidence browser showing certification metrics, harness records, and recall-quality checks](docs/assets/readme-tui-evidence.png)
+
+## Quick Start
 
 Global user install:
 
@@ -75,6 +92,27 @@ Project-local install with first-run initialization:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
 ```
+
+Store the first project memory:
+
+```bash
+tree-ring init
+tree-ring remember "Use project-scoped recall before changing release behavior." \
+  --event-type lesson \
+  --scope project \
+  --project example-service \
+  --tag release \
+  --tag workflow
+tree-ring recall "release behavior" --project example-service
+```
+
+Open the terminal console:
+
+```bash
+tree-ring tui
+```
+
+## Install Details
 
 The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
 one stable terminal onboarding screen with a branded terminal ring and the next
@@ -144,19 +182,6 @@ Open the terminal console after a project-local install:
 
 ```bash
 .tree-ring/bin/tree-ring --root .tree-ring tui
-```
-
-## First Example
-
-```bash
-tree-ring init
-tree-ring remember "Use project-scoped recall before changing release behavior." \
-  --event-type lesson \
-  --scope project \
-  --project example-service \
-  --tag release \
-  --tag workflow
-tree-ring recall "release behavior" --project example-service
 ```
 
 ## CLI Preview
@@ -265,7 +290,8 @@ tree-ring integrations certify --source-root .
   states are evidence records, not broad compatibility claims.
 - `recall-quality` writes non-private recall diagnostics under
   `target/tree-ring-certification/recall-quality/default-fixture-v1.json`
-  and merges the result into `evidence-index.json`. It uses deterministic
+  and merges the result into
+  `target/tree-ring-certification/evidence-index.json`. It uses deterministic
   safe fixture memories, records returned ids, rank positions, score factors,
   and latency, and marks each query as `pass`, `fail`, or `needs_review`.
 
@@ -393,18 +419,26 @@ formatting, tests, Clippy, release build, isolated project/global installs, CLI
 JSON smokes, DOX/Revolve adapter smokes, integration-scan origin checks,
 install-size, recall-speed, recall-quality diagnostics, CLI, adapter, and
 harness checks, import throughput, and 10k/30k recall timing. It writes
-`target/tree-ring-certification/summary.md` and `metrics.json`.
+`target/tree-ring-certification/summary.md`,
+`target/tree-ring-certification/metrics.json`, and
+`target/tree-ring-certification/evidence-index.json`.
 
-Latest local certification run, generated at `2026-07-09T02:42:24Z` with
-Agent Zero plugin smoke enabled:
+Most recent branch-local certification run, generated at
+`2026-07-09T15:34:52Z`:
 
-- Release binary: 6,104,272 bytes.
-- Project install with init: 6,032 KB.
-- Global install: 5,988 KB.
+- Release binary: 6,352,528 bytes.
+- Project install with init: 6,272 KB.
+- Global install: 6,228 KB.
 - CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
-- 10k recall max: 6.740 ms.
-- 30k recall max: 14.705 ms.
-- Agent Zero plugin smoke: passed.
+- 10k recall: 3.643 ms average, 6.499 ms max.
+- 30k recall: 7.608 ms average, 13.634 ms max.
+- Harness matrix: 5 pass, 1 skip. Codex, Claude Code, OpenCode, Goose, and
+  Agent Zero/A0 passed; Pi was skipped because only a user-home marker was
+  present in the fixture.
+- Recall quality: 4 queries, 4 pass, 0 fail, 0 needs review; average latency
+  0.118 ms, max latency 0.370 ms.
+- Agent Zero plugin smoke: skipped because `TREE_RING_AGENT_ZERO_ROOT` was not
+  set.
 
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
