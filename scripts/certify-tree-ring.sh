@@ -162,6 +162,17 @@ mkdir -p "$scan_root/.codex" "$scan_root/.claude" "$scan_root/usr/plugins" \
   "$scan_root/revolve" "$scan_root/.opencode" "$scan_root/.goose" "$scan_home/.claude"
 printf '# Agent contract\n' > "$scan_root/AGENTS.md"
 printf '# Claude instructions\n' > "$scan_root/CLAUDE.md"
+mkdir -p "$scan_root/.tree-ring"
+cat > "$scan_root/.tree-ring/SKILL.md" <<'EOF'
+Use `tree-ring recall` before acting on project assumptions.
+Use `tree-ring remember` only for durable, non-secret project facts.
+EOF
+cat > "$scan_root/.tree-ring/CLI.md" <<'EOF'
+The portable command surface is `tree-ring recall` and `tree-ring remember`.
+EOF
+cat > "$scan_root/.tree-ring/AGENTS.md" <<'EOF'
+Project harnesses should reference SKILL.md and CLI.md for Tree Ring Memory.
+EOF
 HOME="$scan_home" "$BIN" --json integrations scan --source-root "$scan_root" \
   > "$OUT_DIR/integrations-scan.json"
 grep -F '"origin":"project"' "$OUT_DIR/integrations-scan.json" > /dev/null \
@@ -291,7 +302,21 @@ cat > "$INDEX" <<EOF
 }
 EOF
 
+"$BIN" --json integrations certify --source-root "$scan_root" --out-dir "$OUT_DIR" \
+  > "$OUT_DIR/harness-certification.json"
+require_file "$OUT_DIR/harness/codex.json"
+require_file "$OUT_DIR/harness/claude-code.json"
+require_file "$OUT_DIR/harness/opencode.json"
+require_file "$OUT_DIR/harness/goose.json"
+require_file "$OUT_DIR/harness/pi.json"
+require_file "$OUT_DIR/harness/agent-zero.json"
+grep -F '"harness"' "$INDEX" > /dev/null \
+  || fail "evidence index did not include harness records"
+grep -F '"codex"' "$INDEX" > /dev/null \
+  || fail "evidence index did not include Codex harness record"
+
 log "certification passed"
 printf 'Summary: %s\n' "$SUMMARY"
 printf 'Metrics: %s\n' "$METRICS"
 printf 'Evidence index: %s\n' "$INDEX"
+printf 'Harness evidence: %s\n' "$OUT_DIR/harness"
