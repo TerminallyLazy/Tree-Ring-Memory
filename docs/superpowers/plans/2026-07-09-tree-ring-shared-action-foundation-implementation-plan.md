@@ -180,24 +180,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify module wiring is missing**
-
-Run:
-
-```bash
-cargo test -p tree-ring-memory-cli remember_action --locked
-```
-
-Expected: FAIL because `super::ActionResult` and the `actions` module are not declared yet.
-
-- [ ] **Step 3: Add the shared action module**
+- [ ] **Step 2: Wire the new file just enough to make the red test compile and fail**
 
 Create `crates/tree-ring-memory-cli/src/actions/mod.rs`:
 
 ```rust
 pub mod remember;
-
-pub type ActionResult<T> = Result<T, String>;
 ```
 
 Modify the module declarations near the top of `crates/tree-ring-memory-cli/src/main.rs`:
@@ -211,7 +199,27 @@ mod tui;
 mod welcome;
 ```
 
-- [ ] **Step 4: Run the focused test and verify it passes**
+- [ ] **Step 3: Run the focused test and verify the shared result alias is missing**
+
+Run:
+
+```bash
+cargo test -p tree-ring-memory-cli remember_action --locked
+```
+
+Expected: FAIL with an unresolved import or missing item for `super::ActionResult`.
+
+- [ ] **Step 4: Add the shared action result alias**
+
+Replace `crates/tree-ring-memory-cli/src/actions/mod.rs` with:
+
+```rust
+pub mod remember;
+
+pub type ActionResult<T> = Result<T, String>;
+```
+
+- [ ] **Step 5: Run the focused test and verify it passes**
 
 Run:
 
@@ -221,7 +229,7 @@ cargo test -p tree-ring-memory-cli remember_action --locked
 
 Expected: PASS with both `remember_action_*` tests passing.
 
-- [ ] **Step 5: Commit Task 1**
+- [ ] **Step 6: Commit Task 1**
 
 Run:
 
@@ -250,7 +258,7 @@ git commit -m "Add shared remember action"
 - Produces: `actions::export_import::export_jsonl(store: &SQLiteMemoryStore, request: ExportActionRequest) -> ActionResult<ExportActionReport>`
 - Produces: `actions::export_import::ImportActionRequest`
 - Produces: `actions::export_import::ImportActionReport`
-- Produces: `actions::export_import::import_jsonl(store: &mut SQLiteMemoryStore, request: ImportActionRequest) -> ActionResult<ImportActionReport>`
+- Produces: `actions::export_import::import_jsonl(store: Option<&mut SQLiteMemoryStore>, request: ImportActionRequest) -> ActionResult<ImportActionReport>`
 - Produces: `actions::audit::AuditActionRequest`
 - Produces: `actions::audit::AuditActionReport`
 - Produces: `actions::audit::audit_store(db_path: &Path, request: AuditActionRequest) -> ActionResult<AuditActionReport>`
@@ -401,7 +409,7 @@ pub fn export_jsonl(
 }
 
 pub fn import_jsonl(
-    store: &mut SQLiteMemoryStore,
+    store: Option<&mut SQLiteMemoryStore>,
     request: ImportActionRequest,
 ) -> ActionResult<ImportActionReport> {
     let input = fs::read_to_string(&request.path).map_err(|err| err.to_string())?;
@@ -416,6 +424,9 @@ pub fn import_jsonl(
             dry_run: true,
         }
     } else {
+        let store = store.ok_or_else(|| {
+            "import action requires an open writable store when dry_run=false".to_string()
+        })?;
         store
             .import_jsonl(&input, false, request.replace_existing)
             .map_err(|err| err.to_string())?
@@ -480,7 +491,7 @@ mod tests {
         fs::write(&input, jsonl).unwrap();
 
         let report = import_jsonl(
-            &mut target,
+            None,
             ImportActionRequest {
                 path: input,
                 dry_run: true,
@@ -806,9 +817,8 @@ if let Command::Import {
     replace_existing,
 } = cli.command
 {
-    let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
     let report = import_action(
-        &mut store,
+        None,
         ImportActionRequest {
             path,
             dry_run: true,
@@ -894,7 +904,7 @@ Replace the `Command::Import` writable match arm body with:
 
 ```rust
 let report = import_action(
-    &mut store,
+    Some(&mut store),
     ImportActionRequest {
         path,
         dry_run,
@@ -1112,9 +1122,9 @@ git commit -m "Use shared actions in TUI write flows"
 - Produces: `actions::lifecycle::MaintainActionRequest`
 - Produces: `actions::lifecycle::maintain(db_path: &Path, store: Option<&mut SQLiteMemoryStore>, request: MaintainActionRequest) -> ActionResult<MaintenanceReport>`
 - Produces: `actions::adapters::DoxSyncActionRequest`
-- Produces: `actions::adapters::sync_dox(store: &mut SQLiteMemoryStore, request: DoxSyncActionRequest) -> ActionResult<DoxSyncActionReport>`
+- Produces: `actions::adapters::sync_dox(store: Option<&mut SQLiteMemoryStore>, request: DoxSyncActionRequest) -> ActionResult<DoxSyncActionReport>`
 - Produces: `actions::adapters::RevolveSyncActionRequest`
-- Produces: `actions::adapters::sync_revolve(store: &mut SQLiteMemoryStore, request: RevolveSyncActionRequest) -> ActionResult<RevolveSyncActionReport>`
+- Produces: `actions::adapters::sync_revolve(store: Option<&mut SQLiteMemoryStore>, request: RevolveSyncActionRequest) -> ActionResult<RevolveSyncActionReport>`
 - Produces: `actions::integrations::scan(request: IntegrationScanRequest) -> IntegrationScanActionReport`
 
 - [ ] **Step 1: Add lifecycle action implementation and tests**
@@ -1284,13 +1294,16 @@ pub struct RevolveSyncActionReport {
 }
 
 pub fn sync_dox(
-    store: &mut SQLiteMemoryStore,
+    store: Option<&mut SQLiteMemoryStore>,
     request: DoxSyncActionRequest,
 ) -> ActionResult<DoxSyncActionReport> {
     let mut dox_request = DoxSyncRequest::new(request.source_root);
     dox_request.project = request.project;
     let report = collect_dox_memories(&dox_request).map_err(|err| err.to_string())?;
     if !request.dry_run {
+        let store = store.ok_or_else(|| {
+            "DOX sync action requires an open writable store when dry_run=false".to_string()
+        })?;
         store.put_many(&report.events).map_err(|err| err.to_string())?;
     }
     Ok(DoxSyncActionReport {
@@ -1300,13 +1313,16 @@ pub fn sync_dox(
 }
 
 pub fn sync_revolve(
-    store: &mut SQLiteMemoryStore,
+    store: Option<&mut SQLiteMemoryStore>,
     request: RevolveSyncActionRequest,
 ) -> ActionResult<RevolveSyncActionReport> {
     let mut revolve_request = RevolveSyncRequest::new(request.source_root);
     revolve_request.project = request.project;
     let report = collect_revolve_memories(&revolve_request).map_err(|err| err.to_string())?;
     if !request.dry_run {
+        let store = store.ok_or_else(|| {
+            "Revolve sync action requires an open writable store when dry_run=false".to_string()
+        })?;
         store.put_many(&report.events).map_err(|err| err.to_string())?;
     }
     Ok(RevolveSyncActionReport {
@@ -1326,10 +1342,9 @@ mod tests {
     fn dox_action_dry_run_does_not_write_events() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "# Rules\n\nAlways run tests.").unwrap();
-        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
 
         let report = sync_dox(
-            &mut store,
+            None,
             DoxSyncActionRequest {
                 source_root: dir.path().to_path_buf(),
                 project: Some("tree-ring".to_string()),
@@ -1339,7 +1354,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(report.report.memory_count, 1);
-        assert_eq!(store.list_all(true).unwrap().len(), 0);
+        assert!(!dir.path().join("memory.sqlite").exists());
     }
 }
 ```
@@ -1448,6 +1463,36 @@ print_consolidation_report(&report, cli.json)?;
 return Ok(());
 ```
 
+Replace DOX dry-run pre-store behavior with:
+
+```rust
+let report = sync_dox(
+    None,
+    DoxSyncActionRequest {
+        source_root: source_root.clone(),
+        project: project.clone(),
+        dry_run: true,
+    },
+)?;
+print_dox_report(&report.report, cli.json, report.dry_run)?;
+return Ok(());
+```
+
+Replace Revolve dry-run pre-store behavior with:
+
+```rust
+let report = sync_revolve(
+    None,
+    RevolveSyncActionRequest {
+        source_root: source_root.clone(),
+        project: project.clone(),
+        dry_run: true,
+    },
+)?;
+print_revolve_report(&report.report, cli.json, report.dry_run)?;
+return Ok(());
+```
+
 Replace maintenance dry-run pre-store behavior with:
 
 ```rust
@@ -1466,7 +1511,7 @@ print_maintenance_report(&report, cli.json)?;
 return Ok(());
 ```
 
-Replace writable `Command::Consolidate`, `Command::Maintain`, `Command::Dox`, and `Command::Revolve` match arm bodies with calls to `consolidate`, `maintain`, `sync_dox`, and `sync_revolve`, then call existing print functions with the returned reports.
+Replace writable `Command::Consolidate`, `Command::Maintain`, `Command::Dox`, and `Command::Revolve` match arm bodies with calls to `consolidate`, `maintain`, `sync_dox(Some(&mut store), dox_request)`, and `sync_revolve(Some(&mut store), revolve_request)`, then call existing print functions with the returned reports.
 
 - [ ] **Step 6: Update TUI `/integrations` to call the integration action**
 
