@@ -339,16 +339,16 @@ fn render_evidence_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 } else {
                     " loaded"
                 };
-                let recall = if index.recall_quality.is_some() {
-                    " loaded"
+                let recall = if let Some(record) = &index.recall_quality {
+                    format!(" {}", record.status.as_str())
                 } else if index.missing.iter().any(|item| item == "recall_quality") {
-                    " missing"
+                    " missing".to_string()
                 } else {
-                    " none"
+                    " none".to_string()
                 };
                 (harness, recall)
             })
-            .unwrap_or((" missing", " missing"));
+            .unwrap_or((" missing", " missing".to_string()));
 
         if let Some(index) = snapshot.index.as_ref() {
             if index.harness.is_empty() {
@@ -562,12 +562,11 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
         if let Some(certification) = &snapshot.certification {
             lines.push(Line::from(vec![
                 Span::styled("Local certification ", theme::brand()),
-                Span::styled(certification.status.as_str(), theme::dim()),
+                Span::styled(
+                    format!("{} generated {}", certification.status.as_str(), certification.generated_at),
+                    theme::dim(),
+                ),
             ]));
-            lines.push(Line::from(format!(
-                "generated {}",
-                certification.generated_at
-            )));
             let mut install_parts = Vec::new();
             if let Some(bytes) = certification.release_binary_bytes {
                 install_parts.push(format!("release {bytes} bytes"));
@@ -604,7 +603,6 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     certification.agent_zero_note.as_deref().unwrap_or("")
                 )));
             }
-            lines.push(Line::from(""));
             lines.push(Line::from(vec![
                 Span::styled("root ", theme::dim()),
                 Span::raw(truncate(&snapshot.root.display().to_string(), 56)),
@@ -647,7 +645,49 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 }
             }
         }
-        lines.push(Line::from(""));
+        if let Some(recall_quality) = &snapshot.recall_quality {
+            lines.push(Line::from(vec![
+                Span::styled("Recall quality ", theme::brand()),
+                Span::styled(recall_quality.status.as_str(), theme::dim()),
+            ]));
+            lines.push(Line::from(format!(
+                "{} queries {} pass {} fail {} review {}",
+                recall_quality.query_set_id,
+                recall_quality.query_count,
+                recall_quality.pass_count,
+                recall_quality.fail_count,
+                recall_quality.needs_review_count
+            )));
+            if let Some(avg) = recall_quality.avg_latency_ms {
+                let max = recall_quality.max_latency_ms.unwrap_or(avg);
+                lines.push(Line::from(format!("avg {avg:.3} ms max {max:.3} ms")));
+            }
+            lines.push(Line::from(vec![
+                Span::styled("record ", theme::dim()),
+                Span::raw(truncate(
+                    &recall_quality.record_path.display().to_string(),
+                    52,
+                )),
+            ]));
+            for query in recall_quality.queries.iter().take(4) {
+                let returned = if query.returned_ids.is_empty() {
+                    "-".to_string()
+                } else {
+                    query.returned_ids.join(",")
+                };
+                lines.push(Line::from(format!(
+                    "{} [{}] rank {:?} {:.3}ms",
+                    truncate(&query.query_id, 28),
+                    query.status,
+                    query.expected_rank,
+                    query.latency_ms.unwrap_or(0.0)
+                )));
+                lines.push(Line::from(Span::styled(
+                    truncate(&format!("returned {returned}"), 70),
+                    theme::dim(),
+                )));
+            }
+        }
         lines.push(Line::from("Actions: /evidence refresh | /integrations"));
     } else {
         lines.push(Line::from("Run /evidence to load certification proof."));
@@ -923,6 +963,91 @@ mod tests {
         assert!(output.contains("Claude Code"));
         assert!(output.contains("fail"));
         assert!(output.contains("codex.json"));
+    }
+
+    #[test]
+    fn render_evidence_mode_shows_recall_quality_records() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(evidence_dir.join("recall-quality")).unwrap();
+        std::fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-09T05:44:48Z"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            evidence_dir.join("recall-quality/default-fixture-v1.json"),
+            r#"{
+          "schema_version": 1,
+          "generated_at": "2026-07-09T06:00:00Z",
+          "query_set_id": "default-fixture-v1",
+          "status": "pass",
+          "summary": {
+            "query_count": 4,
+            "pass_count": 4,
+            "fail_count": 0,
+            "needs_review_count": 0,
+            "avg_latency_ms": 0.5,
+            "max_latency_ms": 1.0
+          },
+          "queries": [
+            {
+              "query_id": "scar-stale-cache",
+              "query": "failure stale cache",
+              "status": "pass",
+              "expected_top_id": "rq_scar_stale_cache",
+              "expected_rank": 1,
+              "latency_ms": 0.25,
+              "returned": [
+                {"id":"rq_scar_stale_cache","rank":1,"ring":"scar","source_ref":"recall-quality/scar-stale-cache","score":1.2,"ranking":{"textual_match":1.0}}
+              ],
+              "notes": []
+            }
+          ]
+        }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T06:00:00Z",
+          "overall_status": "pass",
+          "certification": {
+            "category": "certification",
+            "status": "pass",
+            "label": "Local certification",
+            "path": "metrics.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T05:44:48Z"
+          },
+          "harness": {},
+          "recall_quality": {
+            "category": "recall_quality",
+            "status": "pass",
+            "label": "Recall quality",
+            "path": "recall-quality/default-fixture-v1.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T06:00:00Z"
+          },
+          "missing": [],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("Recall quality"));
+        assert!(output.contains("default-fixture-v1"));
+        assert!(output.contains("queries 4"));
+        assert!(output.contains("avg 0.500 ms"));
+        assert!(output.contains("scar-stale-cache"));
+        assert!(output.contains("rq_scar_stale_cache"));
     }
 
     #[test]
