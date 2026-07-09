@@ -21,6 +21,28 @@
 - Preserve existing untracked local files; stage only files changed by each task.
 - Run `cargo fmt --check`, `cargo test --locked`, `cargo clippy --locked --all-targets`, `git diff --check`, and `sh scripts/certify-tree-ring.sh` before final handoff.
 
+## Final Hardening Amendment
+
+This implementation plan now carries the final hardening semantics that
+supersede earlier draft snippets:
+
+- Category validation must enforce a primary observation contract:
+  `constraint_recall` requires `expected_recall`,
+  `spam_prevention` requires at least one expected `reject`,
+  `stale_truth_suppression` requires `forbidden_recall`,
+  `behavior_proof` requires `behavior_expectation`, and
+  `evidence_preservation` requires at least one `evaluation_` write candidate.
+- `QualityThresholds` are presence-aware optional fields. Omitted thresholds
+  inherit strict defaults only when their metric has observations. Configuring
+  a threshold for an inapplicable metric is a validation failure, not a silent
+  no-op.
+- Runner failures must be sanitized before they are written to
+  `quality-report.json`, `quality-summary.md`, or bubbled back through the
+  example entrypoint. Reports keep stage plus stable error class, but never raw
+  fixture payload values.
+- `QualityScenarioReport.behavior_expectation` must deserialize as `None` when
+  older artifacts omit the field.
+
 ---
 
 ## Scope Check

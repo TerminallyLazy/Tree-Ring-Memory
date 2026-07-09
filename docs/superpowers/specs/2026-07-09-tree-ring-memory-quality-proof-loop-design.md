@@ -82,6 +82,23 @@ Add a quality layer around existing Tree Ring primitives. The quality layer
 consumes memory events, recall results, and proposed write candidates. It does
 not own storage and does not need a background process.
 
+Final hardening semantics for this lane:
+
+- Every category must carry a primary observation contract during validation.
+  `constraint_recall` needs at least one `expected_recall`,
+  `spam_prevention` needs at least one expected `reject` decision,
+  `stale_truth_suppression` needs at least one `forbidden_recall`,
+  `behavior_proof` needs `behavior_expectation`, and
+  `evidence_preservation` needs at least one `evaluation_` write candidate.
+- Threshold configuration is presence-aware. Threshold fields are optional in
+  fixtures and default to strict behavior only when the corresponding metric
+  has observations. An explicitly configured threshold for a metric with no
+  observations is invalid and must fail scenario validation.
+- Runner failures must emit stable stage plus error-class output in JSON,
+  markdown, and terminal failure paths. Fixture values, invalid memory field
+  values, and other raw payload fragments must not be echoed back in failure
+  messages.
+
 Target components:
 
 - `fixtures/quality/`: reviewable quality scenario fixtures.
@@ -124,6 +141,8 @@ Each scenario should include:
   memory-informed decision, expected decision, and an optional reason. It is
   required for `behavior_proof` scenarios.
 - `thresholds`: per-scenario minimums or tolerances.
+  Threshold entries are optional and only legal for metrics the scenario
+  actually observes.
 
 First scenario pack:
 
@@ -241,8 +260,9 @@ or warning behavior.
 
 ## Error Handling
 
-- Fixture-facing objects reject unknown fields. Invalid scenario fixtures
-  should report the scenario name, file path, and invalid field.
+- Fixture-facing objects reject unknown fields. Parse and validation failures
+  should report the fixture path plus a stable error class, without extracting
+  a scenario name or echoing invalid fields and other raw fixture values.
 - Missing expected recall should produce a precise failed expectation.
 - Forbidden recall should include the returned memory id and reason.
 - Write-decision mismatches should show the candidate id or summary and the

@@ -41,12 +41,5 @@
       "memory_id": "mem_quality_no_background_writer",
       "reason": "proof-loop work must recall the explicit no-background-writer constraint"
     }
-  ],
-  "thresholds": {
-    "min_constraint_recall_rate": 1.0,
-    "max_forbidden_recall_rate": 0.0,
-    "min_spam_rejection_rate": 1.0,
-    "min_evidence_required_rate": 1.0,
-    "min_behavior_proof_pass_rate": 1.0
-  }
+  ]
 }

@@ -1,16 +1,18 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tree_ring_memory_core::{
     evaluate_quality_scenario, parse_quality_scenario, summarize_quality_run, QualityRecall,
-    QualityRunError, QualityRunReport, QualityScenario, QualityScenarioReport,
+    QualityRunError, QualityRunReport, QualityScenario, QualityScenarioReport, TreeRingError,
 };
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
 const USAGE: &str = "usage: quality_scenarios <fixture-dir> <output-dir>";
 const RECALL_LIMIT: usize = 8;
+static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn main() {
     if let Err(err) = run() {
@@ -33,13 +35,7 @@ fn run() -> Result<(), String> {
         return Err(USAGE.to_string());
     }
 
-    let run_report = run_quality_scenarios(&fixture_dir, &output_dir)?;
-    if !run_report.quality_pass {
-        return Err(format!(
-            "quality run failed: {} scenarios evaluated",
-            run_report.scenario_count
-        ));
-    }
+    let run_report = run_quality_command(&fixture_dir, &output_dir)?;
 
     println!(
         "quality scenarios passed: {} scenario(s)",
@@ -48,12 +44,22 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn run_quality_command(fixture_dir: &Path, output_dir: &Path) -> Result<QualityRunReport, String> {
+    let run_report = run_quality_scenarios(fixture_dir, output_dir)?;
+    if !run_report.quality_pass {
+        return Err(format!(
+            "quality run failed: {} scenarios evaluated",
+            run_report.scenario_count
+        ));
+    }
+    Ok(run_report)
+}
+
 fn run_quality_scenarios(
     fixture_dir: &Path,
     output_dir: &Path,
 ) -> Result<QualityRunReport, String> {
-    fs::create_dir_all(output_dir)
-        .map_err(|err| format!("create output dir {}: {err}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).map_err(|_| "output_directory_create_error".to_string())?;
 
     let paths = match fixture_paths(fixture_dir) {
         Ok(paths) if !paths.is_empty() => paths,
@@ -76,7 +82,7 @@ fn run_quality_scenarios(
     for path in paths {
         let input = match fs::read_to_string(&path) {
             Ok(input) => input,
-            Err(err) => {
+            Err(_) => {
                 return write_failed_report(
                     output_dir,
                     reports,
@@ -84,12 +90,11 @@ fn run_quality_scenarios(
                         scenario: None,
                         path: Some(path.display().to_string()),
                         stage: "file_read".to_string(),
-                        message: err.to_string(),
+                        message: "fixture_file_read_error".to_string(),
                     },
                 );
             }
         };
-        let scenario_name = scenario_name_hint(&input);
         let scenario = match parse_quality_scenario(&input) {
             Ok(scenario) => scenario,
             Err(err) => {
@@ -97,10 +102,10 @@ fn run_quality_scenarios(
                     output_dir,
                     reports,
                     QualityRunError {
-                        scenario: scenario_name,
+                        scenario: None,
                         path: Some(path.display().to_string()),
                         stage: "parse".to_string(),
-                        message: err.to_string(),
+                        message: classify_parse_error(&err).to_string(),
                     },
                 );
             }
@@ -128,35 +133,27 @@ fn run_quality_scenarios(
 }
 
 fn fixture_paths(fixture_dir: &Path) -> Result<Vec<PathBuf>, QualityRunError> {
-    let entries = fs::read_dir(fixture_dir).map_err(|err| QualityRunError {
+    let entries = fs::read_dir(fixture_dir).map_err(|_| QualityRunError {
         scenario: None,
         path: Some(fixture_dir.display().to_string()),
         stage: "fixture_directory".to_string(),
-        message: err.to_string(),
+        message: "fixture_directory_read_error".to_string(),
     })?;
     let mut paths = entries
         .map(|entry| {
             entry
                 .map(|entry| entry.path())
-                .map_err(|err| QualityRunError {
+                .map_err(|_| QualityRunError {
                     scenario: None,
                     path: Some(fixture_dir.display().to_string()),
                     stage: "fixture_directory".to_string(),
-                    message: err.to_string(),
+                    message: "fixture_directory_read_error".to_string(),
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
     paths.retain(|path| path.extension() == Some(OsStr::new("json")));
     paths.sort();
     Ok(paths)
-}
-
-fn scenario_name_hint(input: &str) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(input)
-        .ok()?
-        .get("name")?
-        .as_str()
-        .map(str::to_string)
 }
 
 fn write_failed_report(
@@ -183,20 +180,20 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Sce
         message,
     })?;
     let db_path = root.path().join("memory.sqlite");
-    let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| ScenarioRunFailure {
+    let mut store = SQLiteMemoryStore::open(&db_path).map_err(|_| ScenarioRunFailure {
         stage: "store_open",
-        message: err.to_string(),
+        message: "sqlite_store_open_error".to_string(),
     })?;
     store
         .put_many(&scenario.seed_memories)
-        .map_err(|err| ScenarioRunFailure {
+        .map_err(|_| ScenarioRunFailure {
             stage: "seed",
-            message: err.to_string(),
+            message: "seed_memory_write_error".to_string(),
         })?;
 
     let prompt = scenario.prompt().ok_or_else(|| ScenarioRunFailure {
         stage: "evaluation",
-        message: "validated scenario has no prompt".to_string(),
+        message: "scenario_prompt_missing".to_string(),
     })?;
     let recalls = MemoryRetriever::new(&store)
         .recall(
@@ -211,9 +208,9 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Sce
             RECALL_LIMIT,
             true,
         )
-        .map_err(|err| ScenarioRunFailure {
+        .map_err(|_| ScenarioRunFailure {
             stage: "recall",
-            message: err.to_string(),
+            message: "recall_execution_error".to_string(),
         })?
         .into_iter()
         .map(|result| QualityRecall {
@@ -224,20 +221,36 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Sce
 
     evaluate_quality_scenario(scenario, &recalls).map_err(|err| ScenarioRunFailure {
         stage: "evaluation",
-        message: err.to_string(),
+        message: classify_evaluation_error(&err).to_string(),
     })
 }
 
 fn write_reports(output_dir: &Path, report: &QualityRunReport) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(report).map_err(|err| err.to_string())?;
+    let json =
+        serde_json::to_string_pretty(report).map_err(|_| "report_json_encode_error".to_string())?;
     fs::write(output_dir.join("quality-report.json"), json)
-        .map_err(|err| format!("write quality-report.json: {err}"))?;
+        .map_err(|_| "report_json_write_error".to_string())?;
     fs::write(
         output_dir.join("quality-summary.md"),
         markdown_summary(report),
     )
-    .map_err(|err| format!("write quality-summary.md: {err}"))?;
+    .map_err(|_| "report_markdown_write_error".to_string())?;
     Ok(())
+}
+
+fn classify_parse_error(error: &TreeRingError) -> &'static str {
+    match error {
+        TreeRingError::Json(_) => "scenario_parse_error",
+        TreeRingError::Validation(_) => "scenario_validation_error",
+        _ => "scenario_parse_error",
+    }
+}
+
+fn classify_evaluation_error(error: &TreeRingError) -> &'static str {
+    match error {
+        TreeRingError::Validation(_) => "scenario_validation_error",
+        _ => "scenario_evaluation_error",
+    }
 }
 
 fn markdown_summary(report: &QualityRunReport) -> String {
@@ -304,25 +317,25 @@ struct TemporaryRoot {
 
 impl TemporaryRoot {
     fn new(name: &str) -> Result<Self, String> {
-        let millis = SystemTime::now()
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|err| err.to_string())?
-            .as_millis();
+            .map_err(|_| "temporary_root_clock_error".to_string())?
+            .as_nanos();
+        let unique = TEMP_ROOT_COUNTER.fetch_add(1, Ordering::Relaxed);
         let safe_name = name
             .chars()
             .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
             .collect::<String>();
         let path = std::env::temp_dir().join(format!(
-            "tree-ring-quality-{}-{}-{safe_name}",
+            "tree-ring-quality-{}-{}-{}-{safe_name}",
             std::process::id(),
-            millis
+            nanos,
+            unique
         ));
         if path.exists() {
-            fs::remove_dir_all(&path)
-                .map_err(|err| format!("remove existing temp root {}: {err}", path.display()))?;
+            fs::remove_dir_all(&path).map_err(|_| "temporary_root_cleanup_error".to_string())?;
         }
-        fs::create_dir_all(&path)
-            .map_err(|err| format!("create temp root {}: {err}", path.display()))?;
+        fs::create_dir_all(&path).map_err(|_| "temporary_root_create_error".to_string())?;
         Ok(Self { path })
     }
 
@@ -344,11 +357,55 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    const SECRET_MARKER: &str = "EDGE-SECRET-MARKER-7f1c2e";
+
     fn copy_valid_fixture(fixture_dir: &Path, name: &str) {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("fixtures/quality/no-background-writer-constraint.json");
         fs::copy(source, fixture_dir.join(name)).unwrap();
+    }
+
+    fn write_invalid_memory_fixture(fixture_dir: &Path) {
+        fs::write(
+            fixture_dir.join("invalid-memory.json"),
+            format!(
+                r#"{{
+                  "name": "invalid-memory-{SECRET_MARKER}",
+                  "category": "constraint_recall",
+                  "query": "quality proof",
+                  "seed_memories": [
+                    {{
+                      "id": "mem_invalid_secret",
+                      "created_at": "2026-07-09T00:00:00Z",
+                      "updated_at": "2026-07-09T00:00:00Z",
+                      "project": "tree-ring",
+                      "agent_profile": null,
+                      "scope": "project",
+                      "ring": "{SECRET_MARKER}",
+                      "event_type": "decision",
+                      "summary": "Invalid memory",
+                      "details": "",
+                      "source": {{"type": "evidence", "ref": "docs/spec.md", "quote": ""}},
+                      "tags": [],
+                      "salience": 0.8,
+                      "confidence": 0.8,
+                      "sensitivity": "normal",
+                      "retention": "durable",
+                      "expires_at": null,
+                      "supersedes": [],
+                      "superseded_by": null,
+                      "links": [],
+                      "review": {{"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}}
+                    }}
+                  ],
+                  "expected_recall": [
+                    {{"memory_id": "mem_invalid_secret"}}
+                  ]
+                }}"#
+            ),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -374,10 +431,8 @@ mod tests {
         assert_eq!(report.scenario_count, 1);
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.errors[0].stage, "parse");
-        assert_eq!(
-            report.errors[0].scenario.as_deref(),
-            Some("invalid-private-fixture")
-        );
+        assert_eq!(report.errors[0].message, "scenario_parse_error");
+        assert!(report.errors[0].scenario.is_none());
         assert!(report.errors[0]
             .path
             .as_deref()
@@ -389,6 +444,40 @@ mod tests {
         assert!(!markdown.contains("private-memory-payload"));
         assert!(markdown.contains("## Errors"));
         assert!(markdown.contains("stage=parse"));
+    }
+
+    #[test]
+    fn sanitizes_validation_failures_before_writing_reports() {
+        let fixtures = tempdir().unwrap();
+        let output = tempdir().unwrap();
+        copy_valid_fixture(fixtures.path(), "01-valid.json");
+        write_invalid_memory_fixture(fixtures.path());
+
+        let report = run_quality_scenarios(fixtures.path(), output.path()).unwrap();
+        let json = fs::read_to_string(output.path().join("quality-report.json")).unwrap();
+        let markdown = fs::read_to_string(output.path().join("quality-summary.md")).unwrap();
+
+        assert!(!report.ok);
+        assert!(!report.quality_pass);
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].stage, "parse");
+        assert_eq!(report.errors[0].message, "scenario_validation_error");
+        assert!(report.errors[0].scenario.is_none());
+        assert!(!report.errors[0].message.contains(SECRET_MARKER));
+        assert!(!json.contains(SECRET_MARKER));
+        assert!(!markdown.contains(SECRET_MARKER));
+    }
+
+    #[test]
+    fn sanitizes_validation_failures_in_returned_command_error() {
+        let fixtures = tempdir().unwrap();
+        let output = tempdir().unwrap();
+        write_invalid_memory_fixture(fixtures.path());
+
+        let error = run_quality_command(fixtures.path(), output.path()).unwrap_err();
+
+        assert_eq!(error, "quality run failed: 0 scenarios evaluated");
+        assert!(!error.contains(SECRET_MARKER));
     }
 
     #[test]

@@ -108,9 +108,74 @@ impl QualityScenario {
         if let Some(expectation) = &self.behavior_expectation {
             expectation.validate(self)?;
         }
-        self.thresholds.validate(&self.name)?;
+        self.validate_primary_observation_contract()?;
+        self.thresholds
+            .validate(&self.name, self.metric_applicability())?;
         Ok(())
     }
+
+    fn validate_primary_observation_contract(&self) -> TreeRingResult<()> {
+        match self.category.as_str() {
+            "constraint_recall" if self.expected_recall.is_empty() => {
+                Err(TreeRingError::Validation(format!(
+                    "quality scenario {} category constraint_recall requires at least one expected_recall",
+                    self.name
+                )))
+            }
+            "spam_prevention"
+                if !self
+                    .expected_write_decisions
+                    .iter()
+                    .any(|decision| decision.decision == "reject") =>
+            {
+                Err(TreeRingError::Validation(format!(
+                    "quality scenario {} category spam_prevention requires at least one expected_write_decision of reject",
+                    self.name
+                )))
+            }
+            "stale_truth_suppression" if self.forbidden_recall.is_empty() => {
+                Err(TreeRingError::Validation(format!(
+                    "quality scenario {} category stale_truth_suppression requires at least one forbidden_recall",
+                    self.name
+                )))
+            }
+            "evidence_preservation" if !self.has_evaluation_write_candidate() => {
+                Err(TreeRingError::Validation(format!(
+                    "quality scenario {} category evidence_preservation requires at least one evaluation write_candidate",
+                    self.name
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn metric_applicability(&self) -> MetricApplicability {
+        MetricApplicability {
+            constraint_recall: !self.expected_recall.is_empty(),
+            forbidden_recall: !self.forbidden_recall.is_empty(),
+            spam_rejection: self
+                .expected_write_decisions
+                .iter()
+                .any(|decision| decision.decision == "reject"),
+            evidence_required: self.has_evaluation_write_candidate(),
+            behavior_proof: self.behavior_expectation.is_some(),
+        }
+    }
+
+    fn has_evaluation_write_candidate(&self) -> bool {
+        self.write_candidates
+            .iter()
+            .any(|candidate| candidate.event_type.starts_with("evaluation_"))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MetricApplicability {
+    constraint_recall: bool,
+    forbidden_recall: bool,
+    spam_rejection: bool,
+    evidence_required: bool,
+    behavior_proof: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,35 +287,27 @@ impl BehaviorExpectation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QualityThresholds {
-    #[serde(default = "one")]
-    pub min_constraint_recall_rate: f64,
     #[serde(default)]
-    pub max_forbidden_recall_rate: f64,
-    #[serde(default = "one")]
-    pub min_spam_rejection_rate: f64,
-    #[serde(default = "one")]
-    pub min_evidence_required_rate: f64,
-    #[serde(default = "one")]
-    pub min_behavior_proof_pass_rate: f64,
-}
-
-impl Default for QualityThresholds {
-    fn default() -> Self {
-        Self {
-            min_constraint_recall_rate: 1.0,
-            max_forbidden_recall_rate: 0.0,
-            min_spam_rejection_rate: 1.0,
-            min_evidence_required_rate: 1.0,
-            min_behavior_proof_pass_rate: 1.0,
-        }
-    }
+    pub min_constraint_recall_rate: Option<f64>,
+    #[serde(default)]
+    pub max_forbidden_recall_rate: Option<f64>,
+    #[serde(default)]
+    pub min_spam_rejection_rate: Option<f64>,
+    #[serde(default)]
+    pub min_evidence_required_rate: Option<f64>,
+    #[serde(default)]
+    pub min_behavior_proof_pass_rate: Option<f64>,
 }
 
 impl QualityThresholds {
-    fn validate(&self, scenario_name: &str) -> TreeRingResult<()> {
+    fn validate(
+        &self,
+        scenario_name: &str,
+        applicability: MetricApplicability,
+    ) -> TreeRingResult<()> {
         for (field, value) in [
             (
                 "min_constraint_recall_rate",
@@ -267,9 +324,47 @@ impl QualityThresholds {
                 self.min_behavior_proof_pass_rate,
             ),
         ] {
-            if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+            if value.is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value)) {
                 return Err(TreeRingError::Validation(format!(
                     "quality scenario {scenario_name} threshold {field} must be between 0 and 1"
+                )));
+            }
+        }
+        for (field, configured, applicable, required_observation) in [
+            (
+                "min_constraint_recall_rate",
+                self.min_constraint_recall_rate.is_some(),
+                applicability.constraint_recall,
+                "expected_recall observations",
+            ),
+            (
+                "max_forbidden_recall_rate",
+                self.max_forbidden_recall_rate.is_some(),
+                applicability.forbidden_recall,
+                "forbidden_recall observations",
+            ),
+            (
+                "min_spam_rejection_rate",
+                self.min_spam_rejection_rate.is_some(),
+                applicability.spam_rejection,
+                "expected_write_decision reject observations",
+            ),
+            (
+                "min_evidence_required_rate",
+                self.min_evidence_required_rate.is_some(),
+                applicability.evidence_required,
+                "evaluation write_candidate observations",
+            ),
+            (
+                "min_behavior_proof_pass_rate",
+                self.min_behavior_proof_pass_rate.is_some(),
+                applicability.behavior_proof,
+                "behavior_expectation observations",
+            ),
+        ] {
+            if configured && !applicable {
+                return Err(TreeRingError::Validation(format!(
+                    "quality scenario {scenario_name} threshold {field} is inapplicable without {required_observation}"
                 )));
             }
         }
@@ -319,6 +414,7 @@ pub struct QualityScenarioReport {
     pub spam_rejection_rate: Option<f64>,
     pub evidence_required_rate: Option<f64>,
     pub behavior_proof_pass: Option<bool>,
+    #[serde(default)]
     pub behavior_expectation: Option<BehaviorExpectationReport>,
     pub quality_pass: bool,
     pub expected_recall: Vec<RecallExpectationReport>,
@@ -385,25 +481,21 @@ pub fn evaluate_quality_scenario(
         .map(|expectation| behavior_expectation_report(expectation, recalls));
     let behavior_proof_pass = behavior_expectation.as_ref().map(|report| report.passed);
     let behavior_rate = behavior_proof_pass.map(|passed| if passed { 1.0 } else { 0.0 });
-    let quality_pass = minimum_met(
-        constraint_recall_rate,
-        scenario.thresholds.min_constraint_recall_rate,
-    ) && maximum_met(
-        forbidden_recall_rate,
-        scenario.thresholds.max_forbidden_recall_rate,
-    ) && write_decisions.iter().all(|report| report.passed)
-        && minimum_met(
-            spam_rejection_rate,
-            scenario.thresholds.min_spam_rejection_rate,
-        )
-        && minimum_met(
-            evidence_required_rate,
-            scenario.thresholds.min_evidence_required_rate,
-        )
-        && minimum_met(
-            behavior_rate,
-            scenario.thresholds.min_behavior_proof_pass_rate,
-        );
+    let thresholds = scenario
+        .metric_applicability()
+        .thresholds(&scenario.thresholds);
+    let quality_pass =
+        minimum_met(
+            constraint_recall_rate,
+            thresholds.min_constraint_recall_rate,
+        ) && maximum_met(forbidden_recall_rate, thresholds.max_forbidden_recall_rate)
+            && write_decisions.iter().all(|report| report.passed)
+            && minimum_met(spam_rejection_rate, thresholds.min_spam_rejection_rate)
+            && minimum_met(
+                evidence_required_rate,
+                thresholds.min_evidence_required_rate,
+            )
+            && minimum_met(behavior_rate, thresholds.min_behavior_proof_pass_rate);
 
     Ok(QualityScenarioReport {
         name: scenario.name.clone(),
@@ -482,10 +574,6 @@ fn validate_member(field: &str, value: &str, allowed: &[&str]) -> TreeRingResult
             "invalid {field}: {value}"
         )))
     }
-}
-
-fn one() -> f64 {
-    1.0
 }
 
 fn validate_write_decision_coverage(scenario: &QualityScenario) -> TreeRingResult<()> {
@@ -702,12 +790,43 @@ fn aggregate_rate(observations: impl Iterator<Item = bool>) -> Option<f64> {
     (total > 0).then_some(passed as f64 / total as f64)
 }
 
-fn minimum_met(rate: Option<f64>, threshold: f64) -> bool {
-    rate.is_none_or(|rate| rate >= threshold)
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EffectiveThresholds {
+    min_constraint_recall_rate: Option<f64>,
+    max_forbidden_recall_rate: Option<f64>,
+    min_spam_rejection_rate: Option<f64>,
+    min_evidence_required_rate: Option<f64>,
+    min_behavior_proof_pass_rate: Option<f64>,
 }
 
-fn maximum_met(rate: Option<f64>, threshold: f64) -> bool {
-    rate.is_none_or(|rate| rate <= threshold)
+impl MetricApplicability {
+    fn thresholds(&self, configured: &QualityThresholds) -> EffectiveThresholds {
+        EffectiveThresholds {
+            min_constraint_recall_rate: configured
+                .min_constraint_recall_rate
+                .or(self.constraint_recall.then_some(1.0)),
+            max_forbidden_recall_rate: configured
+                .max_forbidden_recall_rate
+                .or(self.forbidden_recall.then_some(0.0)),
+            min_spam_rejection_rate: configured
+                .min_spam_rejection_rate
+                .or(self.spam_rejection.then_some(1.0)),
+            min_evidence_required_rate: configured
+                .min_evidence_required_rate
+                .or(self.evidence_required.then_some(1.0)),
+            min_behavior_proof_pass_rate: configured
+                .min_behavior_proof_pass_rate
+                .or(self.behavior_proof.then_some(1.0)),
+        }
+    }
+}
+
+fn minimum_met(rate: Option<f64>, threshold: Option<f64>) -> bool {
+    threshold.is_none_or(|threshold| rate.is_some_and(|rate| rate >= threshold))
+}
+
+fn maximum_met(rate: Option<f64>, threshold: Option<f64>) -> bool {
+    threshold.is_none_or(|threshold| rate.is_some_and(|rate| rate <= threshold))
 }
 
 #[cfg(test)]
@@ -817,6 +936,271 @@ mod tests {
     }
 
     #[test]
+    fn constraint_recall_requires_expected_recall_observations() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "empty constraint recall",
+              "category": "constraint_recall",
+              "query": "proof loop"
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            error.contains("requires at least one expected_recall"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn spam_prevention_requires_reject_observations() {
+        let input = serde_json::json!({
+            "name": "empty spam prevention",
+            "category": "spam_prevention",
+            "query": "memory spam",
+            "write_candidates": [{
+                "id": "mem_non_reject_candidate",
+                "created_at": "2026-07-09T00:00:00Z",
+                "updated_at": "2026-07-09T00:00:00Z",
+                "project": "tree-ring",
+                "agent_profile": null,
+                "scope": "project",
+                "ring": "cambium",
+                "event_type": "lesson",
+                "summary": "Durable note",
+                "details": "",
+                "source": {"type": "evidence", "ref": "docs/spec.md", "quote": ""},
+                "tags": [],
+                "salience": 0.8,
+                "confidence": 0.8,
+                "sensitivity": "normal",
+                "retention": "durable",
+                "expires_at": null,
+                "supersedes": [],
+                "superseded_by": null,
+                "links": [],
+                "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+            }],
+            "expected_write_decisions": [{
+                "memory_id": "mem_non_reject_candidate",
+                "decision": "accept"
+            }]
+        });
+
+        let error = parse_quality_scenario(&input.to_string())
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("requires at least one expected_write_decision of reject"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn stale_truth_suppression_requires_forbidden_recall_observations() {
+        let error = parse_quality_scenario(
+            r#"{
+              "name": "empty stale truth suppression",
+              "category": "stale_truth_suppression",
+              "query": "stale rule"
+            }"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            error.contains("requires at least one forbidden_recall"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn evidence_preservation_requires_evaluation_write_candidates() {
+        let input = serde_json::json!({
+            "name": "empty evidence preservation",
+            "category": "evidence_preservation",
+            "query": "preserve evidence",
+            "write_candidates": [{
+                "id": "mem_non_evaluation_candidate",
+                "created_at": "2026-07-09T00:00:00Z",
+                "updated_at": "2026-07-09T00:00:00Z",
+                "project": "tree-ring",
+                "agent_profile": null,
+                "scope": "project",
+                "ring": "cambium",
+                "event_type": "lesson",
+                "summary": "Regular lesson",
+                "details": "",
+                "source": {"type": "evidence", "ref": "docs/spec.md", "quote": ""},
+                "tags": [],
+                "salience": 0.8,
+                "confidence": 0.8,
+                "sensitivity": "normal",
+                "retention": "durable",
+                "expires_at": null,
+                "supersedes": [],
+                "superseded_by": null,
+                "links": [],
+                "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+            }],
+            "expected_write_decisions": [{
+                "memory_id": "mem_non_evaluation_candidate",
+                "decision": "accept"
+            }]
+        });
+
+        let error = parse_quality_scenario(&input.to_string())
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("requires at least one evaluation write_candidate"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_explicit_thresholds_for_inapplicable_metrics() {
+        let cases = [
+            (
+                serde_json::json!({
+                    "name": "irrelevant constraint threshold",
+                    "category": "stale_truth_suppression",
+                    "query": "stale rule",
+                    "forbidden_recall": [{"memory_id": "mem_stale"}],
+                    "thresholds": {"min_constraint_recall_rate": 1.0}
+                }),
+                "min_constraint_recall_rate",
+            ),
+            (
+                serde_json::json!({
+                    "name": "irrelevant forbidden threshold",
+                    "category": "constraint_recall",
+                    "query": "proof loop",
+                    "expected_recall": [{"memory_id": "mem_required"}],
+                    "thresholds": {"max_forbidden_recall_rate": 0.0}
+                }),
+                "max_forbidden_recall_rate",
+            ),
+            (
+                serde_json::json!({
+                    "name": "irrelevant spam threshold",
+                    "category": "evidence_preservation",
+                    "query": "preserve evidence",
+                    "write_candidates": [{
+                        "id": "mem_eval",
+                        "created_at": "2026-07-09T00:00:00Z",
+                        "updated_at": "2026-07-09T00:00:00Z",
+                        "project": "tree-ring",
+                        "agent_profile": null,
+                        "scope": "project",
+                        "ring": "cambium",
+                        "event_type": "evaluation_outcome",
+                        "summary": "Evidence-backed evaluation",
+                        "details": "",
+                        "source": {"type": "evidence", "ref": "evals/run-001", "quote": ""},
+                        "tags": ["evaluation"],
+                        "salience": 0.8,
+                        "confidence": 0.8,
+                        "sensitivity": "normal",
+                        "retention": "durable",
+                        "expires_at": null,
+                        "supersedes": [],
+                        "superseded_by": null,
+                        "links": [],
+                        "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+                    }],
+                    "expected_write_decisions": [{
+                        "memory_id": "mem_eval",
+                        "decision": "accept"
+                    }],
+                    "evidence_refs": ["evals/run-001"],
+                    "thresholds": {"min_spam_rejection_rate": 1.0}
+                }),
+                "min_spam_rejection_rate",
+            ),
+            (
+                serde_json::json!({
+                    "name": "irrelevant evidence threshold",
+                    "category": "spam_prevention",
+                    "query": "memory spam",
+                    "write_candidates": [{
+                        "id": "mem_spam",
+                        "created_at": "2026-07-09T00:00:00Z",
+                        "updated_at": "2026-07-09T00:00:00Z",
+                        "project": "tree-ring",
+                        "agent_profile": null,
+                        "scope": "project",
+                        "ring": "heartwood",
+                        "event_type": "lesson",
+                        "summary": "Transient planning chatter",
+                        "details": "",
+                        "source": {"type": "manual", "ref": "", "quote": ""},
+                        "tags": ["transient"],
+                        "salience": 0.2,
+                        "confidence": 0.2,
+                        "sensitivity": "normal",
+                        "retention": "ephemeral",
+                        "expires_at": null,
+                        "supersedes": [],
+                        "superseded_by": null,
+                        "links": [],
+                        "review": {"needs_review": false, "review_reason": null, "reviewed_at": null, "reviewed_by": null}
+                    }],
+                    "expected_write_decisions": [{
+                        "memory_id": "mem_spam",
+                        "decision": "reject"
+                    }],
+                    "thresholds": {"min_evidence_required_rate": 1.0}
+                }),
+                "min_evidence_required_rate",
+            ),
+            (
+                serde_json::json!({
+                    "name": "irrelevant behavior threshold",
+                    "category": "constraint_recall",
+                    "query": "proof loop",
+                    "expected_recall": [{"memory_id": "mem_required"}],
+                    "thresholds": {"min_behavior_proof_pass_rate": 1.0}
+                }),
+                "min_behavior_proof_pass_rate",
+            ),
+        ];
+
+        for (input, field) in cases {
+            let error = parse_quality_scenario(&input.to_string())
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(field), "{field}: {error}");
+            assert!(error.contains("inapplicable"), "{field}: {error}");
+        }
+    }
+
+    #[test]
+    fn older_quality_reports_deserialize_without_behavior_expectation() {
+        let report = serde_json::from_str::<QualityScenarioReport>(
+            r#"{
+              "name": "legacy report",
+              "category": "constraint_recall",
+              "constraint_recall_rate": 1.0,
+              "forbidden_recall_rate": null,
+              "spam_rejection_rate": null,
+              "evidence_required_rate": null,
+              "behavior_proof_pass": null,
+              "quality_pass": true,
+              "expected_recall": [],
+              "forbidden_recall": [],
+              "write_decisions": []
+            }"#,
+        )
+        .unwrap();
+
+        assert!(report.behavior_expectation.is_none());
+    }
+
+    #[test]
     fn behavior_proof_reports_an_observed_decision_change() {
         let required = memory(
             "mem_required_behavior",
@@ -880,15 +1264,21 @@ mod tests {
         }];
 
         assert_eq!(report_json(&scenario, &recalls)["quality_pass"], true);
-        scenario.thresholds.min_behavior_proof_pass_rate = 0.5;
+        scenario.thresholds.min_behavior_proof_pass_rate = Some(0.5);
         assert_eq!(report_json(&scenario, &recalls)["quality_pass"], false);
     }
 
     #[test]
-    fn metrics_are_null_without_applicable_observations() {
-        let report = report_json(&scenario("no observations", "constraint_recall"), &[]);
+    fn inapplicable_metrics_are_null_when_a_primary_observation_exists() {
+        let mut scenario = scenario("constraint only", "constraint_recall");
+        scenario.expected_recall = vec![RecallExpectation {
+            memory_id: Some("mem_missing".to_string()),
+            ..Default::default()
+        }];
+        let report = report_json(&scenario, &[]);
 
-        assert!(report["constraint_recall_rate"].is_null());
+        assert_eq!(report["constraint_recall_rate"], 0.0);
+        assert_eq!(report["quality_pass"], false);
         assert!(report["forbidden_recall_rate"].is_null());
         assert!(report["spam_rejection_rate"].is_null());
         assert!(report["evidence_required_rate"].is_null());
@@ -902,7 +1292,17 @@ mod tests {
             memory_id: Some("mem_missing".to_string()),
             ..Default::default()
         }];
-        let unrelated = scenario("unrelated", "spam_prevention");
+        let mut unrelated = scenario("unrelated", "evidence_preservation");
+        let mut candidate = memory("mem_eval", "Evidence-backed evaluation.", "cambium");
+        candidate.event_type = "evaluation_outcome".to_string();
+        candidate.source.ref_ = "evals/run-001".to_string();
+        unrelated.write_candidates = vec![candidate];
+        unrelated.expected_write_decisions = vec![WriteDecisionExpectation {
+            memory_id: "mem_eval".to_string(),
+            decision: "accept".to_string(),
+            reason: "valid unrelated evidence scenario".to_string(),
+        }];
+        unrelated.evidence_refs = vec!["evals/run-001".to_string()];
         let reports = vec![
             evaluate_quality_scenario(&failing, &[]).unwrap(),
             evaluate_quality_scenario(&unrelated, &[]).unwrap(),
@@ -931,9 +1331,20 @@ mod tests {
             memory: memory("mem_forbidden_recalled", "Stale instruction.", "heartwood"),
             score: 0.8,
         }];
+        let mut unrelated = scenario("unrelated", "evidence_preservation");
+        let mut candidate = memory("mem_eval", "Evidence-backed evaluation.", "cambium");
+        candidate.event_type = "evaluation_outcome".to_string();
+        candidate.source.ref_ = "evals/run-001".to_string();
+        unrelated.write_candidates = vec![candidate];
+        unrelated.expected_write_decisions = vec![WriteDecisionExpectation {
+            memory_id: "mem_eval".to_string(),
+            decision: "accept".to_string(),
+            reason: "valid unrelated evidence scenario".to_string(),
+        }];
+        unrelated.evidence_refs = vec!["evals/run-001".to_string()];
         let reports = vec![
             evaluate_quality_scenario(&mixed, &recalls).unwrap(),
-            evaluate_quality_scenario(&scenario("unrelated", "spam_prevention"), &[]).unwrap(),
+            evaluate_quality_scenario(&unrelated, &[]).unwrap(),
         ];
 
         let run = serde_json::to_value(summarize_quality_run(reports)).unwrap();
@@ -955,13 +1366,13 @@ mod tests {
                 ..Default::default()
             },
         ];
-        recall.thresholds.min_constraint_recall_rate = 0.5;
+        recall.thresholds.min_constraint_recall_rate = Some(0.5);
         let recalls = [QualityRecall {
             memory: required,
             score: 0.9,
         }];
         assert_eq!(report_json(&recall, &recalls)["quality_pass"], true);
-        recall.thresholds.min_constraint_recall_rate = 0.6;
+        recall.thresholds.min_constraint_recall_rate = Some(0.6);
         assert_eq!(report_json(&recall, &recalls)["quality_pass"], false);
 
         let mut forbidden = scenario("forbidden threshold", "stale_truth_suppression");
@@ -969,7 +1380,7 @@ mod tests {
             memory_id: Some("mem_stale".to_string()),
             ..Default::default()
         }];
-        forbidden.thresholds.max_forbidden_recall_rate = 0.0;
+        forbidden.thresholds.max_forbidden_recall_rate = Some(0.0);
         let stale = [QualityRecall {
             memory: memory("mem_stale", "Stale instruction.", "heartwood"),
             score: 0.9,
@@ -1120,7 +1531,8 @@ mod tests {
           "name": "workflow prompt fallback",
           "category": "constraint_recall",
           "query": "   ",
-          "workflow_prompt": "  validate behavior proof  "
+          "workflow_prompt": "  validate behavior proof  ",
+          "expected_recall": [{"memory_id": "mem_required"}]
         }"#;
 
         let scenario = parse_quality_scenario(input).unwrap();
@@ -1425,25 +1837,24 @@ mod tests {
 
     #[test]
     fn quality_pass_fails_when_expected_require_evidence_is_accepted() {
+        let mut candidate = memory("mem_accept", "Durable evidence-backed note.", "cambium");
+        candidate.event_type = "evaluation_outcome".to_string();
+        candidate.source.ref_ = "evals/run-002".to_string();
         let scenario = QualityScenario {
             name: "require evidence mismatch".to_string(),
-            category: "spam_prevention".to_string(),
+            category: "evidence_preservation".to_string(),
             seed_memories: Vec::new(),
             query: Some("write gates".to_string()),
             workflow_prompt: None,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
-            write_candidates: vec![memory(
-                "mem_accept",
-                "Durable evidence-backed note.",
-                "cambium",
-            )],
+            write_candidates: vec![candidate],
             expected_write_decisions: vec![WriteDecisionExpectation {
                 memory_id: "mem_accept".to_string(),
                 decision: "require_evidence".to_string(),
                 reason: "should need evidence".to_string(),
             }],
-            evidence_refs: Vec::new(),
+            evidence_refs: vec!["evals/run-002".to_string()],
             behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
@@ -1457,25 +1868,24 @@ mod tests {
 
     #[test]
     fn quality_pass_fails_when_confirmation_mismatch_occurs() {
+        let mut candidate = memory("mem_accept", "Durable evidence-backed note.", "cambium");
+        candidate.event_type = "evaluation_outcome".to_string();
+        candidate.source.ref_ = "evals/run-003".to_string();
         let scenario = QualityScenario {
             name: "confirmation mismatch".to_string(),
-            category: "spam_prevention".to_string(),
+            category: "evidence_preservation".to_string(),
             seed_memories: Vec::new(),
             query: Some("write gates".to_string()),
             workflow_prompt: None,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
-            write_candidates: vec![memory(
-                "mem_accept",
-                "Durable evidence-backed note.",
-                "cambium",
-            )],
+            write_candidates: vec![candidate],
             expected_write_decisions: vec![WriteDecisionExpectation {
                 memory_id: "mem_accept".to_string(),
                 decision: "require_user_confirmation".to_string(),
                 reason: "should require confirmation".to_string(),
             }],
-            evidence_refs: Vec::new(),
+            evidence_refs: vec!["evals/run-003".to_string()],
             behavior_expectation: None,
             thresholds: QualityThresholds::default(),
         };
