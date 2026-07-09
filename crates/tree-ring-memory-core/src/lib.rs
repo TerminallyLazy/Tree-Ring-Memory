@@ -4,6 +4,7 @@ pub mod dox;
 pub mod import_export;
 pub mod maintenance;
 pub mod models;
+pub mod quality;
 pub mod recall;
 pub mod revolve;
 pub mod sensitivity;
@@ -25,6 +26,10 @@ pub use maintenance::{
 };
 pub use models::{
     now_iso, MemoryEvent, MemoryLink, MemoryReview, MemorySource, TreeRingError, TreeRingResult,
+};
+pub use quality::{
+    parse_quality_scenario, QualityScenario, QualityThresholds, RecallExpectation,
+    WriteDecisionExpectation, QUALITY_CATEGORIES, WRITE_DECISIONS,
 };
 pub use recall::{RecallRanking, RecallScore, RecallScorer};
 pub use revolve::{collect_revolve_memories, RevolveSyncReport, RevolveSyncRequest};
