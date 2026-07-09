@@ -72,7 +72,8 @@ all rings, plus the current certification artifacts.
 ![Tree Ring TUI dashboard showing ring activity, ambient rings, memories, and detail panels](docs/assets/readme-tui-dashboard.png)
 
 Dashboard view with populated cambium, outer, inner, heartwood, scar, and seed
-rings.
+rings. Ambient layers are duller at lower relative fullness and lighter as their
+share of stored memories grows; activity pulses are temporary.
 
 ![Tree Ring TUI search mode showing ranked recall results from a populated store](docs/assets/readme-tui-search.png)
 
