@@ -16,6 +16,7 @@ name = "tree-ring"
 path = "src/main.rs"
 
 [dependencies]
+chrono.workspace = true
 clap.workspace = true
 ratatui.workspace = true
 serde.workspace = true

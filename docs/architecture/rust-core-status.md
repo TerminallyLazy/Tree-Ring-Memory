@@ -61,6 +61,12 @@ v0.11 Rust-native source adapters plus framework discovery.
   Revolve, Codex, Claude Code, Agent Zero/A0, Goose, OpenCode, Hermes, and Pi.
   Integration scan output distinguishes project markers from user-home markers
   so local harness readiness is explicit.
+- `tree-ring integrations certify` turns integration-scan markers into
+  non-mutating harness evidence records for Codex, Claude Code, OpenCode,
+  Goose, Pi, and Agent Zero/A0. Records live under
+  `target/tree-ring-certification/harness/` and are indexed by
+  `evidence-index.json`; skip states are explicit and are not counted as
+  compatibility passes.
 - JSONL import uses batched SQLite writes while preserving dry-run validation,
   duplicate skipping, explicit replacement, secret blocking, and supersession
   application.

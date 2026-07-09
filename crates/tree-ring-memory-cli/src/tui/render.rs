@@ -126,14 +126,25 @@ fn render_body(frame: &mut Frame<'_>, area: Rect, app: &App) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
         .split(columns[0]);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(14),
-            Constraint::Percentage(45),
-            Constraint::Percentage(55),
-        ])
-        .split(columns[1]);
+    let right = if app.mode == AppMode::Evidence {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(10),
+                Constraint::Length(6),
+                Constraint::Min(12),
+            ])
+            .split(columns[1])
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(14),
+                Constraint::Percentage(45),
+                Constraint::Percentage(55),
+            ])
+            .split(columns[1])
+    };
 
     if app.mode == AppMode::Exploded {
         render_exploded(frame, left[0], app);
@@ -339,11 +350,29 @@ fn render_evidence_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
             })
             .unwrap_or((" missing", " missing"));
 
-        rows.push(ListItem::new(Line::from(vec![
-            Span::styled("  ", theme::dim()),
-            Span::styled("Harness probes", theme::dim()),
-            Span::styled(harness_status, theme::dim()),
-        ])));
+        if let Some(index) = snapshot.index.as_ref() {
+            if index.harness.is_empty() {
+                rows.push(ListItem::new(Line::from(vec![
+                    Span::styled("  ", theme::dim()),
+                    Span::styled("Harness probes", theme::dim()),
+                    Span::styled(harness_status, theme::dim()),
+                ])));
+            } else {
+                for record in index.harness.values().take(6) {
+                    rows.push(ListItem::new(Line::from(vec![
+                        Span::styled("  ", theme::dim()),
+                        Span::styled(format!("{:<18}", record.label), theme::selected()),
+                        Span::styled(format!(" {}", record.status.as_str()), theme::dim()),
+                    ])));
+                }
+            }
+        } else {
+            rows.push(ListItem::new(Line::from(vec![
+                Span::styled("  ", theme::dim()),
+                Span::styled("Harness probes", theme::dim()),
+                Span::styled(harness_status, theme::dim()),
+            ])));
+        }
         rows.push(ListItem::new(Line::from(vec![
             Span::styled("  ", theme::dim()),
             Span::styled("Recall quality", theme::dim()),
@@ -604,6 +633,20 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 Span::raw(truncate(&snapshot.index_path.display().to_string(), 55)),
             ]));
         }
+        if let Some(index) = snapshot.index.as_ref() {
+            if !index.harness.is_empty() {
+                lines.push(Line::from(Span::styled("Harness matrix", theme::brand())));
+                for record in index.harness.values().take(6) {
+                    lines.push(Line::from(vec![
+                        Span::styled(truncate(&record.label, 18), theme::selected()),
+                        Span::raw(" "),
+                        Span::styled(record.status.as_str(), theme::dim()),
+                        Span::raw(" "),
+                        Span::raw(truncate(&record.path.display().to_string(), 36)),
+                    ]));
+                }
+            }
+        }
         lines.push(Line::from(""));
         lines.push(Line::from("Actions: /evidence refresh | /integrations"));
     } else {
@@ -809,5 +852,134 @@ mod tests {
         assert!(output.contains("6064 KB"));
         assert!(output.contains("3.729 ms"));
         assert!(output.contains("Agent Zero"));
+    }
+
+    #[test]
+    fn render_evidence_mode_shows_harness_matrix_records() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(evidence_dir.join("harness")).unwrap();
+        std::fs::write(evidence_dir.join("summary.md"), "# Summary\n").unwrap();
+        std::fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-09T05:44:48Z"}"#,
+        )
+        .unwrap();
+        std::fs::write(evidence_dir.join("harness/codex.json"), "{}").unwrap();
+        std::fs::write(evidence_dir.join("harness/claude-code.json"), "{}").unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T05:44:48Z",
+          "overall_status": "fail",
+          "certification": {
+            "category": "certification",
+            "status": "pass",
+            "label": "Local certification",
+            "path": "metrics.json",
+            "summary_path": "summary.md",
+            "generated_at": "2026-07-09T05:44:48Z"
+          },
+          "harness": {
+            "codex": {
+              "category": "harness",
+              "status": "pass",
+              "label": "Codex",
+              "path": "harness/codex.json",
+              "summary_path": null,
+              "generated_at": "2026-07-09T05:44:48Z"
+            },
+            "claude-code": {
+              "category": "harness",
+              "status": "fail",
+              "label": "Claude Code",
+              "path": "harness/claude-code.json",
+              "summary_path": null,
+              "generated_at": "2026-07-09T05:44:48Z"
+            }
+          },
+          "recall_quality": null,
+          "missing": ["recall_quality"],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("status"));
+        assert!(output.contains("Local certification"));
+        assert!(output.contains("root"));
+        assert!(output.contains("index"));
+        assert!(output.contains("metrics"));
+        assert!(output.contains("q quit | / command"));
+        assert!(output.contains("Codex"));
+        assert!(output.contains("pass"));
+        assert!(output.contains("Claude Code"));
+        assert!(output.contains("fail"));
+        assert!(output.contains("codex.json"));
+    }
+
+    #[test]
+    fn render_evidence_mode_keeps_status_without_certification() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(evidence_dir.join("harness")).unwrap();
+        std::fs::write(evidence_dir.join("harness/codex.json"), "{}").unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T05:44:48Z",
+          "overall_status": "fail",
+          "certification": null,
+          "harness": {
+            "codex": {
+              "category": "harness",
+              "status": "pass",
+              "label": "Codex",
+              "path": "harness/codex.json",
+              "summary_path": null,
+              "generated_at": "2026-07-09T05:44:48Z"
+            }
+          },
+          "recall_quality": null,
+          "missing": ["certification", "recall_quality"],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("status"));
+        assert!(output.contains("fail"));
+        assert!(output.contains("Harness matrix"));
+        assert!(output.contains("Codex"));
+        assert!(!output.contains("Local certification"));
+    }
+
+    #[test]
+    fn render_evidence_mode_keeps_harness_fallback_when_index_missing() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("Harness probes"));
+        assert!(output.contains("missing"));
     }
 }

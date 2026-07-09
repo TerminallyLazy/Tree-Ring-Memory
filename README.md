@@ -256,7 +256,13 @@ Framework discovery is read-only:
 
 ```bash
 tree-ring integrations scan --source-root .
+tree-ring integrations certify --source-root .
 ```
+
+- `integrations certify` writes non-mutating harness evidence under
+  `target/tree-ring-certification/harness/` and updates
+  `target/tree-ring-certification/evidence-index.json`. Pass, fail, and skip
+  states are evidence records, not broad compatibility claims.
 
 It looks for local markers for DOX, Revolve, Codex, Claude Code, Agent Zero/A0,
 Goose, OpenCode, Hermes, and Pi, then suggests next steps without editing those
