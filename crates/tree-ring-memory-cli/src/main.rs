@@ -27,6 +27,7 @@ mod actions;
 mod agent_awareness;
 mod commands;
 mod evidence;
+mod harness_evidence;
 mod integrations;
 mod ring_mark;
 mod tui;
