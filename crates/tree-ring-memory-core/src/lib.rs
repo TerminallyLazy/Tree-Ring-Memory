@@ -28,8 +28,10 @@ pub use models::{
     now_iso, MemoryEvent, MemoryLink, MemoryReview, MemorySource, TreeRingError, TreeRingResult,
 };
 pub use quality::{
-    parse_quality_scenario, QualityScenario, QualityThresholds, RecallExpectation,
-    WriteDecisionExpectation, QUALITY_CATEGORIES, WRITE_DECISIONS,
+    evaluate_quality_scenario, parse_quality_scenario, summarize_quality_run, QualityRecall,
+    QualityRunReport, QualityScenario, QualityScenarioReport, QualityThresholds,
+    RecallExpectation, RecallExpectationReport, WriteDecisionExpectation, WriteDecisionReport,
+    QUALITY_CATEGORIES, WRITE_DECISIONS,
 };
 pub use recall::{RecallRanking, RecallScore, RecallScorer};
 pub use revolve::{collect_revolve_memories, RevolveSyncReport, RevolveSyncRequest};
