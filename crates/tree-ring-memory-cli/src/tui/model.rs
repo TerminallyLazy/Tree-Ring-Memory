@@ -14,6 +14,7 @@ pub struct RingStats {
     pub average_confidence: f64,
     pub newest_at: Option<String>,
     pub oldest_at: Option<String>,
+    pub fullness_level: f64,
     pub pulse_level: f64,
     pub warning_level: f64,
 }
@@ -30,6 +31,7 @@ impl RingStats {
             average_confidence: 0.0,
             newest_at: None,
             oldest_at: None,
+            fullness_level: 0.0,
             pulse_level: 0.0,
             warning_level: 0.0,
         }
@@ -106,6 +108,11 @@ impl DashboardStats {
                 stats.average_salience /= stats.total as f64;
                 stats.average_confidence /= stats.total as f64;
             }
+            stats.fullness_level = if dashboard.total == 0 {
+                0.0
+            } else {
+                stats.total as f64 / dashboard.total as f64
+            };
             stats.warning_level = ring_warning_level(stats);
             if let Some(previous_stats) = previous.and_then(|previous| previous.ring(&stats.ring)) {
                 if stats.total != previous_stats.total {
@@ -212,5 +219,24 @@ mod tests {
         );
 
         assert_eq!(second.ring("cambium").unwrap().pulse_level, 1.0);
+    }
+
+    #[test]
+    fn derives_relative_ring_fullness() {
+        let dashboard = DashboardStats::from_memories(
+            &[
+                event("Fresh one", "cambium", "lesson"),
+                event("Fresh two", "cambium", "lesson"),
+                event("Durable", "heartwood", "decision"),
+            ],
+            None,
+        );
+
+        assert_eq!(dashboard.ring("cambium").unwrap().fullness_level, 2.0 / 3.0);
+        assert_eq!(
+            dashboard.ring("heartwood").unwrap().fullness_level,
+            1.0 / 3.0
+        );
+        assert_eq!(dashboard.ring("outer").unwrap().fullness_level, 0.0);
     }
 }

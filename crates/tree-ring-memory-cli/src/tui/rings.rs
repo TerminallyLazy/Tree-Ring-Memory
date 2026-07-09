@@ -321,13 +321,17 @@ fn animated_color(ring: &str, stats: Option<&RingStats>, tick: u64, offset: u64)
     if stats.total == 0 {
         return dim_color(base, 0.34);
     }
+    let fullness = stats.fullness_level.clamp(0.0, 1.0);
     if stats.pulse_level > 0.05 && (tick + offset) % 6 < 3 {
-        return brighten_color(base, 0.34 + (stats.pulse_level * 0.18));
+        return brighten_color(base, 0.28 + fullness * 0.16 + stats.pulse_level * 0.18);
     }
     if (tick + offset) % 18 < 3 {
-        return brighten_color(base, 0.18);
+        return brighten_color(base, 0.08 + fullness * 0.16);
     }
-    base
+    if fullness < 0.18 {
+        return dim_color(base, 0.42 + fullness * 1.35);
+    }
+    brighten_color(base, fullness * 0.20)
 }
 
 fn brighten_color(color: Color, amount: f64) -> Color {
@@ -422,6 +426,20 @@ mod tests {
     use super::*;
     use tree_ring_memory_core::MemoryEvent;
 
+    fn brightness_sum(color: Color) -> u16 {
+        match color {
+            Color::Rgb(red, green, blue) => red as u16 + green as u16 + blue as u16,
+            _ => 0,
+        }
+    }
+
+    fn stats_with_fullness(ring: &str, total: usize, fullness_level: f64) -> RingStats {
+        let mut stats = RingStats::empty(ring);
+        stats.total = total;
+        stats.fullness_level = fullness_level;
+        stats
+    }
+
     #[test]
     fn ambient_lines_include_all_core_ring_labels() {
         let mut memory = MemoryEvent::new("Durable", "lesson").unwrap();
@@ -484,5 +502,16 @@ mod tests {
             .join("\n");
 
         assert_ne!(early, later);
+    }
+
+    #[test]
+    fn fullness_brightens_ambient_ring_without_pulse() {
+        let low = stats_with_fullness("cambium", 1, 0.10);
+        let high = stats_with_fullness("cambium", 8, 0.80);
+
+        let low_color = animated_color("cambium", Some(&low), 10, 0);
+        let high_color = animated_color("cambium", Some(&high), 10, 0);
+
+        assert!(brightness_sum(high_color) > brightness_sum(low_color));
     }
 }
