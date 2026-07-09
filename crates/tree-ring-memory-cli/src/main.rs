@@ -24,6 +24,7 @@ use actions::remember::{remember as remember_action, RememberRequest};
 use harness_evidence::{
     certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
 };
+use recall_quality::{run_recall_quality, RecallQualityReport, RecallQualityRequest};
 use serde_json::json;
 
 mod actions;
@@ -32,6 +33,7 @@ mod commands;
 mod evidence;
 mod harness_evidence;
 mod integrations;
+mod recall_quality;
 mod ring_mark;
 mod tui;
 mod welcome;
@@ -199,6 +201,20 @@ enum Command {
         #[arg(long, help = "print a stable onboarding screen without animation")]
         no_animation: bool,
     },
+    #[command(about = "write non-private recall quality evidence")]
+    RecallQuality {
+        #[arg(
+            long,
+            default_value = ".",
+            help = "project root used for default evidence output"
+        )]
+        source_root: PathBuf,
+        #[arg(
+            long,
+            help = "evidence output directory; defaults to <source-root>/target/tree-ring-certification"
+        )]
+        out_dir: Option<PathBuf>,
+    },
     #[command(about = "summarize DOX-style AGENTS.md guidance into memory")]
     Dox {
         #[command(subcommand)]
@@ -355,6 +371,22 @@ fn run(cli: Cli) -> Result<(), String> {
             evidence_dir,
         })?;
         print_harness_certification_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::RecallQuality {
+        source_root,
+        out_dir,
+    } = &cli.command
+    {
+        let evidence_dir = out_dir
+            .clone()
+            .unwrap_or_else(|| evidence::certification_dir_for_project(source_root));
+        let report = run_recall_quality(RecallQualityRequest {
+            source_root: source_root.clone(),
+            evidence_dir,
+        })?;
+        print_recall_quality_report(&report, cli.json)?;
         return Ok(());
     }
 
@@ -676,6 +708,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
         Command::Welcome { .. } => {
             unreachable!("welcome returns before opening the scriptable store")
+        }
+        Command::RecallQuality { .. } => {
+            unreachable!("recall-quality returns before opening the scriptable store")
         }
         Command::Integrations { .. } => {
             unreachable!("integrations commands return before opening the scriptable store")
@@ -1045,6 +1080,14 @@ fn print_harness_certification_report(
     Ok(())
 }
 
+fn print_recall_quality_report(
+    report: &RecallQualityReport,
+    json_output: bool,
+) -> Result<(), String> {
+    println!("{}", format_recall_quality_report(report, json_output));
+    Ok(())
+}
+
 fn format_harness_certification_report(
     report: &HarnessCertificationReport,
     json_output: bool,
@@ -1071,6 +1114,43 @@ fn format_harness_certification_report(
                 record.summary
             ));
             lines.push(format!("  next: {}", record.next_step));
+        }
+        lines.join("\n")
+    }
+}
+
+fn format_recall_quality_report(report: &RecallQualityReport, json_output: bool) -> String {
+    if json_output {
+        json!({
+            "ok": true,
+            "report": report,
+        })
+        .to_string()
+    } else {
+        let mut lines = vec![format!(
+            "Tree Ring Memory recall quality: status={} queries={} pass={} fail={} needs_review={} avg={:.3}ms max={:.3}ms evidence={}",
+            report.status.as_str(),
+            report.summary.query_count,
+            report.summary.pass_count,
+            report.summary.fail_count,
+            report.summary.needs_review_count,
+            report.summary.avg_latency_ms,
+            report.summary.max_latency_ms,
+            report.evidence_dir.display()
+        )];
+        for query in &report.queries {
+            lines.push(format!(
+                "{} [{:?}] latency={:.3}ms returned={}",
+                query.query_id,
+                query.status,
+                query.latency_ms,
+                query
+                    .returned
+                    .iter()
+                    .map(|item| item.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
         }
         lines.join("\n")
     }
@@ -1289,6 +1369,131 @@ mod tests {
             .path()
             .join("target/tree-ring-certification/harness/codex.json")
             .exists());
+    }
+
+    #[test]
+    fn recall_quality_json_output_contract() {
+        let report = RecallQualityReport {
+            schema_version: 1,
+            generated_at: "2026-07-09T00:00:00Z".to_string(),
+            query_set_id: "default-fixture-v1".to_string(),
+            status: crate::evidence::EvidenceStatus::Pass,
+            source_root: PathBuf::from("/tmp/project"),
+            evidence_dir: PathBuf::from("/tmp/project/target/tree-ring-certification"),
+            record_path: PathBuf::from(
+                "/tmp/project/target/tree-ring-certification/recall-quality/default-fixture-v1.json",
+            ),
+            summary: crate::recall_quality::RecallQualitySummary {
+                query_count: 4,
+                pass_count: 4,
+                fail_count: 0,
+                needs_review_count: 0,
+                avg_latency_ms: 1.25,
+                max_latency_ms: 2.5,
+                fixture_memory_count: 5,
+                sensitive_fixture_count: 1,
+                private_payloads_used: false,
+            },
+            queries: vec![crate::recall_quality::RecallQualityQueryRecord {
+                query_id: "scar-stale-cache".to_string(),
+                query: "failure stale cache".to_string(),
+                status: crate::recall_quality::RecallQualityQueryStatus::Pass,
+                expected_top_id: Some("rq_scar_stale_cache".to_string()),
+                expected_rank: Some(1),
+                latency_ms: 1.25,
+                returned: vec![crate::recall_quality::RecallQualityReturnedMemory {
+                    id: "rq_scar_stale_cache".to_string(),
+                    rank: 1,
+                    ring: "scar".to_string(),
+                    source_ref: "fixture://recall-quality/scar-stale-cache".to_string(),
+                    score: 0.98,
+                    ranking: std::collections::BTreeMap::from([
+                        ("fts".to_string(), 0.75),
+                        ("ring".to_string(), 0.23),
+                    ]),
+                }],
+                notes: Vec::new(),
+            }],
+        };
+
+        let output = format_recall_quality_report(&report, true);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["report"]["query_set_id"], "default-fixture-v1");
+        assert_eq!(parsed["report"]["status"], "pass");
+        assert_eq!(parsed["report"]["summary"]["query_count"], 4);
+        assert_eq!(parsed["report"]["summary"]["sensitive_fixture_count"], 1);
+        assert_eq!(parsed["report"]["summary"]["private_payloads_used"], false);
+        assert_eq!(
+            parsed["report"]["queries"][0]["query_id"],
+            "scar-stale-cache"
+        );
+    }
+
+    #[test]
+    fn recall_quality_human_output_contract() {
+        let report = RecallQualityReport {
+            schema_version: 1,
+            generated_at: "2026-07-09T00:00:00Z".to_string(),
+            query_set_id: "default-fixture-v1".to_string(),
+            status: crate::evidence::EvidenceStatus::Pass,
+            source_root: PathBuf::from("/tmp/project"),
+            evidence_dir: PathBuf::from("/tmp/project/target/tree-ring-certification"),
+            record_path: PathBuf::from(
+                "/tmp/project/target/tree-ring-certification/recall-quality/default-fixture-v1.json",
+            ),
+            summary: crate::recall_quality::RecallQualitySummary {
+                query_count: 4,
+                pass_count: 4,
+                fail_count: 0,
+                needs_review_count: 0,
+                avg_latency_ms: 1.25,
+                max_latency_ms: 2.5,
+                fixture_memory_count: 5,
+                sensitive_fixture_count: 1,
+                private_payloads_used: false,
+            },
+            queries: vec![
+                crate::recall_quality::RecallQualityQueryRecord {
+                    query_id: "scar-stale-cache".to_string(),
+                    query: "failure stale cache".to_string(),
+                    status: crate::recall_quality::RecallQualityQueryStatus::Pass,
+                    expected_top_id: Some("rq_scar_stale_cache".to_string()),
+                    expected_rank: Some(1),
+                    latency_ms: 1.25,
+                    returned: vec![crate::recall_quality::RecallQualityReturnedMemory {
+                        id: "rq_scar_stale_cache".to_string(),
+                        rank: 1,
+                        ring: "scar".to_string(),
+                        source_ref: "fixture://recall-quality/scar-stale-cache".to_string(),
+                        score: 0.98,
+                        ranking: std::collections::BTreeMap::new(),
+                    }],
+                    notes: Vec::new(),
+                },
+                crate::recall_quality::RecallQualityQueryRecord {
+                    query_id: "sensitive-filter".to_string(),
+                    query: "health private payload".to_string(),
+                    status: crate::recall_quality::RecallQualityQueryStatus::Pass,
+                    expected_top_id: None,
+                    expected_rank: None,
+                    latency_ms: 2.5,
+                    returned: Vec::new(),
+                    notes: Vec::new(),
+                },
+            ],
+        };
+
+        let output = format_recall_quality_report(&report, false);
+
+        assert!(output.contains(
+            "Tree Ring Memory recall quality: status=pass queries=4 pass=4 fail=0 needs_review=0 avg=1.250ms max=2.500ms evidence=/tmp/project/target/tree-ring-certification"
+        ));
+        assert!(
+            output.contains("scar-stale-cache [Pass] latency=1.250ms returned=rq_scar_stale_cache")
+        );
+        assert!(output.contains("sensitive-filter [Pass] latency=2.500ms returned="));
     }
 
     #[test]

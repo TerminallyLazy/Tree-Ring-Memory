@@ -1,8 +1,9 @@
-use crate::evidence::{EvidenceRecordRef, EvidenceStatus};
+use crate::evidence::{
+    read_or_create_index, rollup_index_status, write_index, EvidenceRecordRef, EvidenceStatus,
+};
 use crate::integrations::{scan_integrations, IntegrationMarker, MarkerOrigin};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -216,8 +217,6 @@ fn merge_harness_index(
     generated_at: &str,
     records: &[HarnessProbeRecord],
 ) -> Result<PathBuf, String> {
-    fs::create_dir_all(evidence_dir).map_err(|err| err.to_string())?;
-    let index_path = evidence_dir.join("evidence-index.json");
     let mut index = read_or_create_index(evidence_dir, generated_at)?;
     index.generated_at = generated_at.to_string();
     for record in records {
@@ -240,80 +239,15 @@ fn merge_harness_index(
     }
     index.missing.sort();
     index.missing.dedup();
-    index.overall_status = rollup_status(&index);
-    let json = serde_json::to_string_pretty(&index).map_err(|err| err.to_string())?;
-    fs::write(&index_path, json).map_err(|err| err.to_string())?;
-    Ok(index_path)
-}
-
-fn read_or_create_index(
-    evidence_dir: &Path,
-    generated_at: &str,
-) -> Result<crate::evidence::EvidenceIndex, String> {
-    let index_path = evidence_dir.join("evidence-index.json");
-    if index_path.exists() {
-        let input = fs::read_to_string(&index_path).map_err(|err| err.to_string())?;
-        return serde_json::from_str(&input).map_err(|err| err.to_string());
-    }
-    Ok(crate::evidence::EvidenceIndex {
-        generated_at: generated_at.to_string(),
-        overall_status: EvidenceStatus::Missing,
-        certification: certification_record_from_metrics(evidence_dir, generated_at),
-        harness: BTreeMap::new(),
-        recall_quality: None,
-        missing: vec!["recall_quality".to_string()],
-        stale: Vec::new(),
-    })
-}
-
-fn certification_record_from_metrics(
-    evidence_dir: &Path,
-    generated_at: &str,
-) -> Option<EvidenceRecordRef> {
-    let metrics_path = evidence_dir.join("metrics.json");
-    if !metrics_path.exists() {
-        return None;
-    }
-    let summary_path = evidence_dir.join("summary.md");
-    Some(EvidenceRecordRef {
-        category: "certification".to_string(),
-        status: EvidenceStatus::Pass,
-        label: "Local certification".to_string(),
-        path: PathBuf::from("metrics.json"),
-        summary_path: summary_path.exists().then_some(PathBuf::from("summary.md")),
-        generated_at: generated_at.to_string(),
-    })
-}
-
-fn rollup_status(index: &crate::evidence::EvidenceIndex) -> EvidenceStatus {
-    if index
-        .harness
-        .values()
-        .any(|record| record.status == EvidenceStatus::Fail)
-    {
-        return EvidenceStatus::Fail;
-    }
-    if index
-        .harness
-        .values()
-        .any(|record| record.status == EvidenceStatus::Error)
-    {
-        return EvidenceStatus::Error;
-    }
-    if let Some(certification) = &index.certification {
-        return certification.status;
-    }
-    if index.harness.is_empty() {
-        EvidenceStatus::Missing
-    } else {
-        EvidenceStatus::Skip
-    }
+    index.overall_status = rollup_index_status(&index);
+    write_index(evidence_dir, &index)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::evidence::certification_dir_for_project;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     #[test]
@@ -550,7 +484,7 @@ mod tests {
             stale: Vec::new(),
         };
 
-        assert_eq!(rollup_status(&index), EvidenceStatus::Pass);
+        assert_eq!(rollup_index_status(&index), EvidenceStatus::Pass);
     }
 
     #[test]
@@ -575,6 +509,6 @@ mod tests {
             stale: Vec::new(),
         };
 
-        assert_eq!(rollup_status(&index), EvidenceStatus::Skip);
+        assert_eq!(rollup_index_status(&index), EvidenceStatus::Skip);
     }
 }

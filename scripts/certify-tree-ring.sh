@@ -82,6 +82,45 @@ extract_metrics_json() {
   sed -n 's/^METRICS_JSON=//p' "$1" | tail -n 1
 }
 
+assert_recall_quality_evidence() {
+  command -v python3 >/dev/null 2>&1 \
+    || fail "python3 is required for recall quality evidence validation"
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+report_path, index_path = sys.argv[1:3]
+with open(report_path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+with open(index_path, encoding="utf-8") as handle:
+    index = json.load(handle)
+
+report = payload.get("report") or {}
+summary = report.get("summary") or {}
+recall_quality = index.get("recall_quality") or {}
+errors = []
+
+if report.get("status") != "pass":
+    errors.append(f"report.status={report.get('status')!r}")
+if summary.get("fail_count") != 0:
+    errors.append(f"summary.fail_count={summary.get('fail_count')!r}")
+if summary.get("private_payloads_used") is not False:
+    errors.append(
+        f"summary.private_payloads_used={summary.get('private_payloads_used')!r}"
+    )
+if recall_quality.get("status") != "pass":
+    errors.append(f"index.recall_quality.status={recall_quality.get('status')!r}")
+if recall_quality.get("path") != "recall-quality/default-fixture-v1.json":
+    errors.append(f"index.recall_quality.path={recall_quality.get('path')!r}")
+if index.get("missing") != []:
+    errors.append(f"index.missing={index.get('missing')!r}")
+
+if errors:
+    print("; ".join(errors), file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
 METRICS="$OUT_DIR/metrics.json"
@@ -325,9 +364,15 @@ grep -F '"harness"' "$INDEX" > /dev/null \
   || fail "evidence index did not include harness records"
 grep -F '"codex"' "$INDEX" > /dev/null \
   || fail "evidence index did not include Codex harness record"
+"$BIN" --json recall-quality --source-root "$scan_root" --out-dir "$OUT_DIR" \
+  > "$OUT_DIR/recall-quality.json"
+require_file "$OUT_DIR/recall-quality/default-fixture-v1.json"
+assert_recall_quality_evidence "$OUT_DIR/recall-quality.json" "$INDEX" \
+  || fail "recall quality evidence validation failed"
 
 log "certification passed"
 printf 'Summary: %s\n' "$SUMMARY"
 printf 'Metrics: %s\n' "$METRICS"
 printf 'Evidence index: %s\n' "$INDEX"
 printf 'Harness evidence: %s\n' "$OUT_DIR/harness"
+printf 'Recall quality evidence: %s\n' "$OUT_DIR/recall-quality/default-fixture-v1.json"
