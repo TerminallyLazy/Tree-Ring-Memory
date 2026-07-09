@@ -26,6 +26,7 @@ use serde_json::json;
 mod actions;
 mod agent_awareness;
 mod commands;
+mod evidence;
 mod integrations;
 mod ring_mark;
 mod tui;
