@@ -68,6 +68,11 @@ v0.11 Rust-native source adapters plus framework discovery.
   surface for formatting, tests, Clippy, release build, isolated installs, CLI
   smokes, DOX/Revolve smokes, integration marker origins, import throughput, and
   recall timing.
+- The TUI includes `/evidence` for a read-only-first evidence browser backed
+  by `target/tree-ring-certification/evidence-index.json` and existing
+  certification metrics. Refresh certification is confirmation-gated and
+  presents the external command instead of running a hidden background proof
+  job.
 - Project-local agent guidance is generated under `.tree-ring/AGENTS.md`,
   `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md`. The current bridge-linking
   design keeps those files canonical, prefers project-level harness bridges,
