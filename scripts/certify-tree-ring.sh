@@ -159,7 +159,8 @@ grep -F 'promoted evidence' "$OUT_DIR/revolve-recall.json" > /dev/null \
 scan_root="$TMP_DIR/integration-scan"
 scan_home="$TMP_DIR/integration-home"
 mkdir -p "$scan_root/.codex" "$scan_root/.claude" "$scan_root/usr/plugins" \
-  "$scan_root/revolve" "$scan_root/.opencode" "$scan_root/.goose" "$scan_home/.claude"
+  "$scan_root/revolve" "$scan_root/.opencode" "$scan_root/.goose" "$scan_home/.claude" \
+  "$scan_home/.pi"
 printf '# Agent contract\n' > "$scan_root/AGENTS.md"
 printf '# Claude instructions\n' > "$scan_root/CLAUDE.md"
 mkdir -p "$scan_root/.tree-ring"
@@ -302,7 +303,7 @@ cat > "$INDEX" <<EOF
 }
 EOF
 
-"$BIN" --json integrations certify --source-root "$scan_root" --out-dir "$OUT_DIR" \
+HOME="$scan_home" "$BIN" --json integrations certify --source-root "$scan_root" --out-dir "$OUT_DIR" \
   > "$OUT_DIR/harness-certification.json"
 require_file "$OUT_DIR/harness/codex.json"
 require_file "$OUT_DIR/harness/claude-code.json"
@@ -310,6 +311,16 @@ require_file "$OUT_DIR/harness/opencode.json"
 require_file "$OUT_DIR/harness/goose.json"
 require_file "$OUT_DIR/harness/pi.json"
 require_file "$OUT_DIR/harness/agent-zero.json"
+grep -E '"pass_count"[[:space:]]*:[[:space:]]*5' "$OUT_DIR/harness-certification.json" > /dev/null \
+  || fail "harness certification did not report pass_count 5"
+grep -E '"fail_count"[[:space:]]*:[[:space:]]*0' "$OUT_DIR/harness-certification.json" > /dev/null \
+  || fail "harness certification did not report fail_count 0"
+grep -E '"skip_count"[[:space:]]*:[[:space:]]*1' "$OUT_DIR/harness-certification.json" > /dev/null \
+  || fail "harness certification did not report skip_count 1"
+grep -E '"status"[[:space:]]*:[[:space:]]*"pass"' "$OUT_DIR/harness/codex.json" > /dev/null \
+  || fail "codex harness did not report pass status"
+grep -E '"status"[[:space:]]*:[[:space:]]*"skip"' "$OUT_DIR/harness/pi.json" > /dev/null \
+  || fail "pi harness did not report skip status"
 grep -F '"harness"' "$INDEX" > /dev/null \
   || fail "evidence index did not include harness records"
 grep -F '"codex"' "$INDEX" > /dev/null \
