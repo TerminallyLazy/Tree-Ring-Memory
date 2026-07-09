@@ -12,6 +12,7 @@ pub enum EvidenceStatus {
     Skip,
     Missing,
     Stale,
+    NeedsReview,
     Error,
 }
 
@@ -23,6 +24,7 @@ impl EvidenceStatus {
             Self::Skip => "skip",
             Self::Missing => "missing",
             Self::Stale => "stale",
+            Self::NeedsReview => "needs_review",
             Self::Error => "error",
         }
     }
@@ -71,11 +73,38 @@ pub struct CertificationEvidence {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RecallQualityEvidence {
+    pub status: EvidenceStatus,
+    pub generated_at: String,
+    pub record_path: PathBuf,
+    pub query_set_id: String,
+    pub query_count: u64,
+    pub pass_count: u64,
+    pub fail_count: u64,
+    pub needs_review_count: u64,
+    pub avg_latency_ms: Option<f64>,
+    pub max_latency_ms: Option<f64>,
+    pub queries: Vec<RecallQualityQueryEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecallQualityQueryEvidence {
+    pub query_id: String,
+    pub query: String,
+    pub status: String,
+    pub expected_top_id: Option<String>,
+    pub expected_rank: Option<u64>,
+    pub latency_ms: Option<f64>,
+    pub returned_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct EvidenceSnapshot {
     pub root: PathBuf,
     pub index_path: PathBuf,
     pub index: Option<EvidenceIndex>,
     pub certification: Option<CertificationEvidence>,
+    pub recall_quality: Option<RecallQualityEvidence>,
     pub status: EvidenceStatus,
     pub message: String,
 }
@@ -87,8 +116,11 @@ pub fn certification_dir_for_project(project_root: &Path) -> PathBuf {
 pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
     let index_path = evidence_dir.join("evidence-index.json");
     match load_index(&index_path) {
-        Ok(index) => match load_index_certification(evidence_dir, &index) {
-            Ok(certification) => {
+        Ok(index) => match (
+            load_index_certification(evidence_dir, &index),
+            load_index_recall_quality(evidence_dir, &index),
+        ) {
+            (Ok(certification), Ok(recall_quality)) => {
                 let message = match &certification {
                     Some(certification) => format!(
                         "certification {} at {}",
@@ -103,14 +135,16 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
                     status: index.overall_status,
                     index: Some(index),
                     certification,
+                    recall_quality,
                     message,
                 }
             }
-            Err(error) => EvidenceSnapshot {
+            (Err(error), _) | (_, Err(error)) => EvidenceSnapshot {
                 root: evidence_dir.to_path_buf(),
                 index_path,
                 index: Some(index),
                 certification: None,
+                recall_quality: None,
                 status: EvidenceStatus::Error,
                 message: error,
             },
@@ -127,12 +161,14 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
                     certification.generated_at
                 ),
                 certification: Some(certification),
+                recall_quality: None,
             },
             Err(_) if !metrics_path_for_dir(evidence_dir).exists() => EvidenceSnapshot {
                 root: evidence_dir.to_path_buf(),
                 index_path,
                 index: None,
                 certification: None,
+                recall_quality: None,
                 status: EvidenceStatus::Missing,
                 message: format!(
                     "no evidence index found; run sh scripts/certify-tree-ring.sh to generate {}",
@@ -144,6 +180,7 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
                 index_path,
                 index: None,
                 certification: None,
+                recall_quality: None,
                 status: EvidenceStatus::Error,
                 message: error,
             },
@@ -153,6 +190,7 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
             index_path,
             index: None,
             certification: None,
+            recall_quality: None,
             status: EvidenceStatus::Error,
             message: error,
         },
@@ -162,6 +200,74 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
 fn load_index(index_path: &Path) -> Result<EvidenceIndex, String> {
     let input = fs::read_to_string(index_path).map_err(|err| err.to_string())?;
     serde_json::from_str(&input).map_err(|err| err.to_string())
+}
+
+pub(crate) fn read_or_create_index(
+    evidence_dir: &Path,
+    generated_at: &str,
+) -> Result<EvidenceIndex, String> {
+    let index_path = evidence_dir.join("evidence-index.json");
+    if index_path.exists() {
+        let input = fs::read_to_string(&index_path).map_err(|err| err.to_string())?;
+        return serde_json::from_str(&input).map_err(|err| err.to_string());
+    }
+    Ok(EvidenceIndex {
+        generated_at: generated_at.to_string(),
+        overall_status: EvidenceStatus::Missing,
+        certification: certification_record_from_metrics(evidence_dir, generated_at),
+        harness: BTreeMap::new(),
+        recall_quality: None,
+        missing: vec!["harness".to_string(), "recall_quality".to_string()],
+        stale: Vec::new(),
+    })
+}
+
+pub(crate) fn write_index(evidence_dir: &Path, index: &EvidenceIndex) -> Result<PathBuf, String> {
+    fs::create_dir_all(evidence_dir).map_err(|err| err.to_string())?;
+    let index_path = evidence_dir.join("evidence-index.json");
+    let json = serde_json::to_string_pretty(index).map_err(|err| err.to_string())?;
+    fs::write(&index_path, json).map_err(|err| err.to_string())?;
+    Ok(index_path)
+}
+
+pub(crate) fn rollup_index_status(index: &EvidenceIndex) -> EvidenceStatus {
+    if index
+        .harness
+        .values()
+        .any(|record| record.status == EvidenceStatus::Fail)
+        || index
+            .recall_quality
+            .as_ref()
+            .is_some_and(|record| record.status == EvidenceStatus::Fail)
+    {
+        return EvidenceStatus::Fail;
+    }
+    if index
+        .harness
+        .values()
+        .any(|record| record.status == EvidenceStatus::Error)
+        || index
+            .recall_quality
+            .as_ref()
+            .is_some_and(|record| record.status == EvidenceStatus::Error)
+    {
+        return EvidenceStatus::Error;
+    }
+    if index
+        .recall_quality
+        .as_ref()
+        .is_some_and(|record| record.status == EvidenceStatus::NeedsReview)
+    {
+        return EvidenceStatus::NeedsReview;
+    }
+    if let Some(certification) = &index.certification {
+        return certification.status;
+    }
+    if index.harness.is_empty() && index.recall_quality.is_none() {
+        EvidenceStatus::Missing
+    } else {
+        EvidenceStatus::Skip
+    }
 }
 
 fn load_certification(
@@ -218,6 +324,27 @@ fn load_index_certification(
     }
 }
 
+fn load_index_recall_quality(
+    evidence_dir: &Path,
+    index: &EvidenceIndex,
+) -> Result<Option<RecallQualityEvidence>, String> {
+    match index.recall_quality.as_ref() {
+        Some(record) => {
+            let record_path = resolve_evidence_path(evidence_dir, &record.path);
+            load_recall_quality(evidence_dir, record)
+                .map(Some)
+                .map_err(|error| {
+                    format!(
+                        "failed to load recall quality payload {}: {}",
+                        record_path.display(),
+                        error
+                    )
+                })
+        }
+        None => Ok(None),
+    }
+}
+
 fn load_metrics_only_certification(evidence_dir: &Path) -> Result<CertificationEvidence, String> {
     let metrics_path = metrics_path_for_dir(evidence_dir);
     let input = fs::read_to_string(&metrics_path).map_err(|err| err.to_string())?;
@@ -241,6 +368,75 @@ fn load_metrics_only_certification(evidence_dir: &Path) -> Result<CertificationE
         recall_max_ms_30000: get_f64(&value, &["performance", "records_30000", "recall_max_ms"]),
         agent_zero_status: get_string(&value, &["agent_zero", "status"]),
         agent_zero_note: get_string(&value, &["agent_zero", "note"]),
+    })
+}
+
+fn certification_record_from_metrics(
+    evidence_dir: &Path,
+    generated_at: &str,
+) -> Option<EvidenceRecordRef> {
+    let metrics_path = evidence_dir.join("metrics.json");
+    if !metrics_path.exists() {
+        return None;
+    }
+    let summary_path = evidence_dir.join("summary.md");
+    Some(EvidenceRecordRef {
+        category: "certification".to_string(),
+        status: EvidenceStatus::Pass,
+        label: "Local certification".to_string(),
+        path: PathBuf::from("metrics.json"),
+        summary_path: summary_path.exists().then_some(PathBuf::from("summary.md")),
+        generated_at: generated_at.to_string(),
+    })
+}
+
+fn load_recall_quality(
+    evidence_dir: &Path,
+    record: &EvidenceRecordRef,
+) -> Result<RecallQualityEvidence, String> {
+    let record_path = resolve_evidence_path(evidence_dir, &record.path);
+    let input = fs::read_to_string(&record_path).map_err(|err| err.to_string())?;
+    let value: Value = serde_json::from_str(&input).map_err(|err| err.to_string())?;
+    let queries = value
+        .get("queries")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|query| RecallQualityQueryEvidence {
+                    query_id: get_string(query, &["query_id"]).unwrap_or_default(),
+                    query: get_string(query, &["query"]).unwrap_or_default(),
+                    status: get_string(query, &["status"]).unwrap_or_default(),
+                    expected_top_id: get_string(query, &["expected_top_id"]),
+                    expected_rank: get_u64(query, &["expected_rank"]),
+                    latency_ms: get_f64(query, &["latency_ms"]),
+                    returned_ids: query
+                        .get("returned")
+                        .and_then(Value::as_array)
+                        .map(|returned| {
+                            returned
+                                .iter()
+                                .filter_map(|item| get_string(item, &["id"]))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(RecallQualityEvidence {
+        status: record.status,
+        generated_at: get_string(&value, &["generated_at"])
+            .unwrap_or_else(|| record.generated_at.clone()),
+        record_path,
+        query_set_id: get_string(&value, &["query_set_id"]).unwrap_or_default(),
+        query_count: get_u64(&value, &["summary", "query_count"]).unwrap_or(0),
+        pass_count: get_u64(&value, &["summary", "pass_count"]).unwrap_or(0),
+        fail_count: get_u64(&value, &["summary", "fail_count"]).unwrap_or(0),
+        needs_review_count: get_u64(&value, &["summary", "needs_review_count"]).unwrap_or(0),
+        avg_latency_ms: get_f64(&value, &["summary", "avg_latency_ms"]),
+        max_latency_ms: get_f64(&value, &["summary", "max_latency_ms"]),
+        queries,
     })
 }
 
@@ -425,5 +621,130 @@ mod tests {
             .message
             .contains("failed to load certification payload"));
         assert!(snapshot.message.contains("metrics.json"));
+    }
+
+    #[test]
+    fn evidence_snapshot_loads_recall_quality_record_from_index() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = certification_dir_for_project(dir.path());
+        fs::create_dir_all(evidence_dir.join("recall-quality")).unwrap();
+        fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-09T04:22:38Z"}"#,
+        )
+        .unwrap();
+        fs::write(
+            evidence_dir.join("recall-quality/default-fixture-v1.json"),
+            r#"{
+          "schema_version": 1,
+          "generated_at": "2026-07-09T06:00:00Z",
+          "query_set_id": "default-fixture-v1",
+          "status": "pass",
+          "summary": {
+            "query_count": 2,
+            "pass_count": 2,
+            "fail_count": 0,
+            "needs_review_count": 0,
+            "avg_latency_ms": 1.25,
+            "max_latency_ms": 2.5
+          },
+          "queries": [
+            {
+              "query_id": "scar-stale-cache",
+              "query": "failure stale cache",
+              "status": "pass",
+              "expected_top_id": "rq_scar_stale_cache",
+              "expected_rank": 1,
+              "latency_ms": 0.9,
+              "returned": [
+                {
+                  "id": "rq_scar_stale_cache",
+                  "rank": 1,
+                  "ring": "scar",
+                  "source_ref": "recall-quality/scar-stale-cache",
+                  "score": 1.2,
+                  "ranking": {"textual_match": 1.0}
+                }
+              ],
+              "notes": []
+            }
+          ]
+        }"#,
+        )
+        .unwrap();
+        fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T06:00:00Z",
+          "overall_status": "pass",
+          "certification": {
+            "category": "certification",
+            "status": "pass",
+            "label": "Local certification",
+            "path": "metrics.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T04:22:38Z"
+          },
+          "harness": {},
+          "recall_quality": {
+            "category": "recall_quality",
+            "status": "pass",
+            "label": "Recall quality",
+            "path": "recall-quality/default-fixture-v1.json",
+            "summary_path": null,
+            "generated_at": "2026-07-09T06:00:00Z"
+          },
+          "missing": [],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+
+        let snapshot = load_snapshot(&evidence_dir);
+
+        let recall_quality = snapshot.recall_quality.unwrap();
+        assert_eq!(recall_quality.status, EvidenceStatus::Pass);
+        assert_eq!(recall_quality.query_set_id, "default-fixture-v1");
+        assert_eq!(recall_quality.query_count, 2);
+        assert_eq!(recall_quality.pass_count, 2);
+        assert_eq!(recall_quality.fail_count, 0);
+        assert_eq!(recall_quality.needs_review_count, 0);
+        assert_eq!(recall_quality.avg_latency_ms, Some(1.25));
+        assert_eq!(recall_quality.max_latency_ms, Some(2.5));
+        assert_eq!(recall_quality.queries[0].query_id, "scar-stale-cache");
+        assert_eq!(
+            recall_quality.queries[0].returned_ids,
+            vec!["rq_scar_stale_cache"]
+        );
+    }
+
+    #[test]
+    fn rollup_index_status_marks_recall_quality_needs_review() {
+        let mut index = EvidenceIndex {
+            generated_at: "2026-07-09T06:00:00Z".to_string(),
+            overall_status: EvidenceStatus::Pass,
+            certification: Some(EvidenceRecordRef {
+                category: "certification".to_string(),
+                status: EvidenceStatus::Pass,
+                label: "Local certification".to_string(),
+                path: PathBuf::from("metrics.json"),
+                summary_path: None,
+                generated_at: "2026-07-09T06:00:00Z".to_string(),
+            }),
+            harness: BTreeMap::new(),
+            recall_quality: Some(EvidenceRecordRef {
+                category: "recall_quality".to_string(),
+                status: EvidenceStatus::NeedsReview,
+                label: "Recall quality".to_string(),
+                path: PathBuf::from("recall-quality/default-fixture-v1.json"),
+                summary_path: None,
+                generated_at: "2026-07-09T06:00:00Z".to_string(),
+            }),
+            missing: Vec::new(),
+            stale: Vec::new(),
+        };
+        assert_eq!(rollup_index_status(&index), EvidenceStatus::NeedsReview);
+        index.recall_quality.as_mut().unwrap().status = EvidenceStatus::Fail;
+        assert_eq!(rollup_index_status(&index), EvidenceStatus::Fail);
     }
 }
