@@ -6,16 +6,24 @@ use std::path::PathBuf;
 use tree_ring_memory_core::plan_maintenance;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
-    audit_memories, collect_dox_memories, collect_revolve_memories, consolidate_memories,
-    decode_jsonl, normalize_import_events, AuditReport, ConsolidationPeriod, ConsolidationReport,
-    ConsolidationRequest, DoxSyncReport, DoxSyncRequest, MaintenanceReport, MaintenanceRequest,
-    RevolveSyncReport, RevolveSyncRequest,
+    collect_dox_memories, collect_revolve_memories, consolidate_memories, AuditReport,
+    ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, DoxSyncReport, DoxSyncRequest,
+    MaintenanceReport, MaintenanceRequest, RevolveSyncReport, RevolveSyncRequest,
 };
 use tree_ring_memory_core::{MemoryEvent, MemoryLink};
 use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
 
-mod agent_awareness;
+use actions::audit::{audit_store, AuditActionRequest};
+use actions::export_import::{
+    export_jsonl as export_action, import_jsonl as import_action, ExportActionRequest,
+    ImportActionRequest,
+};
+use actions::recall::{recall as recall_action, RecallRequest};
+use actions::remember::{remember as remember_action, RememberRequest};
+
 mod actions;
+mod agent_awareness;
+mod commands;
 mod integrations;
 mod ring_mark;
 mod tui;
@@ -326,43 +334,29 @@ fn run(cli: Cli) -> Result<(), String> {
     if let Command::Import {
         path,
         dry_run: true,
-        replace_existing: _,
+        replace_existing,
     } = cli.command
     {
-        let input = fs::read_to_string(&path).map_err(|err| err.to_string())?;
-        let decoded = decode_jsonl(&input).map_err(|err| err.to_string())?;
-        let events = normalize_import_events(decoded.events).map_err(|err| err.to_string())?;
-        if cli.json {
-            println!(
-                "{}",
-                json!({
-                    "ok": true,
-                    "path": path,
-                    "valid_count": events.len(),
-                    "inserted_count": 0,
-                    "replaced_count": 0,
-                    "skipped_duplicate_count": 0,
-                    "dry_run": true,
-                })
-            );
-        } else {
-            println!(
-                "Tree Ring Memory import complete: valid={} inserted=0 replaced=0 skipped_duplicates=0 dry_run=true",
-                events.len()
-            );
-        }
+        let report = import_action(
+            None,
+            ImportActionRequest {
+                path,
+                dry_run: true,
+                replace_existing,
+            },
+        )?;
+        commands::scriptable::print_import_report(report, cli.json)?;
         return Ok(());
     }
 
     if let Command::Audit { audit_type } = &cli.command {
-        let report = if db_path.exists() {
-            SQLiteMemoryStore::open_read_only(&db_path)
-                .and_then(|store| store.audit(audit_type))
-                .map_err(|err| err.to_string())?
-        } else {
-            audit_memories(&[], audit_type).map_err(|err| err.to_string())?
-        };
-        print_audit_report(&report, cli.json)?;
+        let report = audit_store(
+            &db_path,
+            AuditActionRequest {
+                audit_type: audit_type.clone(),
+            },
+        )?;
+        print_audit_report(&report.report, cli.json)?;
         return Ok(());
     }
 
@@ -483,32 +477,24 @@ fn run(cli: Cli) -> Result<(), String> {
             project,
             tags,
         } => {
-            let guard = SensitivityGuard::default();
-            let values = [&summary, &event_type, &ring, &scope]
-                .into_iter()
-                .chain(project.iter())
-                .chain(tags.iter())
-                .map(String::as_str);
-            let detected_sensitivity = guard
-                .detect_text_sensitivity(values)
-                .map_err(|err| err.to_string())?;
-            let mut event = MemoryEvent::new(summary, event_type).map_err(|err| err.to_string())?;
-            event.ring = ring;
-            event.scope = scope;
-            event.project = project;
-            event.tags = tags;
-            if detected_sensitivity != "normal" {
-                event.sensitivity = detected_sensitivity;
-            }
-            event.validate().map_err(|err| err.to_string())?;
-            store.put(&event).map_err(|err| err.to_string())?;
+            let report = remember_action(
+                &mut store,
+                RememberRequest {
+                    summary,
+                    event_type,
+                    ring,
+                    scope,
+                    project,
+                    tags,
+                },
+            )?;
             if cli.json {
                 println!(
                     "{}",
-                    serde_json::to_string(&event).map_err(|err| err.to_string())?
+                    serde_json::to_string(&report.memory).map_err(|err| err.to_string())?
                 );
             } else {
-                println!("{}", event.id);
+                println!("{}", report.memory.id);
             }
         }
         Command::Evidence {
@@ -548,43 +534,18 @@ fn run(cli: Cli) -> Result<(), String> {
             limit,
             include_sensitive,
         } => {
-            let results = MemoryRetriever::new(&store)
-                .recall(
-                    &query,
-                    project.as_deref(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    include_sensitive,
-                    false,
+            let report = recall_action(
+                &store,
+                RecallRequest {
+                    query,
+                    project,
                     limit,
-                    false,
-                )
-                .map_err(|err| err.to_string())?;
-            if cli.json {
-                let payload: Vec<_> = results
-                    .into_iter()
-                    .map(|result| {
-                        json!({
-                            "memory": result.memory,
-                            "score": result.score,
-                            "ranking": result.ranking,
-                        })
-                    })
-                    .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string(&payload).map_err(|err| err.to_string())?
-                );
-            } else {
-                for result in results {
-                    println!(
-                        "{} [{}] {} score={:.3}",
-                        result.memory.id, result.memory.ring, result.memory.summary, result.score
-                    );
-                }
-            }
+                    include_sensitive,
+                    include_superseded: false,
+                    explain: false,
+                },
+            )?;
+            commands::scriptable::print_recall_report(report, cli.json)?;
         }
         Command::Forget {
             memory_id,
@@ -609,70 +570,30 @@ fn run(cli: Cli) -> Result<(), String> {
             include_sensitive,
             include_superseded,
         } => {
-            let (jsonl, report) = store
-                .export_jsonl(include_sensitive, include_superseded)
-                .map_err(|err| err.to_string())?;
-            if let Some(output) = output {
-                if let Some(parent) = output.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-                    }
-                }
-                fs::write(&output, jsonl).map_err(|err| err.to_string())?;
-                if cli.json {
-                    println!(
-                        "{}",
-                        json!({
-                            "ok": true,
-                            "path": output,
-                            "memory_count": report.memory_count,
-                            "sensitive_included": report.sensitive_included,
-                            "superseded_included": report.superseded_included,
-                        })
-                    );
-                } else {
-                    println!(
-                        "Tree Ring Memory export complete: {} memories -> {}",
-                        report.memory_count,
-                        output.display()
-                    );
-                }
-            } else {
-                print!("{jsonl}");
-            }
+            let report = export_action(
+                &store,
+                ExportActionRequest {
+                    output,
+                    include_sensitive,
+                    include_superseded,
+                },
+            )?;
+            commands::scriptable::print_export_report(report, cli.json)?;
         }
         Command::Import {
             path,
             dry_run,
             replace_existing,
         } => {
-            let input = fs::read_to_string(&path).map_err(|err| err.to_string())?;
-            let report = store
-                .import_jsonl(&input, dry_run, replace_existing)
-                .map_err(|err| err.to_string())?;
-            if cli.json {
-                println!(
-                    "{}",
-                    json!({
-                        "ok": true,
-                        "path": path,
-                        "valid_count": report.valid_count,
-                        "inserted_count": report.inserted_count,
-                        "replaced_count": report.replaced_count,
-                        "skipped_duplicate_count": report.skipped_duplicate_count,
-                        "dry_run": report.dry_run,
-                    })
-                );
-            } else {
-                println!(
-                    "Tree Ring Memory import complete: valid={} inserted={} replaced={} skipped_duplicates={} dry_run={}",
-                    report.valid_count,
-                    report.inserted_count,
-                    report.replaced_count,
-                    report.skipped_duplicate_count,
-                    report.dry_run
-                );
-            }
+            let report = import_action(
+                Some(&mut store),
+                ImportActionRequest {
+                    path,
+                    dry_run,
+                    replace_existing,
+                },
+            )?;
+            commands::scriptable::print_import_report(report, cli.json)?;
         }
         Command::Audit { .. } => unreachable!("audit returns before opening the writable store"),
         Command::Consolidate {
@@ -1206,6 +1127,58 @@ mod tests {
             },
         })
         .unwrap();
+    }
+
+    #[test]
+    fn remember_and_recall_output_stays_stable_after_action_extraction() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "remember",
+            "Use action-backed CLI behavior.",
+            "--event-type",
+            "lesson",
+            "--scope",
+            "project",
+            "--project",
+            "tree-ring",
+        ]))
+        .unwrap();
+
+        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        let memories = store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].summary, "Use action-backed CLI behavior.");
+    }
+
+    #[test]
+    fn import_dry_run_still_does_not_create_store_rows_after_action_extraction() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let source_path = dir.path().join("source.sqlite");
+        let mut source = SQLiteMemoryStore::open(&source_path).unwrap();
+        source
+            .put(&MemoryEvent::new("Dry-run import action parity.", "lesson").unwrap())
+            .unwrap();
+        let (jsonl, _) = source.export_jsonl(false, false).unwrap();
+        let jsonl_path = dir.path().join("memories.jsonl");
+        fs::write(&jsonl_path, jsonl).unwrap();
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "import",
+            jsonl_path.to_str().unwrap(),
+            "--dry-run",
+        ]))
+        .unwrap();
+
+        assert!(!root.join("memory.sqlite").exists());
     }
 
     #[test]
