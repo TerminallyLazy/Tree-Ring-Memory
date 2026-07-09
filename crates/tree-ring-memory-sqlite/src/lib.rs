@@ -452,29 +452,26 @@ impl SQLiteMemoryStore {
             .map(|event| event.id.clone())
             .collect::<Vec<_>>();
         let mut known_ids = self.existing_memory_ids(&ids)?;
-        let mut imported_events = Vec::new();
         let mut batch_events = Vec::new();
         for event in events {
             if known_ids.contains(&event.id) {
                 if replace_existing {
-                    batch_events.push(event.clone());
-                    imported_events.push(event);
+                    batch_events.push(event);
                     report.replaced_count += 1;
                 } else {
                     report.skipped_duplicate_count += 1;
                 }
             } else {
                 known_ids.insert(event.id.clone());
-                batch_events.push(event.clone());
-                imported_events.push(event);
+                batch_events.push(event);
                 report.inserted_count += 1;
             }
         }
         if !batch_events.is_empty() {
             self.put_many(&batch_events)?;
-        }
-        for event in imported_events {
-            self.apply_supersedes(&event)?;
+            for event in &batch_events {
+                self.apply_supersedes(event)?;
+            }
         }
         Ok(report)
     }

@@ -19,17 +19,17 @@ pub struct AgentIntegration {
     pub next_step: &'static str,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct IntegrationMarker {
     pub path: String,
     pub origin: MarkerOrigin,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MarkerOrigin {
-    Project,
     Home,
+    Project,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -193,11 +193,7 @@ fn detect(
             }
         }
     }
-    markers.sort_by(|left, right| {
-        left.path
-            .cmp(&right.path)
-            .then_with(|| left.origin.as_str().cmp(right.origin.as_str()))
-    });
+    markers.sort();
     markers.dedup();
     let confidence = if markers.is_empty() {
         0.0
