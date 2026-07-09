@@ -305,17 +305,10 @@ fn rollup_status(index: &crate::evidence::EvidenceIndex) -> EvidenceStatus {
     if let Some(certification) = &index.certification {
         return certification.status;
     }
-    if index
-        .harness
-        .values()
-        .any(|record| record.status == EvidenceStatus::Skip)
-    {
-        return EvidenceStatus::Skip;
-    }
     if index.harness.is_empty() {
         EvidenceStatus::Missing
     } else {
-        EvidenceStatus::Pass
+        EvidenceStatus::Skip
     }
 }
 
@@ -544,5 +537,30 @@ mod tests {
         };
 
         assert_eq!(rollup_status(&index), EvidenceStatus::Pass);
+    }
+
+    #[test]
+    fn harness_certification_rollup_skips_when_only_harness_passes_exist_without_certification() {
+        let index = crate::evidence::EvidenceIndex {
+            generated_at: "2026-07-09T05:44:48Z".to_string(),
+            overall_status: EvidenceStatus::Missing,
+            certification: None,
+            harness: BTreeMap::from([(
+                "codex".to_string(),
+                EvidenceRecordRef {
+                    category: "harness".to_string(),
+                    status: EvidenceStatus::Pass,
+                    label: "Codex".to_string(),
+                    path: PathBuf::from("harness/codex.json"),
+                    summary_path: None,
+                    generated_at: "2026-07-09T05:44:48Z".to_string(),
+                },
+            )]),
+            recall_quality: None,
+            missing: vec!["recall_quality".to_string()],
+            stale: Vec::new(),
+        };
+
+        assert_eq!(rollup_status(&index), EvidenceStatus::Skip);
     }
 }
