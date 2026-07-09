@@ -1,11 +1,12 @@
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent, SensitivityGuard};
+use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
 
 use crate::integrations::{scan_integrations, IntegrationScanReport};
+use crate::actions::export_import::{export_jsonl, ExportActionRequest};
+use crate::actions::remember::{remember, RememberRequest};
 
 use super::actions::{ActionKind, PendingAction};
 use super::input::{parse_slash_command, SlashCommand};
@@ -271,21 +272,18 @@ impl App {
             self.status = "remember requires a summary".to_string();
             return Ok(());
         }
-        let mut event =
-            MemoryEvent::new(summary.trim(), "lesson").map_err(|err| err.to_string())?;
-        event.ring = "cambium".to_string();
-        event.source.source_type = "manual".to_string();
-        let guard = SensitivityGuard::default();
-        let detected = guard
-            .detect_memory_event_sensitivity(&event)
-            .map_err(|err| err.to_string())?;
-        if detected != "normal" {
-            event.sensitivity = detected;
-        }
-        event.validate().map_err(|err| err.to_string())?;
-        let id = event.id.clone();
-        self.store.put(&event).map_err(|err| err.to_string())?;
-        self.status = format!("remembered {id}");
+        let report = remember(
+            &mut self.store,
+            RememberRequest {
+                summary: summary.trim().to_string(),
+                event_type: "lesson".to_string(),
+                ring: "cambium".to_string(),
+                scope: "project".to_string(),
+                project: None,
+                tags: Vec::new(),
+            },
+        )?;
+        self.status = format!("remembered {}", report.memory.id);
         self.refresh_store()
     }
 
@@ -371,19 +369,17 @@ impl App {
                 if output.exists() {
                     self.status = format!("export refused existing file {}", output.display());
                 } else {
-                    let (jsonl, report) = self
-                        .store
-                        .export_jsonl(include_sensitive, include_superseded)
-                        .map_err(|err| err.to_string())?;
-                    if let Some(parent) = output.parent() {
-                        if !parent.as_os_str().is_empty() {
-                            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-                        }
-                    }
-                    fs::write(&output, jsonl).map_err(|err| err.to_string())?;
+                    let report = export_jsonl(
+                        &self.store,
+                        ExportActionRequest {
+                            output: Some(output.clone()),
+                            include_sensitive,
+                            include_superseded,
+                        },
+                    )?;
                     self.status = format!(
                         "exported {} memories to {}",
-                        report.memory_count,
+                        report.report.memory_count,
                         output.display()
                     );
                 }
@@ -575,6 +571,21 @@ mod tests {
     }
 
     #[test]
+    fn slash_remember_uses_shared_action_and_keeps_status_shape() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/remember Use shared TUI remember action")
+            .unwrap();
+
+        assert!(app.status.starts_with("remembered mem_"));
+        let memories = app.store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].summary, "Use shared TUI remember action");
+        assert_eq!(memories[0].ring, "cambium");
+    }
+
+    #[test]
     fn secret_like_remember_is_blocked() {
         let dir = tempdir().unwrap();
         let mut app = app(&dir);
@@ -668,6 +679,21 @@ mod tests {
             .join("backup.jsonl")
             .exists());
         assert_eq!(app.status, "action cancelled");
+    }
+
+    #[test]
+    fn confirmed_export_uses_shared_action_and_keeps_default_filters() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/remember Export through shared TUI action")
+            .unwrap();
+        app.execute_slash_command("/export shared.jsonl").unwrap();
+        confirm(&mut app);
+
+        let output = dir.path().join(".tree-ring/exports/shared.jsonl");
+        let jsonl = fs::read_to_string(output).unwrap();
+        assert!(jsonl.contains("tree_ring_memory_export"));
+        assert!(jsonl.contains("Export through shared TUI action"));
     }
 
     #[test]
