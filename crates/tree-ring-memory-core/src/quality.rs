@@ -70,7 +70,11 @@ impl QualityScenario {
                 self.name
             )));
         }
-        for memory in self.seed_memories.iter().chain(self.write_candidates.iter()) {
+        for memory in self
+            .seed_memories
+            .iter()
+            .chain(self.write_candidates.iter())
+        {
             memory.validate()?;
         }
         for expectation in &self.expected_recall {
@@ -185,7 +189,10 @@ impl QualityThresholds {
             ),
             ("max_forbidden_recall_rate", self.max_forbidden_recall_rate),
             ("min_spam_rejection_rate", self.min_spam_rejection_rate),
-            ("min_evidence_required_rate", self.min_evidence_required_rate),
+            (
+                "min_evidence_required_rate",
+                self.min_evidence_required_rate,
+            ),
             (
                 "min_behavior_proof_pass_rate",
                 self.min_behavior_proof_pass_rate,
@@ -277,9 +284,9 @@ pub fn evaluate_quality_scenario(
     let forbidden_recall_rate = failure_rate(&forbidden_recall);
     let spam_rejection_rate = decision_pass_rate(&write_decisions, "reject");
     let evidence_required_rate = decision_pass_rate(&write_decisions, "require_evidence");
-    let behavior_proof_pass =
-        constraint_recall_rate >= scenario.thresholds.min_constraint_recall_rate
-            && forbidden_recall_rate <= scenario.thresholds.max_forbidden_recall_rate;
+    let behavior_proof_pass = constraint_recall_rate
+        >= scenario.thresholds.min_constraint_recall_rate
+        && forbidden_recall_rate <= scenario.thresholds.max_forbidden_recall_rate;
     let quality_pass = behavior_proof_pass
         && write_decisions.iter().all(|report| report.passed)
         && spam_rejection_rate >= scenario.thresholds.min_spam_rejection_rate
@@ -303,14 +310,26 @@ pub fn evaluate_quality_scenario(
 pub fn summarize_quality_run(reports: Vec<QualityScenarioReport>) -> QualityRunReport {
     let scenario_count = reports.len();
     let denominator = scenario_count.max(1) as f64;
-    let constraint_recall_rate =
-        reports.iter().map(|report| report.constraint_recall_rate).sum::<f64>() / denominator;
-    let forbidden_recall_rate =
-        reports.iter().map(|report| report.forbidden_recall_rate).sum::<f64>() / denominator;
-    let spam_rejection_rate =
-        reports.iter().map(|report| report.spam_rejection_rate).sum::<f64>() / denominator;
-    let evidence_required_rate =
-        reports.iter().map(|report| report.evidence_required_rate).sum::<f64>() / denominator;
+    let constraint_recall_rate = reports
+        .iter()
+        .map(|report| report.constraint_recall_rate)
+        .sum::<f64>()
+        / denominator;
+    let forbidden_recall_rate = reports
+        .iter()
+        .map(|report| report.forbidden_recall_rate)
+        .sum::<f64>()
+        / denominator;
+    let spam_rejection_rate = reports
+        .iter()
+        .map(|report| report.spam_rejection_rate)
+        .sum::<f64>()
+        / denominator;
+    let evidence_required_rate = reports
+        .iter()
+        .map(|report| report.evidence_required_rate)
+        .sum::<f64>()
+        / denominator;
     let behavior_proof_pass_rate = reports
         .iter()
         .filter(|report| report.behavior_proof_pass)
@@ -371,7 +390,9 @@ fn validate_write_decision_coverage(scenario: &QualityScenario) -> TreeRingResul
     let mut decision_index_by_id = HashMap::new();
 
     for (index, decision) in scenario.expected_write_decisions.iter().enumerate() {
-        if let Some(previous_index) = decision_index_by_id.insert(decision.memory_id.as_str(), index) {
+        if let Some(previous_index) =
+            decision_index_by_id.insert(decision.memory_id.as_str(), index)
+        {
             return Err(TreeRingError::Validation(format!(
                 "quality scenario {} expected_write_decisions[{index}] duplicates memory_id {} from expected_write_decisions[{previous_index}]",
                 scenario.name, decision.memory_id
@@ -601,7 +622,10 @@ mod tests {
         assert_eq!(scenario.name, "constraint recall");
         assert_eq!(scenario.category, "constraint_recall");
         assert_eq!(scenario.seed_memories.len(), 1);
-        assert_eq!(scenario.expected_recall[0].memory_id.as_deref(), Some("mem_quality_constraint"));
+        assert_eq!(
+            scenario.expected_recall[0].memory_id.as_deref(),
+            Some("mem_quality_constraint")
+        );
     }
 
     #[test]
@@ -822,7 +846,11 @@ mod tests {
         let report = evaluate_quality_scenario(
             &scenario,
             &[QualityRecall {
-                memory: memory("mem_required", "Do not add a background writer.", "heartwood"),
+                memory: memory(
+                    "mem_required",
+                    "Do not add a background writer.",
+                    "heartwood",
+                ),
                 score: 0.91,
             }],
         )
@@ -871,14 +899,24 @@ mod tests {
 
     #[test]
     fn classifies_write_candidates_against_expected_decisions() {
-        let mut spam = memory("mem_spam", "Thinking about options for a moment.", "heartwood");
+        let mut spam = memory(
+            "mem_spam",
+            "Thinking about options for a moment.",
+            "heartwood",
+        );
         spam.tags = vec!["transient".to_string()];
-        let mut promoted_without_evidence =
-            memory("mem_missing_evidence", "Promote evaluated proof.", "heartwood");
+        let mut promoted_without_evidence = memory(
+            "mem_missing_evidence",
+            "Promote evaluated proof.",
+            "heartwood",
+        );
         promoted_without_evidence.event_type = "evaluation_promotion".to_string();
         promoted_without_evidence.source.ref_.clear();
-        let mut broad_heartwood =
-            memory("mem_needs_confirmation", "All projects should prefer this.", "heartwood");
+        let mut broad_heartwood = memory(
+            "mem_needs_confirmation",
+            "All projects should prefer this.",
+            "heartwood",
+        );
         broad_heartwood.source.ref_.clear();
 
         let scenario = QualityScenario {
@@ -929,7 +967,11 @@ mod tests {
             workflow_prompt: None,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
-            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            write_candidates: vec![memory(
+                "mem_accept",
+                "Durable evidence-backed note.",
+                "cambium",
+            )],
             expected_write_decisions: vec![WriteDecisionExpectation {
                 memory_id: "mem_accept".to_string(),
                 decision: "reject".to_string(),
@@ -956,7 +998,11 @@ mod tests {
             workflow_prompt: None,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
-            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            write_candidates: vec![memory(
+                "mem_accept",
+                "Durable evidence-backed note.",
+                "cambium",
+            )],
             expected_write_decisions: vec![WriteDecisionExpectation {
                 memory_id: "mem_accept".to_string(),
                 decision: "require_evidence".to_string(),
@@ -983,7 +1029,11 @@ mod tests {
             workflow_prompt: None,
             expected_recall: Vec::new(),
             forbidden_recall: Vec::new(),
-            write_candidates: vec![memory("mem_accept", "Durable evidence-backed note.", "cambium")],
+            write_candidates: vec![memory(
+                "mem_accept",
+                "Durable evidence-backed note.",
+                "cambium",
+            )],
             expected_write_decisions: vec![WriteDecisionExpectation {
                 memory_id: "mem_accept".to_string(),
                 decision: "require_user_confirmation".to_string(),
