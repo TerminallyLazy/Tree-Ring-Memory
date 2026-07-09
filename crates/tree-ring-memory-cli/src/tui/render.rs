@@ -211,6 +211,10 @@ fn render_ring_hud(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    if app.mode == AppMode::Evidence {
+        render_evidence_list(frame, area, app);
+        return;
+    }
     if app.mode == AppMode::Integrations {
         render_integrations(frame, area, app);
         return;
@@ -301,6 +305,69 @@ fn render_integrations(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(List::new(items).block(theme::panel(title)), area);
 }
 
+fn render_evidence_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let items = if let Some(snapshot) = &app.evidence_snapshot {
+        let mut rows = Vec::new();
+        let status = snapshot.status.as_str();
+        rows.push(ListItem::new(Line::from(vec![
+            Span::styled("* ", theme::secondary_accent()),
+            Span::styled("Certification", theme::selected()),
+            Span::styled(format!(" {status}"), theme::dim()),
+        ])));
+
+        let (harness_status, recall_status) = snapshot
+            .index
+            .as_ref()
+            .map(|index| {
+                let harness = if index.harness.is_empty() {
+                    if index.missing.iter().any(|item| item == "harness") {
+                        " missing"
+                    } else {
+                        " none"
+                    }
+                } else {
+                    " loaded"
+                };
+                let recall = if index.recall_quality.is_some() {
+                    " loaded"
+                } else if index.missing.iter().any(|item| item == "recall_quality") {
+                    " missing"
+                } else {
+                    " none"
+                };
+                (harness, recall)
+            })
+            .unwrap_or((" missing", " missing"));
+
+        rows.push(ListItem::new(Line::from(vec![
+            Span::styled("  ", theme::dim()),
+            Span::styled("Harness probes", theme::dim()),
+            Span::styled(harness_status, theme::dim()),
+        ])));
+        rows.push(ListItem::new(Line::from(vec![
+            Span::styled("  ", theme::dim()),
+            Span::styled("Recall quality", theme::dim()),
+            Span::styled(recall_status, theme::dim()),
+        ])));
+        if let Some(certification) = &snapshot.certification {
+            if let Some(status) = &certification.agent_zero_status {
+                rows.push(ListItem::new(Line::from(vec![
+                    Span::styled("  ", theme::dim()),
+                    Span::styled("Agent Zero", theme::dim()),
+                    Span::styled(format!(" {status}"), theme::dim()),
+                ])));
+            }
+        }
+        rows
+    } else {
+        vec![ListItem::new(Line::from(Span::styled(
+            "Run /evidence to load proof.",
+            theme::dim(),
+        )))]
+    };
+    frame.render_widget(List::new(items).block(theme::panel("Evidence")), area);
+}
+
 fn memory_item<'a>(
     index: usize,
     selected: usize,
@@ -339,6 +406,10 @@ fn memory_item<'a>(
 }
 
 fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    if app.mode == AppMode::Evidence {
+        render_evidence_detail(frame, area, app);
+        return;
+    }
     let mut lines = Vec::new();
     if app.mode == AppMode::Integrations {
         if let Some(report) = &app.integration_report {
@@ -448,6 +519,95 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
 
     let paragraph = Paragraph::new(lines)
         .block(theme::panel("Detail / Actions"))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let mut lines = Vec::new();
+    if let Some(snapshot) = &app.evidence_snapshot {
+        lines.push(Line::from(vec![
+            Span::styled("status ", theme::dim()),
+            Span::styled(snapshot.status.as_str(), theme::accent()),
+        ]));
+        if let Some(certification) = &snapshot.certification {
+            lines.push(Line::from(vec![
+                Span::styled("Local certification ", theme::brand()),
+                Span::styled(certification.status.as_str(), theme::dim()),
+            ]));
+            lines.push(Line::from(format!(
+                "generated {}",
+                certification.generated_at
+            )));
+            let mut install_parts = Vec::new();
+            if let Some(bytes) = certification.release_binary_bytes {
+                install_parts.push(format!("release {bytes} bytes"));
+            }
+            if let Some(project_kb) = certification.project_install_kb {
+                install_parts.push(format!("project {project_kb} KB"));
+            }
+            if let Some(global_kb) = certification.global_install_kb {
+                install_parts.push(format!("global {global_kb} KB"));
+            }
+            if !install_parts.is_empty() {
+                lines.push(Line::from(format!("install {}", install_parts.join(" | "))));
+            }
+            if let Some(avg) = certification.recall_avg_ms_10000 {
+                let max = certification.recall_max_ms_10000.unwrap_or(avg);
+                let mut line = format!("10k recall {avg:.3} ms max {max:.3} ms");
+                if let Some(rate) = certification.cli_import_events_per_second {
+                    line.push_str(&format!(" | import {rate}/s"));
+                }
+                lines.push(Line::from(line));
+            } else if let Some(rate) = certification.cli_import_events_per_second {
+                lines.push(Line::from(format!("CLI import {rate}/s")));
+            }
+            if let Some(avg) = certification.recall_avg_ms_30000 {
+                let max = certification.recall_max_ms_30000.unwrap_or(avg);
+                lines.push(Line::from(format!(
+                    "30k recall {avg:.3} ms max {max:.3} ms"
+                )));
+            }
+            if let Some(status) = &certification.agent_zero_status {
+                lines.push(Line::from(format!(
+                    "Agent Zero {} {}",
+                    status,
+                    certification.agent_zero_note.as_deref().unwrap_or("")
+                )));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("root ", theme::dim()),
+                Span::raw(truncate(&snapshot.root.display().to_string(), 56)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("index ", theme::dim()),
+                Span::raw(truncate(&snapshot.index_path.display().to_string(), 55)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("metrics ", theme::dim()),
+                Span::raw(truncate(&certification.metrics_path.display().to_string(), 53)),
+            ]));
+        } else {
+            lines.push(Line::from(snapshot.message.clone()));
+            lines.push(Line::from("Run: sh scripts/certify-tree-ring.sh"));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("root ", theme::dim()),
+                Span::raw(truncate(&snapshot.root.display().to_string(), 56)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("index ", theme::dim()),
+                Span::raw(truncate(&snapshot.index_path.display().to_string(), 55)),
+            ]));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from("Actions: /evidence refresh | /integrations"));
+    } else {
+        lines.push(Line::from("Run /evidence to load certification proof."));
+    }
+    let paragraph = Paragraph::new(lines)
+        .block(theme::panel("Evidence Detail"))
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -573,5 +733,78 @@ mod tests {
         assert!(output.contains("live"));
         assert!(output.contains("heartwood"));
         assert!(output.contains("u super:false"));
+    }
+
+    #[test]
+    fn render_evidence_mode_shows_empty_state_and_refresh_command() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("Evidence"));
+        assert!(output.contains("missing"));
+        assert!(output.contains("certify-tree-ring"));
+    }
+
+    #[test]
+    fn render_evidence_mode_shows_certification_metrics() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(&evidence_dir).unwrap();
+        std::fs::write(evidence_dir.join("summary.md"), "# Summary\n").unwrap();
+        std::fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{
+              "ok": true,
+              "created_at": "2026-07-09T04:22:38Z",
+              "release_binary_bytes": 6137088,
+              "project_install_kb": 6064,
+              "global_install_kb": 6020,
+              "cli_import": {"events_per_second": 2000},
+              "performance": {
+                "records_10000": {"recall_avg_ms": 3.729, "recall_max_ms": 6.539},
+                "records_30000": {"recall_avg_ms": 7.978, "recall_max_ms": 14.444}
+              },
+              "agent_zero": {"status": "skipped", "note": "TREE_RING_AGENT_ZERO_ROOT not set"}
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+              "generated_at": "2026-07-09T04:22:38Z",
+              "overall_status": "pass",
+              "certification": {
+                "category": "certification",
+                "status": "pass",
+                "label": "Local certification",
+                "path": "metrics.json",
+                "summary_path": "summary.md",
+                "generated_at": "2026-07-09T04:22:38Z"
+              },
+              "harness": {},
+              "recall_quality": null,
+              "missing": ["harness", "recall_quality"],
+              "stale": []
+            }"#,
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("Local certification"));
+        assert!(output.contains("6064 KB"));
+        assert!(output.contains("3.729 ms"));
+        assert!(output.contains("Agent Zero"));
     }
 }
