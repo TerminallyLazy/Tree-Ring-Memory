@@ -42,9 +42,14 @@ pub struct QualityScenario {
 
 impl QualityScenario {
     pub fn prompt(&self) -> Option<&str> {
-        self.query
+        if let Some(query) = self.query.as_deref() {
+            if !query.trim().is_empty() {
+                return Some(query);
+            }
+        }
+        self.workflow_prompt
             .as_deref()
-            .or_else(|| self.workflow_prompt.as_deref())
+            .filter(|value| !value.trim().is_empty())
     }
 
     pub fn validate(&self) -> TreeRingResult<()> {
@@ -76,6 +81,14 @@ impl QualityScenario {
         for decision in &self.expected_write_decisions {
             decision.validate(&self.name)?;
         }
+        for (index, evidence_ref) in self.evidence_refs.iter().enumerate() {
+            if evidence_ref.trim().is_empty() {
+                return Err(TreeRingError::Validation(format!(
+                    "quality scenario {} evidence_refs[{}] must not be blank",
+                    self.name, index
+                )));
+            }
+        }
         self.thresholds.validate(&self.name)?;
         Ok(())
     }
@@ -97,13 +110,19 @@ pub struct RecallExpectation {
 
 impl RecallExpectation {
     fn validate(&self, field: &str, scenario_name: &str) -> TreeRingResult<()> {
-        if self.memory_id.is_none()
-            && self.ring.is_none()
-            && self.tag.is_none()
-            && self.source_ref.is_none()
-        {
+        let has_nonblank_selector = [
+            self.memory_id.as_deref(),
+            self.ring.as_deref(),
+            self.tag.as_deref(),
+            self.source_ref.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty());
+
+        if !has_nonblank_selector {
             return Err(TreeRingError::Validation(format!(
-                "quality scenario {scenario_name} {field} entry needs memory_id, ring, tag, or source_ref"
+                "quality scenario {scenario_name} {field} entry must include a nonblank memory_id, ring, tag, or source_ref"
             )));
         }
         Ok(())
@@ -271,5 +290,51 @@ mod tests {
         let error = parse_quality_scenario(input).unwrap_err().to_string();
 
         assert!(error.contains("invalid write decision"));
+    }
+
+    #[test]
+    fn rejects_blank_evidence_refs() {
+        let input = r#"{
+          "name": "bad evidence refs",
+          "category": "behavior_proof",
+          "query": "prove behavior",
+          "evidence_refs": ["docs/spec.md", "   "]
+        }"#;
+
+        let error = parse_quality_scenario(input).unwrap_err().to_string();
+
+        assert!(error.contains("evidence_refs"));
+        assert!(error.contains("must not be blank"));
+    }
+
+    #[test]
+    fn rejects_blank_recall_selectors() {
+        let input = r#"{
+          "name": "blank recall selectors",
+          "category": "constraint_recall",
+          "query": "proof loop",
+          "expected_recall": [
+            {"memory_id": "   ", "ring": "", "tag": " ", "source_ref": "\t"}
+          ]
+        }"#;
+
+        let error = parse_quality_scenario(input).unwrap_err().to_string();
+
+        assert!(error.contains("expected_recall"));
+        assert!(error.contains("must include a nonblank"));
+    }
+
+    #[test]
+    fn uses_workflow_prompt_when_query_is_blank() {
+        let input = r#"{
+          "name": "workflow prompt fallback",
+          "category": "behavior_proof",
+          "query": "   ",
+          "workflow_prompt": "  validate behavior proof  "
+        }"#;
+
+        let scenario = parse_quality_scenario(input).unwrap();
+
+        assert_eq!(scenario.prompt(), Some("  validate behavior proof  "));
     }
 }
