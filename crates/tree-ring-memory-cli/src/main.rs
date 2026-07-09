@@ -1095,7 +1095,10 @@ fn print_integration_report(
                 integration.name, integration.status, integration.confidence
             );
             if !integration.markers.is_empty() {
-                println!("  markers: {}", integration.markers.join(", "));
+                println!(
+                    "  markers: {}",
+                    integrations::format_markers(&integration.markers)
+                );
             }
             println!("  next: {}", integration.next_step);
         }

@@ -112,25 +112,13 @@ pub struct MaintenanceAction {
     pub applied: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaintenanceFtsReport {
     pub memory_rows: usize,
     pub fts_rows: usize,
     pub missing_fts_rows: usize,
     pub orphan_fts_rows: usize,
     pub repaired: bool,
-}
-
-impl Default for MaintenanceFtsReport {
-    fn default() -> Self {
-        Self {
-            memory_rows: 0,
-            fts_rows: 0,
-            missing_fts_rows: 0,
-            orphan_fts_rows: 0,
-            repaired: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

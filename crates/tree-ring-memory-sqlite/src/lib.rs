@@ -17,6 +17,7 @@ use tree_ring_memory_core::{
 const WRITE_RETRY_ATTEMPTS: usize = 8;
 const WRITE_RETRY_INITIAL_DELAY_MS: u64 = 5;
 const WRITE_RETRY_MAX_DELAY_MS: u64 = 100;
+const EXISTING_ID_QUERY_CHUNK: usize = 500;
 
 #[derive(Debug, Clone)]
 pub struct RecallResult {
@@ -220,7 +221,7 @@ impl SQLiteMemoryStore {
         };
         let mut statement = self
             .connection
-            .prepare(&sql)
+            .prepare(sql)
             .map_err(sqlite_error_from_rusqlite)?;
         let rows = statement
             .query_map([], event_from_row)
@@ -446,24 +447,31 @@ impl SQLiteMemoryStore {
             return Ok(report);
         }
 
-        let mut imported_events = Vec::new();
+        let ids = events
+            .iter()
+            .map(|event| event.id.clone())
+            .collect::<Vec<_>>();
+        let mut known_ids = self.existing_memory_ids(&ids)?;
+        let mut batch_events = Vec::new();
         for event in events {
-            if self.get(&event.id)?.is_some() {
+            if known_ids.contains(&event.id) {
                 if replace_existing {
-                    self.put(&event)?;
-                    imported_events.push(event);
+                    batch_events.push(event);
                     report.replaced_count += 1;
                 } else {
                     report.skipped_duplicate_count += 1;
                 }
             } else {
-                self.put(&event)?;
-                imported_events.push(event);
+                known_ids.insert(event.id.clone());
+                batch_events.push(event);
                 report.inserted_count += 1;
             }
         }
-        for event in imported_events {
-            self.apply_supersedes(&event)?;
+        if !batch_events.is_empty() {
+            self.put_many(&batch_events)?;
+            for event in &batch_events {
+                self.apply_supersedes(event)?;
+            }
         }
         Ok(report)
     }
@@ -711,6 +719,32 @@ impl SQLiteMemoryStore {
             self.supersede(old_id, &event.id)?;
         }
         Ok(())
+    }
+
+    fn existing_memory_ids(&self, ids: &[String]) -> TreeRingResult<HashSet<String>> {
+        let mut existing = HashSet::new();
+        for chunk in ids.chunks(EXISTING_ID_QUERY_CHUNK) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!("SELECT id FROM memories WHERE id IN ({placeholders})");
+            let mut statement = self
+                .connection
+                .prepare(&sql)
+                .map_err(sqlite_error_from_rusqlite)?;
+            let rows = statement
+                .query_map(params_from_iter(chunk.iter()), |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(sqlite_error_from_rusqlite)?;
+            for row in rows {
+                existing.insert(row.map_err(sqlite_error_from_rusqlite)?);
+            }
+        }
+        Ok(existing)
     }
 
     fn fts_report(&self, repaired: bool) -> TreeRingResult<MaintenanceFtsReport> {
@@ -1066,8 +1100,7 @@ fn push_in_filter(
     sql.push_str(column_name);
     sql.push_str(" IN (");
     sql.push_str(
-        &std::iter::repeat("?")
-            .take(values.len())
+        &std::iter::repeat_n("?", values.len())
             .collect::<Vec<_>>()
             .join(", "),
     );
@@ -1458,6 +1491,36 @@ mod tests {
         assert_eq!(
             target.get(&replacement.id).unwrap().unwrap().summary,
             "Replacement import memory."
+        );
+    }
+
+    #[test]
+    fn import_jsonl_preserves_duplicate_order_within_one_file() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let first = MemoryEvent::new("First duplicate import memory.", "lesson").unwrap();
+        let mut second = first.clone();
+        second.summary = "Second duplicate import memory.".to_string();
+        let duplicate_jsonl = encode_jsonl(&[first.clone(), second.clone()], false).unwrap();
+
+        let skipped = store.import_jsonl(&duplicate_jsonl, false, false).unwrap();
+
+        assert_eq!(skipped.inserted_count, 1);
+        assert_eq!(skipped.replaced_count, 0);
+        assert_eq!(skipped.skipped_duplicate_count, 1);
+        assert_eq!(
+            store.get(&first.id).unwrap().unwrap().summary,
+            "First duplicate import memory."
+        );
+
+        let replaced = store.import_jsonl(&duplicate_jsonl, false, true).unwrap();
+
+        assert_eq!(replaced.inserted_count, 0);
+        assert_eq!(replaced.replaced_count, 2);
+        assert_eq!(replaced.skipped_duplicate_count, 0);
+        assert_eq!(
+            store.get(&first.id).unwrap().unwrap().summary,
+            "Second duplicate import memory."
         );
     }
 

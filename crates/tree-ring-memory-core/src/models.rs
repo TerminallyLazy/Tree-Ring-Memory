@@ -83,7 +83,7 @@ pub struct MemoryLink {
     pub target: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryReview {
     #[serde(default)]
     pub needs_review: bool,
@@ -93,17 +93,6 @@ pub struct MemoryReview {
     pub reviewed_at: Option<String>,
     #[serde(default)]
     pub reviewed_by: Option<String>,
-}
-
-impl Default for MemoryReview {
-    fn default() -> Self {
-        Self {
-            needs_review: false,
-            review_reason: None,
-            reviewed_at: None,
-            reviewed_by: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

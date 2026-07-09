@@ -65,7 +65,8 @@ impl RingMarkFrame {
         }
     }
 
-    pub fn layer_at(&self, col: usize, row: usize) -> Option<RingMarkLayer> {
+    #[cfg(test)]
+    fn layer_at(&self, col: usize, row: usize) -> Option<RingMarkLayer> {
         if col >= self.width || row >= self.height {
             return None;
         }
@@ -181,18 +182,37 @@ struct SubPixelHit {
     brightness: u8,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SamplingGeometry {
+    width: usize,
+    height: usize,
+    phase: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SubPixelSample {
+    col: usize,
+    row: usize,
+    sub_x: usize,
+    sub_y: usize,
+}
+
 fn sample_tree_rings(
     width: usize,
     height: usize,
     frame: usize,
     activity: RingMarkActivity,
 ) -> Vec<RingMarkCell> {
-    let phase = frame as f64 * 0.22;
+    let geometry = SamplingGeometry {
+        width,
+        height,
+        phase: frame as f64 * 0.22,
+    };
     let mut cells = Vec::with_capacity(width * height);
 
     for row in 0..height {
         for col in 0..width {
-            cells.push(sample_cell(col, row, width, height, phase, activity));
+            cells.push(sample_cell(col, row, geometry, activity));
         }
     }
 
@@ -202,9 +222,7 @@ fn sample_tree_rings(
 fn sample_cell(
     col: usize,
     row: usize,
-    width: usize,
-    height: usize,
-    phase: f64,
+    geometry: SamplingGeometry,
     activity: RingMarkActivity,
 ) -> RingMarkCell {
     let mut pattern = 0u8;
@@ -213,9 +231,13 @@ fn sample_cell(
     let mut hits = 0usize;
     for sub_y in 0..2 {
         for sub_x in 0..2 {
-            if let Some(hit) =
-                sample_subpixel(col, row, sub_x, sub_y, width, height, phase, activity)
-            {
+            let sample = SubPixelSample {
+                col,
+                row,
+                sub_x,
+                sub_y,
+            };
+            if let Some(hit) = sample_subpixel(sample, geometry, activity) {
                 pattern |= quadrant_bit(sub_x, sub_y);
                 brightness_sum += hit.brightness as usize;
                 layer_counts[pulse_index(hit.layer)] += 1;
@@ -236,37 +258,45 @@ fn sample_cell(
 }
 
 fn sample_subpixel(
-    col: usize,
-    row: usize,
-    sub_x: usize,
-    sub_y: usize,
-    width: usize,
-    height: usize,
-    phase: f64,
+    sample: SubPixelSample,
+    geometry: SamplingGeometry,
     activity: RingMarkActivity,
 ) -> Option<SubPixelHit> {
-    let x = normalized_x(col, sub_x, width);
-    let y = normalized_y(row, sub_y, height);
+    let x = normalized_x(sample.col, sample.sub_x, geometry.width);
+    let y = normalized_y(sample.row, sample.sub_y, geometry.height);
     let radius = (x * x + y * y).sqrt();
     if radius > 1.06 {
         return None;
     }
     let angle = normalize_angle(y.atan2(x));
 
-    if let Some(hit) = scar_hit(x, y, radius, phase, activity.layer(RingMarkLayer::Scar)) {
+    if let Some(hit) = scar_hit(
+        x,
+        y,
+        radius,
+        geometry.phase,
+        activity.layer(RingMarkLayer::Scar),
+    ) {
         return Some(hit);
     }
 
     let mut best: Option<(f64, SubPixelHit)> = None;
     for band in BANDS {
         let layer_activity = activity.layer(band.layer);
-        let center = animated_radius(*band, phase, layer_activity);
+        let center = animated_radius(*band, geometry.phase, layer_activity);
         let half_width = band.half_width + layer_activity * 0.016;
         let distance = (radius - center).abs();
         if distance > half_width {
             continue;
         }
-        let brightness = band_brightness(*band, angle, radius, phase, layer_activity, distance);
+        let brightness = band_brightness(
+            *band,
+            angle,
+            radius,
+            geometry.phase,
+            layer_activity,
+            distance,
+        );
         let hit = SubPixelHit {
             layer: band.layer,
             brightness,

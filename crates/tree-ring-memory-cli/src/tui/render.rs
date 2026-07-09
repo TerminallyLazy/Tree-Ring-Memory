@@ -354,7 +354,13 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 lines.push(Line::from(truncate(integration.next_step, 140)));
                 if !integration.markers.is_empty() {
                     lines.push(Line::from(Span::styled(
-                        truncate(&format!("markers: {}", integration.markers.join(", ")), 140),
+                        truncate(
+                            &format!(
+                                "markers: {}",
+                                crate::integrations::format_markers(&integration.markers)
+                            ),
+                            140,
+                        ),
                         theme::dim(),
                     )));
                 }

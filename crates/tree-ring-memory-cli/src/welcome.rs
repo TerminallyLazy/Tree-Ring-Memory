@@ -76,8 +76,6 @@ fn print_static_welcome(
 ) -> Result<(), String> {
     if color && animated {
         animate_logo(color)?;
-    } else if color {
-        print!("{}", welcome_logo_frame(1, color));
     } else {
         print!("{}", welcome_logo_frame(1, color));
     }

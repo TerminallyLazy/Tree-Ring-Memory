@@ -55,6 +55,15 @@ v0.11 Rust-native source adapters plus framework discovery.
   replacing DOX contracts or Revolve evidence records.
 - The Rust CLI and TUI include read-only agent-framework discovery for DOX,
   Revolve, Codex, Claude Code, Agent Zero/A0, Goose, OpenCode, Hermes, and Pi.
+  Integration scan output distinguishes project markers from user-home markers
+  so local harness readiness is explicit.
+- JSONL import uses batched SQLite writes while preserving dry-run validation,
+  duplicate skipping, explicit replacement, secret blocking, and supersession
+  application.
+- `scripts/certify-tree-ring.sh` provides a repeatable local certification
+  surface for formatting, tests, Clippy, release build, isolated installs, CLI
+  smokes, DOX/Revolve smokes, integration marker origins, import throughput, and
+  recall timing.
 - Project-local agent guidance is generated under `.tree-ring/AGENTS.md`,
   `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md`. The current bridge-linking
   design keeps those files canonical, prefers project-level harness bridges,
@@ -78,6 +87,7 @@ cargo run -p tree-ring-memory-cli -- dox sync --help
 cargo run -p tree-ring-memory-cli -- revolve sync --help
 cargo run -p tree-ring-memory-cli -- integrations scan --help
 cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000
+sh scripts/certify-tree-ring.sh
 ```
 
 ## Smoke Coverage
@@ -98,12 +108,19 @@ cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 10
   conservative synthetic-workload thresholds of at least 500 inserts/sec and max
   recall latency of 250 ms.
 
-Latest local smoke on July 5, 2026 with `--count 10000`:
+Latest local certification run generated at `2026-07-09T02:42:24Z` with Agent
+Zero plugin smoke enabled:
 
-- Inserted 10,000 memories in 5,316.4 ms.
-- Insert throughput: 1,881.0 inserts/sec.
-- Recall average latency: 4.298 ms.
-- Recall max latency: 6.813 ms.
+- Release binary: 6,104,272 bytes.
+- Project install with init: 6,032 KB.
+- Global install: 5,988 KB.
+- CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
+- 10k performance smoke: 2,059.6 inserts/sec, recall average 3.887 ms,
+  recall max 6.740 ms.
+- 30k performance smoke: 667.8 inserts/sec, recall average 8.300 ms, recall
+  max 14.705 ms.
+- Agent Zero plugin smoke: passed.
+- Extended 50k smoke was skipped; enable it with `TREE_RING_CERT_EXTENDED=1`.
 
 ## Compatibility Rule
 
