@@ -17,10 +17,7 @@ pub struct RecallReport {
     pub results: Vec<RecallResult>,
 }
 
-pub fn recall(
-    store: &SQLiteMemoryStore,
-    request: RecallRequest,
-) -> ActionResult<RecallReport> {
+pub fn recall(store: &SQLiteMemoryStore, request: RecallRequest) -> ActionResult<RecallReport> {
     let results = MemoryRetriever::new(store)
         .recall(
             &request.query,

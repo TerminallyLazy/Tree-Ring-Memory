@@ -1,14 +1,12 @@
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
-use std::fs;
 use std::path::PathBuf;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
-    AuditReport, ConsolidationPeriod, ConsolidationReport, ConsolidationRequest, DoxSyncReport,
-    MaintenanceReport, RevolveSyncReport,
+    AuditReport, ConsolidationReport, DoxSyncReport, MaintenanceReport, RevolveSyncReport,
 };
 use tree_ring_memory_core::{MemoryEvent, MemoryLink};
-use tree_ring_memory_sqlite::{MemoryRetriever, SQLiteMemoryStore};
+use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
 use actions::adapters::{sync_dox, sync_revolve, DoxSyncActionRequest, RevolveSyncActionRequest};
 use actions::audit::{audit_store, AuditActionRequest};
@@ -1021,7 +1019,10 @@ fn print_agent_awareness_summary(report: &agent_awareness::AgentAwarenessReport)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
+    use tree_ring_memory_core::{ConsolidationPeriod, ConsolidationRequest};
+    use tree_ring_memory_sqlite::MemoryRetriever;
 
     #[test]
     fn cli_init_creates_store() {
