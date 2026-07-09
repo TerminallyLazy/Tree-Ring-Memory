@@ -87,36 +87,34 @@ pub fn certification_dir_for_project(project_root: &Path) -> PathBuf {
 pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
     let index_path = evidence_dir.join("evidence-index.json");
     match load_index(&index_path) {
-        Ok(index) => {
-            match load_index_certification(evidence_dir, &index) {
-                Ok(certification) => {
-                    let message = match &certification {
-                        Some(certification) => format!(
-                            "certification {} at {}",
-                            certification.status.as_str(),
-                            certification.generated_at
-                        ),
-                        None => "evidence index loaded without certification metrics".to_string(),
-                    };
-                    EvidenceSnapshot {
-                        root: evidence_dir.to_path_buf(),
-                        index_path,
-                        status: index.overall_status,
-                        index: Some(index),
-                        certification,
-                        message,
-                    }
-                }
-                Err(error) => EvidenceSnapshot {
+        Ok(index) => match load_index_certification(evidence_dir, &index) {
+            Ok(certification) => {
+                let message = match &certification {
+                    Some(certification) => format!(
+                        "certification {} at {}",
+                        certification.status.as_str(),
+                        certification.generated_at
+                    ),
+                    None => "evidence index loaded without certification metrics".to_string(),
+                };
+                EvidenceSnapshot {
                     root: evidence_dir.to_path_buf(),
                     index_path,
+                    status: index.overall_status,
                     index: Some(index),
-                    certification: None,
-                    status: EvidenceStatus::Error,
-                    message: error,
-                },
+                    certification,
+                    message,
+                }
             }
-        }
+            Err(error) => EvidenceSnapshot {
+                root: evidence_dir.to_path_buf(),
+                index_path,
+                index: Some(index),
+                certification: None,
+                status: EvidenceStatus::Error,
+                message: error,
+            },
+        },
         Err(_) if !index_path.exists() => match load_metrics_only_certification(evidence_dir) {
             Ok(certification) => EvidenceSnapshot {
                 root: evidence_dir.to_path_buf(),
@@ -278,7 +276,8 @@ fn get_string(value: &Value, path: &[&str]) -> Option<String> {
 }
 
 fn get_value<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    path.iter().try_fold(value, |current, key| current.get(*key))
+    path.iter()
+        .try_fold(value, |current, key| current.get(*key))
 }
 
 #[cfg(test)]
@@ -383,7 +382,10 @@ mod tests {
         let certification = snapshot.certification.unwrap();
         assert_eq!(snapshot.status, EvidenceStatus::Pass);
         assert!(snapshot.index.is_none());
-        assert_eq!(certification.summary_path, Some(evidence_dir.join("summary.md")));
+        assert_eq!(
+            certification.summary_path,
+            Some(evidence_dir.join("summary.md"))
+        );
         assert_eq!(certification.generated_at, "2026-07-09T04:22:38Z");
         assert_eq!(certification.release_binary_bytes, Some(6_137_088));
         assert_eq!(certification.cli_import_events_per_second, Some(2_000));
@@ -419,7 +421,9 @@ mod tests {
 
         assert_eq!(snapshot.status, EvidenceStatus::Error);
         assert!(snapshot.certification.is_none());
-        assert!(snapshot.message.contains("failed to load certification payload"));
+        assert!(snapshot
+            .message
+            .contains("failed to load certification payload"));
         assert!(snapshot.message.contains("metrics.json"));
     }
 }

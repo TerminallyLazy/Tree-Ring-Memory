@@ -65,3 +65,25 @@
 - The compatibility branch preserves the original `Missing` behavior when neither index nor metrics are present.
 - The indexed path no longer hides certification-payload errors, which prevents a false pass when the index is present but the payload is broken.
 - The change stayed confined to the Task 1 file set plus the required report file.
+
+## Formatting follow-up
+
+### What changed
+- Ran `rustfmt` on `crates/tree-ring-memory-cli/src/evidence.rs` to clear the drift reported by `cargo fmt --check`.
+
+### Commands and results
+- Ran:
+  - `rustfmt crates/tree-ring-memory-cli/src/evidence.rs`
+  - `cargo fmt --check`
+  - `cargo test -p tree-ring-memory-cli evidence --locked`
+- Result:
+  - `cargo fmt --check`: PASS
+  - focused evidence tests: PASS, `7` tests passed
+
+### Files changed
+- `crates/tree-ring-memory-cli/src/evidence.rs`
+- `.superpowers/sdd/task-1-report.md`
+
+### Self-review
+- The cleanup is formatting-only and does not change evidence reader behavior.
+- The report now reflects the formatter pass and the verification commands without touching the Task 2 script file.
