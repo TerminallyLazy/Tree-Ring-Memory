@@ -326,11 +326,11 @@ fn render_evidence_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
             Span::styled(format!(" {status}"), theme::dim()),
         ])));
 
-        let (harness_status, recall_status) = snapshot
+        let harness_status = snapshot
             .index
             .as_ref()
             .map(|index| {
-                let harness = if index.harness.is_empty() {
+                if index.harness.is_empty() {
                     if index.missing.iter().any(|item| item == "harness") {
                         " missing"
                     } else {
@@ -338,17 +338,26 @@ fn render_evidence_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     }
                 } else {
                     " loaded"
-                };
-                let recall = if let Some(record) = &index.recall_quality {
-                    format!(" {}", record.status.as_str())
-                } else if index.missing.iter().any(|item| item == "recall_quality") {
-                    " missing".to_string()
-                } else {
-                    " none".to_string()
-                };
-                (harness, recall)
+                }
             })
-            .unwrap_or((" missing", " missing".to_string()));
+            .unwrap_or(" missing");
+        let recall_status = if let Some(recall_quality) = snapshot.recall_quality.as_ref() {
+            format!(" {}", recall_quality.status.as_str())
+        } else {
+            snapshot
+                .index
+                .as_ref()
+                .map(|index| {
+                    if let Some(record) = &index.recall_quality {
+                        format!(" {}", record.status.as_str())
+                    } else if index.missing.iter().any(|item| item == "recall_quality") {
+                        " missing".to_string()
+                    } else {
+                        " none".to_string()
+                    }
+                })
+                .unwrap_or(" missing".to_string())
+        };
 
         if let Some(index) = snapshot.index.as_ref() {
             if index.harness.is_empty() {
@@ -675,11 +684,15 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 } else {
                     query.returned_ids.join(",")
                 };
+                let rank = query
+                    .expected_rank
+                    .map(|rank| rank.to_string())
+                    .unwrap_or_else(|| "-".to_string());
                 lines.push(Line::from(format!(
-                    "{} [{}] rank {:?} {:.3}ms",
+                    "{} [{}] rank {} {:.3}ms",
                     truncate(&query.query_id, 28),
                     query.status,
-                    query.expected_rank,
+                    rank,
                     query.latency_ms.unwrap_or(0.0)
                 )));
                 lines.push(Line::from(Span::styled(
@@ -981,12 +994,12 @@ mod tests {
           "schema_version": 1,
           "generated_at": "2026-07-09T06:00:00Z",
           "query_set_id": "default-fixture-v1",
-          "status": "pass",
+          "status": "needs_review",
           "summary": {
             "query_count": 4,
-            "pass_count": 4,
+            "pass_count": 3,
             "fail_count": 0,
-            "needs_review_count": 0,
+            "needs_review_count": 1,
             "avg_latency_ms": 0.5,
             "max_latency_ms": 1.0
           },
@@ -1001,6 +1014,17 @@ mod tests {
               "returned": [
                 {"id":"rq_scar_stale_cache","rank":1,"ring":"scar","source_ref":"recall-quality/scar-stale-cache","score":1.2,"ranking":{"textual_match":1.0}}
               ],
+              "notes": []
+            }
+            ,
+            {
+              "query_id": "scar-no-hit",
+              "query": "cache miss",
+              "status": "needs_review",
+              "expected_top_id": null,
+              "expected_rank": null,
+              "latency_ms": 0.75,
+              "returned": [],
               "notes": []
             }
           ]
@@ -1042,11 +1066,15 @@ mod tests {
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let output = terminal.backend().to_string();
 
-        assert!(output.contains("Recall quality"));
+        assert!(output.contains("Recall quality needs_review"));
+        assert!(!output.contains("Recall quality pass"));
         assert!(output.contains("default-fixture-v1"));
         assert!(output.contains("queries 4"));
         assert!(output.contains("avg 0.500 ms"));
         assert!(output.contains("scar-stale-cache"));
+        assert!(output.contains("rank 1"));
+        assert!(output.contains("scar-no-hit"));
+        assert!(output.contains("rank -"));
         assert!(output.contains("rq_scar_stale_cache"));
     }
 

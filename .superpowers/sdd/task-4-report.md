@@ -55,3 +55,24 @@ Result: pass
 ## Concerns
 
 - The evidence detail pane is height-constrained in the current layout. The renderer now keeps the first recall-quality rows visible in the existing test size, but larger certification blocks plus future evidence sections may need a scrollable detail pane rather than more line compaction.
+
+## Follow-up fix: review findings
+
+### What changed
+
+- Updated the `/evidence` list `Recall quality` row to prefer `snapshot.recall_quality.status` when the payload is loaded, and only fall back to the index record when the payload is unavailable.
+- Updated recall-quality detail query rows to render operator-facing rank strings as `rank 1` or `rank -` instead of `Some(1)` / `None`.
+- Expanded the recall-quality render regression test so the index reports `pass` while the payload reports `needs_review`, and asserted the rendered surface shows `Recall quality needs_review` without stale `Recall quality pass`.
+
+### Commands and results
+
+```bash
+cargo test -p tree-ring-memory-cli render_evidence_mode --locked
+```
+
+- Result: pass (`6` tests)
+
+### Files changed for follow-up fix
+
+- `crates/tree-ring-memory-cli/src/tui/render.rs`
+- `.superpowers/sdd/task-4-report.md`
