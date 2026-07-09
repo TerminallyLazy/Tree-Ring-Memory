@@ -46,13 +46,28 @@ fn run() -> Result<(), String> {
 
 fn run_quality_command(fixture_dir: &Path, output_dir: &Path) -> Result<QualityRunReport, String> {
     let run_report = run_quality_scenarios(fixture_dir, output_dir)?;
-    if !run_report.quality_pass {
+    verify_persisted_quality_report(output_dir, &run_report)?;
+    Ok(run_report)
+}
+
+fn verify_persisted_quality_report(
+    output_dir: &Path,
+    expected: &QualityRunReport,
+) -> Result<(), String> {
+    let json = fs::read_to_string(output_dir.join("quality-report.json"))
+        .map_err(|_| "quality_report_read_error".to_string())?;
+    let persisted = serde_json::from_str::<QualityRunReport>(&json)
+        .map_err(|_| "quality_report_parse_error".to_string())?;
+    if persisted != *expected {
+        return Err("quality_report_mismatch_error".to_string());
+    }
+    if !persisted.ok || !persisted.quality_pass {
         return Err(format!(
             "quality run failed: {} scenarios evaluated",
-            run_report.scenario_count
+            persisted.scenario_count
         ));
     }
-    Ok(run_report)
+    Ok(())
 }
 
 fn run_quality_scenarios(
@@ -206,7 +221,7 @@ fn run_scenario(scenario: &QualityScenario) -> Result<QualityScenarioReport, Sce
             false,
             false,
             RECALL_LIMIT,
-            true,
+            false,
         )
         .map_err(|_| ScenarioRunFailure {
             stage: "recall",
@@ -478,6 +493,33 @@ mod tests {
 
         assert_eq!(error, "quality run failed: 0 scenarios evaluated");
         assert!(!error.contains(SECRET_MARKER));
+    }
+
+    #[test]
+    fn persisted_gate_rejects_nested_pass_when_top_level_fails() {
+        let output = tempdir().unwrap();
+        let scenario = QualityScenarioReport {
+            name: "nested pass".to_string(),
+            category: "constraint_recall".to_string(),
+            constraint_recall_rate: Some(1.0),
+            forbidden_recall_rate: None,
+            spam_rejection_rate: None,
+            evidence_required_rate: None,
+            behavior_proof_pass: None,
+            behavior_expectation: None,
+            quality_pass: true,
+            expected_recall: Vec::new(),
+            forbidden_recall: Vec::new(),
+            write_decisions: Vec::new(),
+        };
+        let mut report = summarize_quality_run(vec![scenario]);
+        report.ok = false;
+        report.quality_pass = false;
+        write_reports(output.path(), &report).unwrap();
+
+        let error = verify_persisted_quality_report(output.path(), &report).unwrap_err();
+
+        assert_eq!(error, "quality run failed: 1 scenarios evaluated");
     }
 
     #[test]

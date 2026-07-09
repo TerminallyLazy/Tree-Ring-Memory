@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -207,9 +208,14 @@ fn managed_section_range(content: &str, heading: &str, anchor: &str) -> Option<(
 
 fn insert_section_before_anchor(content: &str, section: &str, anchor: &str) -> Option<String> {
     let anchor_index = content.find(anchor)?;
+    let section = if content.contains("\r\n") {
+        Cow::Owned(section.replace('\n', "\r\n"))
+    } else {
+        Cow::Borrowed(section)
+    };
     let mut updated = String::with_capacity(content.len() + section.len());
     updated.push_str(&content[..anchor_index]);
-    updated.push_str(section);
+    updated.push_str(&section);
     updated.push_str(&content[anchor_index..]);
     Some(updated)
 }
@@ -223,7 +229,8 @@ fn is_generated_cli_file(content: &str) -> bool {
 }
 
 fn is_generated_skill_file(content: &str) -> bool {
-    content.starts_with("---\n") && content.contains(SKILL_FRONT_MATTER_MARKER)
+    (content.starts_with("---\n") || content.starts_with("---\r\n"))
+        && content.contains(SKILL_FRONT_MATTER_MARKER)
 }
 
 fn agent_contract(root: &Path) -> String {
@@ -511,6 +518,26 @@ mod tests {
         assert!(agents.contains(agent_section.trim()));
         assert!(cli.contains(cli_section.trim()));
         assert!(skill.contains(skill_section.trim()));
+    }
+
+    #[test]
+    fn generated_backfill_recognizes_and_preserves_crlf_skill_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let stale_skill = stale_fixture(
+            SKILL_TEMPLATE,
+            SKILL_QUALITY_GATES_HEADING,
+            SKILL_QUALITY_GATES_ANCHOR,
+        )
+        .replace('\n', "\r\n");
+        fs::write(root.join("SKILL.md"), stale_skill).unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert!(skill.contains("## Memory Quality Gates\r\n"));
+        assert!(!skill.replace("\r\n", "").contains('\n'));
     }
 
     #[test]

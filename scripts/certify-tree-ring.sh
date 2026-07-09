@@ -209,8 +209,8 @@ run cargo run --release -p tree-ring-memory-cli --example quality_scenarios -- "
   > "$QUALITY_RUN_OUT" 2>&1
 require_file "$QUALITY_OUT/quality-report.json"
 require_file "$QUALITY_OUT/quality-summary.md"
-grep -Fx '  "quality_pass": true,' "$QUALITY_OUT/quality-report.json" > /dev/null \
-  || fail "memory quality scenarios did not pass"
+# The runner re-parses this persisted report and exits nonzero unless its
+# top-level status matches the in-memory passing report.
 quality_json=$(cat "$QUALITY_OUT/quality-report.json")
 
 agent_zero_status='"skipped"'

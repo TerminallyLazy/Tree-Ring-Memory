@@ -86,7 +86,7 @@ impl QualityScenario {
         }
         for (index, expectation) in self.forbidden_recall.iter().enumerate() {
             expectation.validate("forbidden_recall", &self.name)?;
-            if matching_seed_memory_ids(expectation, &self.seed_memories).is_empty() {
+            if !has_matching_seed_memory(expectation, &self.seed_memories) {
                 return Err(TreeRingError::Validation(format!(
                     "quality scenario {} forbidden_recall[{}] does not match a seed_memory",
                     self.name, index
@@ -593,12 +593,6 @@ fn validate_write_decision_coverage(scenario: &QualityScenario) -> TreeRingResul
         }
     }
 
-    let candidate_index_by_id = scenario
-        .write_candidates
-        .iter()
-        .enumerate()
-        .map(|(index, candidate)| (candidate.id.as_str(), index))
-        .collect::<HashMap<_, _>>();
     let mut decision_index_by_id = HashMap::new();
 
     for (index, decision) in scenario.expected_write_decisions.iter().enumerate() {
@@ -610,7 +604,7 @@ fn validate_write_decision_coverage(scenario: &QualityScenario) -> TreeRingResul
                 scenario.name, decision.memory_id
             )));
         }
-        if !candidate_index_by_id.contains_key(decision.memory_id.as_str()) {
+        if !candidate_ids.contains(decision.memory_id.as_str()) {
             return Err(TreeRingError::Validation(format!(
                 "quality scenario {} expected_write_decisions[{index}] memory_id {} does not match any write_candidate",
                 scenario.name, decision.memory_id
@@ -681,15 +675,13 @@ fn matching_recall_ids(expectation: &RecallExpectation, recalls: &[QualityRecall
         .collect()
 }
 
-fn matching_seed_memory_ids(
+fn has_matching_seed_memory(
     expectation: &RecallExpectation,
     seed_memories: &[MemoryEvent],
-) -> Vec<String> {
+) -> bool {
     seed_memories
         .iter()
-        .filter(|memory| expectation_matches_memory(expectation, memory))
-        .map(|memory| memory.id.clone())
-        .collect()
+        .any(|memory| expectation_matches_memory(expectation, memory))
 }
 
 fn expectation_matches_memory(expectation: &RecallExpectation, memory: &MemoryEvent) -> bool {
@@ -768,9 +760,7 @@ fn classify_write_candidate(candidate: &MemoryEvent, required_evidence_refs: &[S
     }
     if !required_evidence_refs.is_empty()
         && candidate.event_type.starts_with("evaluation_")
-        && !required_evidence_refs
-            .iter()
-            .any(|required| required == &candidate.source.ref_)
+        && !required_evidence_refs.contains(&candidate.source.ref_)
     {
         return "require_evidence".to_string();
     }
