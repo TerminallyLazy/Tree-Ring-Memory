@@ -190,12 +190,13 @@ fn inspect_guidance(source_root: &Path) -> HarnessGuidanceEvidence {
         .filter_map(|path| fs::read_to_string(path).ok())
         .collect::<Vec<_>>()
         .join("\n");
+    let combined_lower = combined.to_lowercase();
     HarnessGuidanceEvidence {
         agents_md,
         skill_md,
         cli_md,
-        recall_guidance: combined.contains("tree-ring recall"),
-        remember_guidance: combined.contains("tree-ring remember"),
+        recall_guidance: combined_lower.contains("tree-ring recall"),
+        remember_guidance: combined_lower.contains("tree-ring remember"),
     }
 }
 
@@ -219,22 +220,19 @@ fn merge_harness_index(
     let index_path = evidence_dir.join("evidence-index.json");
     let mut index = read_or_create_index(evidence_dir, generated_at)?;
     index.generated_at = generated_at.to_string();
-    index.harness = records
-        .iter()
-        .map(|record| {
-            (
-                record.harness_id.clone(),
-                EvidenceRecordRef {
-                    category: "harness".to_string(),
-                    status: record.status,
-                    label: record.name.clone(),
-                    path: PathBuf::from(format!("harness/{}.json", record.harness_id)),
-                    summary_path: None,
-                    generated_at: record.generated_at.clone(),
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    for record in records {
+        index.harness.insert(
+            record.harness_id.clone(),
+            EvidenceRecordRef {
+                category: "harness".to_string(),
+                status: record.status,
+                label: record.name.clone(),
+                path: PathBuf::from(format!("harness/{}.json", record.harness_id)),
+                summary_path: None,
+                generated_at: record.generated_at.clone(),
+            },
+        );
+    }
     index.missing.retain(|item| item != "harness");
     if index.recall_quality.is_none() && !index.missing.iter().any(|item| item == "recall_quality")
     {
@@ -353,12 +351,12 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".tree-ring")).unwrap();
         std::fs::write(
             dir.path().join(".tree-ring/SKILL.md"),
-            "Use `tree-ring recall` before acting and `tree-ring remember` for durable facts.",
+            "Use `TREE-RING RECALL` before acting and `Tree-Ring Remember` for durable facts.",
         )
         .unwrap();
         std::fs::write(
             dir.path().join(".tree-ring/CLI.md"),
-            "`tree-ring recall` and `tree-ring remember` are the portable command surface.",
+            "`Tree-Ring Recall` and `TREE-RING REMEMBER` are the portable command surface.",
         )
         .unwrap();
         std::fs::write(
@@ -433,7 +431,16 @@ mod tests {
                 "summary_path": "summary.md",
                 "generated_at": "2026-07-09T05:44:48Z"
               },
-              "harness": {},
+              "harness": {
+                "manual-harness": {
+                  "category": "harness",
+                  "status": "skip",
+                  "label": "Manual Harness",
+                  "path": "harness/manual.json",
+                  "summary_path": null,
+                  "generated_at": "2026-07-09T05:44:48Z"
+                }
+              },
               "recall_quality": null,
               "missing": ["harness", "recall_quality"],
               "stale": []
@@ -462,6 +469,13 @@ mod tests {
         assert_eq!(
             index.harness.get("codex").map(|record| record.path.clone()),
             Some(PathBuf::from("harness/codex.json"))
+        );
+        assert_eq!(
+            index
+                .harness
+                .get("manual-harness")
+                .map(|record| record.path.clone()),
+            Some(PathBuf::from("harness/manual.json"))
         );
         assert_eq!(index.missing, vec!["recall_quality".to_string()]);
         assert_eq!(index.overall_status, EvidenceStatus::Pass);
