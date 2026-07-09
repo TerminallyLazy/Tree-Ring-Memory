@@ -100,6 +100,31 @@ Evidence outcome mapping:
 - `deferred`: seed for promising unresolved options
 - `observed`: outer-ring evaluation result
 
+## Memory Quality Gates
+
+Use these gates before relying on or writing memory.
+
+Recall gates:
+
+- Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds.
+- Before risky changes, recall warnings and evidence-linked prior failures.
+- Before repeating a workflow, recall prior errors and accepted procedures.
+- Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons.
+
+Trust gates:
+
+- Prefer source-linked, non-superseded, high-confidence memories.
+- Treat heartwood as durable only when source evidence or user confirmation supports it.
+- Re-read source files, tests, explicit user instructions, DOX contracts, or Revolve evidence when memory conflicts with current sources.
+- Do not treat sensitive or hidden-by-default memory as ordinary recall context.
+
+Write gates:
+
+- Remember only durable decisions, validated lessons, reusable warnings, corrections, future seeds, and evidence-backed outcomes.
+- Reject transient planning chatter, duplicate wording, tool noise, and unsupported claims.
+- Require evidence refs for promoted or rejected evaluated outcomes.
+- Require user confirmation before creating or promoting broad cross-project heartwood.
+
 ## Ring Selection
 
 Use these rings:

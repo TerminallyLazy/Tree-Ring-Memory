@@ -51,6 +51,15 @@ Adapter rules:
 - Run adapter commands with `--dry-run` before writing memory.
 - `tree-ring integrations scan` is read-only; add harness bridge references manually until a link command is available.
 
+Memory quality gates:
+
+- Before risky work, recall constraints, scars, user preferences, and unresolved seeds.
+- Before trusting memory, prefer source-linked, non-superseded, high-confidence results.
+- Re-read source files, tests, explicit user instructions, DOX contracts, or Revolve evidence when memory conflicts with current sources.
+- Before writing memory, reject transient planning chatter, duplicate wording, tool noise, and unsupported claims.
+- Require evidence refs for promoted or rejected evaluated outcomes.
+- Require user confirmation before creating or promoting broad cross-project heartwood.
+
 Safety rules:
 
 - Do not store secrets, credentials, private keys, or raw chain-of-thought.
@@ -154,6 +163,28 @@ call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
 `tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
 They do not authorize hidden transcript scraping or autonomous durable writes.
 
+## Memory Quality Gates
+
+Recall gates:
+
+- Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds.
+- Before risky changes, recall warnings and evidence-linked prior failures.
+- Before repeating a workflow, recall prior errors and accepted procedures.
+- Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons.
+
+Trust gates:
+
+- Prefer source-linked, non-superseded, high-confidence memories.
+- Re-read source files, tests, explicit user instructions, DOX contracts, or Revolve evidence when memory conflicts with current sources.
+- Do not treat sensitive or hidden-by-default memory as ordinary recall context.
+
+Write gates:
+
+- Remember only durable decisions, validated lessons, reusable warnings, corrections, future seeds, and evidence-backed outcomes.
+- Reject transient planning chatter, duplicate wording, tool noise, and unsupported claims.
+- Require evidence refs for promoted or rejected evaluated outcomes.
+- Require user confirmation before creating or promoting broad cross-project heartwood.
+
 ## DOX Integration
 
 If this project uses DOX-style `AGENTS.md` traversal, merge the relevant
@@ -232,6 +263,35 @@ mod tests {
         assert!(agents.contains("revolve sync --source-root"));
         assert!(agents.contains("integrations scan --source-root"));
         assert!(agents.contains("Tree Ring Memory Project Contract"));
+    }
+
+    #[test]
+    fn generated_agents_file_mentions_quality_gates() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+
+        assert!(agents.contains("Memory Quality Gates"));
+        assert!(agents.contains("Recall gates"));
+        assert!(agents.contains("Trust gates"));
+        assert!(agents.contains("Write gates"));
+        assert!(agents.contains("Reject transient planning chatter"));
+    }
+
+    #[test]
+    fn generated_cli_reference_mentions_quality_gates() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+
+        assert!(cli.contains("Memory quality gates"));
+        assert!(cli.contains("Before risky work, recall constraints"));
+        assert!(cli.contains("Before trusting memory, prefer source-linked"));
+        assert!(cli.contains("Before writing memory, reject transient planning chatter"));
     }
 
     #[test]
