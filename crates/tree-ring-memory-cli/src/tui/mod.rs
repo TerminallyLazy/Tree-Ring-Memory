@@ -32,7 +32,10 @@ fn run_loop(
     app: &mut App,
     tick_rate: Duration,
 ) -> Result<(), String> {
+    let mut rendered_mode = app.mode;
     while !app.should_quit {
+        clear_on_mode_change(terminal, rendered_mode, app.mode).map_err(|err| err.to_string())?;
+        rendered_mode = app.mode;
         terminal
             .draw(|frame| render::render(frame, app))
             .map_err(|err| err.to_string())?;
@@ -41,10 +44,7 @@ fn run_loop(
             if let terminal_event::Event::Key(key) =
                 terminal_event::read().map_err(|err| err.to_string())?
             {
-                let previous_mode = app.mode;
                 app.handle_key(key)?;
-                clear_on_mode_change(terminal, previous_mode, app.mode)
-                    .map_err(|err| err.to_string())?;
             }
         }
         app.tick()?;
