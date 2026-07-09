@@ -1,0 +1,83 @@
+{
+  "name": "superseded-heartwood",
+  "category": "stale_truth_suppression",
+  "query": "durable rule project bridge command",
+  "seed_memories": [
+    {
+      "id": "mem_old_bridge_rule",
+      "created_at": "2026-07-08T00:00:00Z",
+      "updated_at": "2026-07-08T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Durable rule: project bridge setup should happen automatically during init.",
+      "details": "",
+      "source": {
+        "type": "manual",
+        "ref": "old-bridge-note",
+        "quote": ""
+      },
+      "tags": ["bridge", "durable-rule"],
+      "salience": 0.9,
+      "confidence": 0.8,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": "mem_new_bridge_rule",
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    },
+    {
+      "id": "mem_new_bridge_rule",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Durable rule: project bridge setup should be an explicit integrations link command, not automatic init behavior.",
+      "details": "",
+      "source": {
+        "type": "evidence",
+        "ref": "docs/superpowers/specs/2026-07-06-tree-ring-agent-mediated-bridges-design.md#command-surface",
+        "quote": ""
+      },
+      "tags": ["bridge", "durable-rule"],
+      "salience": 0.95,
+      "confidence": 0.95,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "expires_at": null,
+      "supersedes": ["mem_old_bridge_rule"],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "expected_recall": [
+    {
+      "memory_id": "mem_new_bridge_rule",
+      "reason": "replacement heartwood should be recalled"
+    }
+  ],
+  "forbidden_recall": [
+    {
+      "memory_id": "mem_old_bridge_rule",
+      "reason": "superseded heartwood should not outrank the replacement"
+    }
+  ]
+}

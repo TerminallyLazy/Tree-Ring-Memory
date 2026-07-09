@@ -1,0 +1,45 @@
+{
+  "name": "sensitive-memory-hidden",
+  "category": "stale_truth_suppression",
+  "query": "private diagnosis source metadata",
+  "seed_memories": [
+    {
+      "id": "mem_sensitive_private_diagnosis",
+      "created_at": "2026-07-09T00:00:00Z",
+      "updated_at": "2026-07-09T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "agent_profile": null,
+      "scope": "project",
+      "ring": "outer",
+      "event_type": "lesson",
+      "summary": "Private diagnosis source metadata should stay hidden by default.",
+      "details": "",
+      "source": {
+        "type": "manual",
+        "ref": "private-diagnosis-note",
+        "quote": ""
+      },
+      "tags": ["privacy"],
+      "salience": 0.7,
+      "confidence": 0.8,
+      "sensitivity": "private",
+      "retention": "normal",
+      "expires_at": null,
+      "supersedes": [],
+      "superseded_by": null,
+      "links": [],
+      "review": {
+        "needs_review": false,
+        "review_reason": null,
+        "reviewed_at": null,
+        "reviewed_by": null
+      }
+    }
+  ],
+  "forbidden_recall": [
+    {
+      "memory_id": "mem_sensitive_private_diagnosis",
+      "reason": "private memory is hidden by default"
+    }
+  ]
+}

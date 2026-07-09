@@ -741,6 +741,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_default_quality_fixtures() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("fixtures")
+            .join("quality");
+        let mut parsed = 0usize;
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let input = std::fs::read_to_string(&path).unwrap();
+            parse_quality_scenario(&input)
+                .unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+            parsed += 1;
+        }
+
+        assert_eq!(parsed, 6);
+    }
+
+    #[test]
     fn rejects_duplicate_write_decision_mapping() {
         let scenario = QualityScenario {
             name: "duplicate decision".to_string(),
