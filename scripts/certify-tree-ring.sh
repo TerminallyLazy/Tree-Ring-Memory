@@ -86,6 +86,10 @@ mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
 METRICS="$OUT_DIR/metrics.json"
 LOG="$OUT_DIR/certification.log"
+QUALITY_OUT="$OUT_DIR/quality"
+QUALITY_RUN_OUT="$OUT_DIR/quality-run.out"
+rm -f "$SUMMARY" "$METRICS" "$QUALITY_RUN_OUT"
+rm -rf "$QUALITY_OUT"
 : > "$LOG"
 
 log "certification output: $OUT_DIR" | tee -a "$LOG"
@@ -200,15 +204,14 @@ if [ "$EXTENDED" = "1" ]; then
   [ -n "$perf_50k_json" ] || fail "missing 50k performance metrics"
 fi
 
-quality_out="$OUT_DIR/quality"
-mkdir -p "$quality_out"
-run cargo run --release -p tree-ring-memory-cli --example quality_scenarios -- "$ROOT/fixtures/quality" "$quality_out" \
-  > "$OUT_DIR/quality-run.out" 2>&1
-require_file "$quality_out/quality-report.json"
-require_file "$quality_out/quality-summary.md"
-grep -F '"quality_pass": true' "$quality_out/quality-report.json" > /dev/null \
+mkdir -p "$QUALITY_OUT"
+run cargo run --release -p tree-ring-memory-cli --example quality_scenarios -- "$ROOT/fixtures/quality" "$QUALITY_OUT" \
+  > "$QUALITY_RUN_OUT" 2>&1
+require_file "$QUALITY_OUT/quality-report.json"
+require_file "$QUALITY_OUT/quality-summary.md"
+grep -Fx '  "quality_pass": true,' "$QUALITY_OUT/quality-report.json" > /dev/null \
   || fail "memory quality scenarios did not pass"
-quality_json=$(cat "$quality_out/quality-report.json")
+quality_json=$(cat "$QUALITY_OUT/quality-report.json")
 
 agent_zero_status='"skipped"'
 agent_zero_note='"TREE_RING_AGENT_ZERO_ROOT not set"'
