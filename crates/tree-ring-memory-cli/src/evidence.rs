@@ -88,37 +88,67 @@ pub fn load_snapshot(evidence_dir: &Path) -> EvidenceSnapshot {
     let index_path = evidence_dir.join("evidence-index.json");
     match load_index(&index_path) {
         Ok(index) => {
-            let certification = index
-                .certification
-                .as_ref()
-                .and_then(|record| load_certification(evidence_dir, record).ok());
-            let message = match &certification {
-                Some(certification) => format!(
+            match load_index_certification(evidence_dir, &index) {
+                Ok(certification) => {
+                    let message = match &certification {
+                        Some(certification) => format!(
+                            "certification {} at {}",
+                            certification.status.as_str(),
+                            certification.generated_at
+                        ),
+                        None => "evidence index loaded without certification metrics".to_string(),
+                    };
+                    EvidenceSnapshot {
+                        root: evidence_dir.to_path_buf(),
+                        index_path,
+                        status: index.overall_status,
+                        index: Some(index),
+                        certification,
+                        message,
+                    }
+                }
+                Err(error) => EvidenceSnapshot {
+                    root: evidence_dir.to_path_buf(),
+                    index_path,
+                    index: Some(index),
+                    certification: None,
+                    status: EvidenceStatus::Error,
+                    message: error,
+                },
+            }
+        }
+        Err(_) if !index_path.exists() => match load_metrics_only_certification(evidence_dir) {
+            Ok(certification) => EvidenceSnapshot {
+                root: evidence_dir.to_path_buf(),
+                index_path,
+                index: None,
+                status: certification.status,
+                message: format!(
                     "certification {} at {}",
                     certification.status.as_str(),
                     certification.generated_at
                 ),
-                None => "evidence index loaded without certification metrics".to_string(),
-            };
-            EvidenceSnapshot {
+                certification: Some(certification),
+            },
+            Err(_) if !metrics_path_for_dir(evidence_dir).exists() => EvidenceSnapshot {
                 root: evidence_dir.to_path_buf(),
                 index_path,
-                status: index.overall_status,
-                index: Some(index),
-                certification,
-                message,
-            }
-        }
-        Err(_) if !index_path.exists() => EvidenceSnapshot {
-            root: evidence_dir.to_path_buf(),
-            index_path,
-            index: None,
-            certification: None,
-            status: EvidenceStatus::Missing,
-            message: format!(
-                "no evidence index found; run sh scripts/certify-tree-ring.sh to generate {}",
-                evidence_dir.display()
-            ),
+                index: None,
+                certification: None,
+                status: EvidenceStatus::Missing,
+                message: format!(
+                    "no evidence index found; run sh scripts/certify-tree-ring.sh to generate {}",
+                    evidence_dir.display()
+                ),
+            },
+            Err(error) => EvidenceSnapshot {
+                root: evidence_dir.to_path_buf(),
+                index_path,
+                index: None,
+                certification: None,
+                status: EvidenceStatus::Error,
+                message: error,
+            },
         },
         Err(error) => EvidenceSnapshot {
             root: evidence_dir.to_path_buf(),
@@ -167,6 +197,62 @@ fn load_certification(
         agent_zero_status: get_string(&value, &["agent_zero", "status"]),
         agent_zero_note: get_string(&value, &["agent_zero", "note"]),
     })
+}
+
+fn load_index_certification(
+    evidence_dir: &Path,
+    index: &EvidenceIndex,
+) -> Result<Option<CertificationEvidence>, String> {
+    match index.certification.as_ref() {
+        Some(record) => {
+            let metrics_path = resolve_evidence_path(evidence_dir, &record.path);
+            load_certification(evidence_dir, record)
+                .map(Some)
+                .map_err(|error| {
+                    format!(
+                        "failed to load certification payload {}: {}",
+                        metrics_path.display(),
+                        error
+                    )
+                })
+        }
+        None => Ok(None),
+    }
+}
+
+fn load_metrics_only_certification(evidence_dir: &Path) -> Result<CertificationEvidence, String> {
+    let metrics_path = metrics_path_for_dir(evidence_dir);
+    let input = fs::read_to_string(&metrics_path).map_err(|err| err.to_string())?;
+    let value: Value = serde_json::from_str(&input).map_err(|err| err.to_string())?;
+    Ok(CertificationEvidence {
+        status: EvidenceStatus::Pass,
+        generated_at: value
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        metrics_path,
+        summary_path: summary_path_for_dir(evidence_dir),
+        release_binary_bytes: get_u64(&value, &["release_binary_bytes"]),
+        project_install_kb: get_u64(&value, &["project_install_kb"]),
+        global_install_kb: get_u64(&value, &["global_install_kb"]),
+        cli_import_events_per_second: get_u64(&value, &["cli_import", "events_per_second"]),
+        recall_avg_ms_10000: get_f64(&value, &["performance", "records_10000", "recall_avg_ms"]),
+        recall_max_ms_10000: get_f64(&value, &["performance", "records_10000", "recall_max_ms"]),
+        recall_avg_ms_30000: get_f64(&value, &["performance", "records_30000", "recall_avg_ms"]),
+        recall_max_ms_30000: get_f64(&value, &["performance", "records_30000", "recall_max_ms"]),
+        agent_zero_status: get_string(&value, &["agent_zero", "status"]),
+        agent_zero_note: get_string(&value, &["agent_zero", "note"]),
+    })
+}
+
+fn metrics_path_for_dir(evidence_dir: &Path) -> PathBuf {
+    evidence_dir.join("metrics.json")
+}
+
+fn summary_path_for_dir(evidence_dir: &Path) -> Option<PathBuf> {
+    let summary_path = evidence_dir.join("summary.md");
+    summary_path.exists().then_some(summary_path)
 }
 
 fn resolve_evidence_path(evidence_dir: &Path, path: &Path) -> PathBuf {
@@ -267,5 +353,73 @@ mod tests {
         assert_eq!(certification.recall_avg_ms_10000, Some(3.729));
         assert_eq!(certification.recall_max_ms_30000, Some(14.444));
         assert_eq!(certification.agent_zero_status.as_deref(), Some("skipped"));
+    }
+
+    #[test]
+    fn evidence_snapshot_loads_metrics_only_certification_without_index() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = certification_dir_for_project(dir.path());
+        fs::create_dir_all(&evidence_dir).unwrap();
+        fs::write(evidence_dir.join("summary.md"), "# Summary\n").unwrap();
+        fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{
+              "created_at": "2026-07-09T04:22:38Z",
+              "release_binary_bytes": 6137088,
+              "project_install_kb": 6064,
+              "global_install_kb": 6020,
+              "cli_import": {"events_per_second": 2000},
+              "performance": {
+                "records_10000": {"recall_avg_ms": 3.729, "recall_max_ms": 6.539},
+                "records_30000": {"recall_avg_ms": 7.978, "recall_max_ms": 14.444}
+              },
+              "agent_zero": {"status": "skipped", "note": "TREE_RING_AGENT_ZERO_ROOT not set"}
+            }"#,
+        )
+        .unwrap();
+
+        let snapshot = load_snapshot(&evidence_dir);
+
+        let certification = snapshot.certification.unwrap();
+        assert_eq!(snapshot.status, EvidenceStatus::Pass);
+        assert!(snapshot.index.is_none());
+        assert_eq!(certification.summary_path, Some(evidence_dir.join("summary.md")));
+        assert_eq!(certification.generated_at, "2026-07-09T04:22:38Z");
+        assert_eq!(certification.release_binary_bytes, Some(6_137_088));
+        assert_eq!(certification.cli_import_events_per_second, Some(2_000));
+    }
+
+    #[test]
+    fn evidence_snapshot_errors_when_indexed_certification_payload_is_missing() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = certification_dir_for_project(dir.path());
+        fs::create_dir_all(&evidence_dir).unwrap();
+        fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+              "generated_at": "2026-07-09T04:22:38Z",
+              "overall_status": "pass",
+              "certification": {
+                "category": "certification",
+                "status": "pass",
+                "label": "Local certification",
+                "path": "metrics.json",
+                "summary_path": "summary.md",
+                "generated_at": "2026-07-09T04:22:38Z"
+              },
+              "harness": {},
+              "recall_quality": null,
+              "missing": ["harness", "recall_quality"],
+              "stale": []
+            }"#,
+        )
+        .unwrap();
+
+        let snapshot = load_snapshot(&evidence_dir);
+
+        assert_eq!(snapshot.status, EvidenceStatus::Error);
+        assert!(snapshot.certification.is_none());
+        assert!(snapshot.message.contains("failed to load certification payload"));
+        assert!(snapshot.message.contains("metrics.json"));
     }
 }
