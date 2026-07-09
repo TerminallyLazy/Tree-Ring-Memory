@@ -555,11 +555,11 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
 fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let mut lines = Vec::new();
     if let Some(snapshot) = &app.evidence_snapshot {
+        lines.push(Line::from(vec![
+            Span::styled("status ", theme::dim()),
+            Span::styled(snapshot.status.as_str(), theme::accent()),
+        ]));
         if let Some(certification) = &snapshot.certification {
-            lines.push(Line::from(vec![
-                Span::styled("status ", theme::dim()),
-                Span::styled(snapshot.status.as_str(), theme::accent()),
-            ]));
             lines.push(Line::from(vec![
                 Span::styled("Local certification ", theme::brand()),
                 Span::styled(certification.status.as_str(), theme::dim()),
@@ -916,12 +916,56 @@ mod tests {
         assert!(output.contains("Local certification"));
         assert!(output.contains("root"));
         assert!(output.contains("index"));
+        assert!(output.contains("metrics"));
         assert!(output.contains("q quit | / command"));
         assert!(output.contains("Codex"));
         assert!(output.contains("pass"));
         assert!(output.contains("Claude Code"));
         assert!(output.contains("fail"));
         assert!(output.contains("codex.json"));
+    }
+
+    #[test]
+    fn render_evidence_mode_keeps_status_without_certification() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("target/tree-ring-certification");
+        std::fs::create_dir_all(evidence_dir.join("harness")).unwrap();
+        std::fs::write(evidence_dir.join("harness/codex.json"), "{}").unwrap();
+        std::fs::write(
+            evidence_dir.join("evidence-index.json"),
+            r#"{
+          "generated_at": "2026-07-09T05:44:48Z",
+          "overall_status": "fail",
+          "certification": null,
+          "harness": {
+            "codex": {
+              "category": "harness",
+              "status": "pass",
+              "label": "Codex",
+              "path": "harness/codex.json",
+              "summary_path": null,
+              "generated_at": "2026-07-09T05:44:48Z"
+            }
+          },
+          "recall_quality": null,
+          "missing": ["certification", "recall_quality"],
+          "stale": []
+        }"#,
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/evidence").unwrap();
+        let backend = TestBackend::new(120, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+
+        assert!(output.contains("status"));
+        assert!(output.contains("fail"));
+        assert!(output.contains("Harness matrix"));
+        assert!(output.contains("Codex"));
+        assert!(!output.contains("Local certification"));
     }
 
     #[test]
