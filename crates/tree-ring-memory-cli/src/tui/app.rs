@@ -279,7 +279,7 @@ impl App {
                 summary: summary.trim().to_string(),
                 event_type: "lesson".to_string(),
                 ring: "cambium".to_string(),
-                scope: "project".to_string(),
+                scope: "global".to_string(),
                 project: None,
                 tags: Vec::new(),
             },
@@ -584,6 +584,7 @@ mod tests {
         assert_eq!(memories.len(), 1);
         assert_eq!(memories[0].summary, "Use shared TUI remember action");
         assert_eq!(memories[0].ring, "cambium");
+        assert_eq!(memories[0].scope, "global");
     }
 
     #[test]
