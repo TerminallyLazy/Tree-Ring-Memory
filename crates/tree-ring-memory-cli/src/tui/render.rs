@@ -572,7 +572,11 @@ fn render_evidence_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
             lines.push(Line::from(vec![
                 Span::styled("Local certification ", theme::brand()),
                 Span::styled(
-                    format!("{} generated {}", certification.status.as_str(), certification.generated_at),
+                    format!(
+                        "{} generated {}",
+                        certification.status.as_str(),
+                        certification.generated_at
+                    ),
                     theme::dim(),
                 ),
             ]));

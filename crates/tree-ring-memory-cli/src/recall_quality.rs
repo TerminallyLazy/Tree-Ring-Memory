@@ -40,6 +40,7 @@ pub struct RecallQualitySummary {
     pub avg_latency_ms: f64,
     pub max_latency_ms: f64,
     pub fixture_memory_count: usize,
+    pub sensitive_fixture_count: usize,
     pub private_payloads_used: bool,
 }
 
@@ -242,9 +243,11 @@ fn summarize(
         avg_latency_ms,
         max_latency_ms,
         fixture_memory_count: fixtures.len(),
-        private_payloads_used: fixtures
+        sensitive_fixture_count: fixtures
             .iter()
-            .any(|fixture| fixture.sensitivity != "normal"),
+            .filter(|fixture| fixture.sensitivity != "normal")
+            .count(),
+        private_payloads_used: false,
     }
 }
 
@@ -459,6 +462,8 @@ mod tests {
                 .unwrap();
         assert!(json.contains("\"ranking\""));
         assert!(json.contains("\"latency_ms\""));
+        assert!(json.contains("\"sensitive_fixture_count\": 1"));
+        assert!(json.contains("\"private_payloads_used\": false"));
         assert!(!json.contains("Private bank account note"));
 
         let index: crate::evidence::EvidenceIndex = serde_json::from_str(
@@ -557,7 +562,8 @@ mod tests {
                 avg_latency_ms: 1.0,
                 max_latency_ms: 2.0,
                 fixture_memory_count: 5,
-                private_payloads_used: true,
+                sensitive_fixture_count: 1,
+                private_payloads_used: false,
             },
             queries: Vec::new(),
         };

@@ -1391,7 +1391,8 @@ mod tests {
                 avg_latency_ms: 1.25,
                 max_latency_ms: 2.5,
                 fixture_memory_count: 5,
-                private_payloads_used: true,
+                sensitive_fixture_count: 1,
+                private_payloads_used: false,
             },
             queries: vec![crate::recall_quality::RecallQualityQueryRecord {
                 query_id: "scar-stale-cache".to_string(),
@@ -1422,6 +1423,8 @@ mod tests {
         assert_eq!(parsed["report"]["query_set_id"], "default-fixture-v1");
         assert_eq!(parsed["report"]["status"], "pass");
         assert_eq!(parsed["report"]["summary"]["query_count"], 4);
+        assert_eq!(parsed["report"]["summary"]["sensitive_fixture_count"], 1);
+        assert_eq!(parsed["report"]["summary"]["private_payloads_used"], false);
         assert_eq!(
             parsed["report"]["queries"][0]["query_id"],
             "scar-stale-cache"
@@ -1448,7 +1451,8 @@ mod tests {
                 avg_latency_ms: 1.25,
                 max_latency_ms: 2.5,
                 fixture_memory_count: 5,
-                private_payloads_used: true,
+                sensitive_fixture_count: 1,
+                private_payloads_used: false,
             },
             queries: vec![
                 crate::recall_quality::RecallQualityQueryRecord {
