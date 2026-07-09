@@ -15,15 +15,15 @@ use actions::export_import::{
     ImportActionRequest,
 };
 use actions::integrations::{scan as integration_scan_action, IntegrationScanRequest};
-use harness_evidence::{
-    certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
-};
 use actions::lifecycle::{
     consolidate, consolidate_dry_run_from_path, maintain, ConsolidateActionRequest,
     MaintainActionRequest,
 };
 use actions::recall::{recall as recall_action, RecallRequest};
 use actions::remember::{remember as remember_action, RememberRequest};
+use harness_evidence::{
+    certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
+};
 use serde_json::json;
 
 mod actions;
@@ -1038,33 +1038,42 @@ fn print_harness_certification_report(
     report: &HarnessCertificationReport,
     json_output: bool,
 ) -> Result<(), String> {
+    println!(
+        "{}",
+        format_harness_certification_report(report, json_output)
+    );
+    Ok(())
+}
+
+fn format_harness_certification_report(
+    report: &HarnessCertificationReport,
+    json_output: bool,
+) -> String {
     if json_output {
-        println!(
-            "{}",
-            json!({
-                "ok": true,
-                "report": report,
-            })
-        );
+        json!({
+            "ok": true,
+            "report": report,
+        })
+        .to_string()
     } else {
-        println!(
+        let mut lines = vec![format!(
             "Tree Ring Memory harness certification: pass={} fail={} skip={} evidence={}",
             report.pass_count,
             report.fail_count,
             report.skip_count,
             report.evidence_dir.display()
-        );
+        )];
         for record in &report.records {
-            println!(
+            lines.push(format!(
                 "{} [{}] {}",
                 record.name,
                 record.status.as_str(),
                 record.summary
-            );
-            println!("  next: {}", record.next_step);
+            ));
+            lines.push(format!("  next: {}", record.next_step));
         }
+        lines.join("\n")
     }
-    Ok(())
 }
 
 fn print_agent_awareness_summary(report: &agent_awareness::AgentAwarenessReport) {
@@ -1280,6 +1289,196 @@ mod tests {
             .path()
             .join("target/tree-ring-certification/harness/codex.json")
             .exists());
+    }
+
+    #[test]
+    fn harness_certification_json_output_contract() {
+        let report = HarnessCertificationReport {
+            generated_at: "2026-07-09T00:00:00Z".to_string(),
+            source_root: PathBuf::from("/tmp/project"),
+            evidence_dir: PathBuf::from("/tmp/project/target/tree-ring-certification"),
+            index_path: PathBuf::from(
+                "/tmp/project/target/tree-ring-certification/evidence-index.json",
+            ),
+            pass_count: 1,
+            fail_count: 1,
+            skip_count: 1,
+            records: vec![
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "codex".to_string(),
+                    name: "Codex".to_string(),
+                    status: crate::evidence::EvidenceStatus::Pass,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![crate::harness_evidence::HarnessProbeMarker {
+                        path: ".codex".to_string(),
+                        origin: "project".to_string(),
+                    }],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: Some(PathBuf::from("/tmp/project/.tree-ring/SKILL.md")),
+                        cli_md: Some(PathBuf::from("/tmp/project/.tree-ring/CLI.md")),
+                        recall_guidance: true,
+                        remember_guidance: true,
+                    },
+                    summary: "Codex has a project marker and generated Tree Ring recall/remember guidance.".to_string(),
+                    next_step: "Merge the generated Tree Ring guidance into the active Codex instructions.".to_string(),
+                },
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "goose".to_string(),
+                    name: "Goose".to_string(),
+                    status: crate::evidence::EvidenceStatus::Fail,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: None,
+                        cli_md: None,
+                        recall_guidance: false,
+                        remember_guidance: false,
+                    },
+                    summary: "Goose has a project marker but is missing generated Tree Ring guidance.".to_string(),
+                    next_step: "Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions.".to_string(),
+                },
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "pi".to_string(),
+                    name: "PI".to_string(),
+                    status: crate::evidence::EvidenceStatus::Skip,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: None,
+                        cli_md: None,
+                        recall_guidance: false,
+                        remember_guidance: false,
+                    },
+                    summary: "PI was not detected for this project, so no compatibility claim is made.".to_string(),
+                    next_step: "Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`.".to_string(),
+                },
+            ],
+        };
+
+        let output = format_harness_certification_report(&report, true);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["report"]["pass_count"], 1);
+        assert_eq!(parsed["report"]["fail_count"], 1);
+        assert_eq!(parsed["report"]["skip_count"], 1);
+        assert_eq!(parsed["report"]["records"][0]["harness_id"], "codex");
+        assert_eq!(parsed["report"]["records"][0]["status"], "pass");
+    }
+
+    #[test]
+    fn harness_certification_human_output_contract() {
+        let evidence_dir = PathBuf::from("/tmp/project/target/tree-ring-certification");
+        let report = HarnessCertificationReport {
+            generated_at: "2026-07-09T00:00:00Z".to_string(),
+            source_root: PathBuf::from("/tmp/project"),
+            evidence_dir: evidence_dir.clone(),
+            index_path: evidence_dir.join("evidence-index.json"),
+            pass_count: 1,
+            fail_count: 1,
+            skip_count: 1,
+            records: vec![
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "codex".to_string(),
+                    name: "Codex".to_string(),
+                    status: crate::evidence::EvidenceStatus::Pass,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: Some(PathBuf::from("/tmp/project/.tree-ring/SKILL.md")),
+                        cli_md: Some(PathBuf::from("/tmp/project/.tree-ring/CLI.md")),
+                        recall_guidance: true,
+                        remember_guidance: true,
+                    },
+                    summary: "Codex has a project marker and generated Tree Ring recall/remember guidance.".to_string(),
+                    next_step: "Merge the generated Tree Ring guidance into the active Codex instructions.".to_string(),
+                },
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "goose".to_string(),
+                    name: "Goose".to_string(),
+                    status: crate::evidence::EvidenceStatus::Fail,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: None,
+                        cli_md: None,
+                        recall_guidance: false,
+                        remember_guidance: false,
+                    },
+                    summary: "Goose has a project marker but is missing generated Tree Ring guidance.".to_string(),
+                    next_step: "Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions.".to_string(),
+                },
+                crate::harness_evidence::HarnessProbeRecord {
+                    schema_version: 1,
+                    harness_id: "pi".to_string(),
+                    name: "PI".to_string(),
+                    status: crate::evidence::EvidenceStatus::Skip,
+                    generated_at: "2026-07-09T00:00:00Z".to_string(),
+                    source_root: PathBuf::from("/tmp/project"),
+                    command: "tree-ring integrations certify --source-root <source_root>"
+                        .to_string(),
+                    markers: vec![],
+                    guidance: crate::harness_evidence::HarnessGuidanceEvidence {
+                        agents_md: None,
+                        skill_md: None,
+                        cli_md: None,
+                        recall_guidance: false,
+                        remember_guidance: false,
+                    },
+                    summary: "PI was not detected for this project, so no compatibility claim is made.".to_string(),
+                    next_step: "Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`.".to_string(),
+                },
+            ],
+        };
+
+        let output = format_harness_certification_report(&report, false);
+
+        assert!(output.contains(
+            "Tree Ring Memory harness certification: pass=1 fail=1 skip=1 evidence=/tmp/project/target/tree-ring-certification"
+        ));
+        assert!(output.contains(
+            "Codex [pass] Codex has a project marker and generated Tree Ring recall/remember guidance."
+        ));
+        assert!(output.contains(
+            "  next: Merge the generated Tree Ring guidance into the active Codex instructions."
+        ));
+        assert!(output.contains(
+            "Goose [fail] Goose has a project marker but is missing generated Tree Ring guidance."
+        ));
+        assert!(output.contains(
+            "  next: Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions."
+        ));
+        assert!(output.contains(
+            "PI [skip] PI was not detected for this project, so no compatibility claim is made."
+        ));
+        assert!(output.contains(
+            "  next: Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`."
+        ));
     }
 
     #[test]
