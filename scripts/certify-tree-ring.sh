@@ -85,6 +85,7 @@ extract_metrics_json() {
 mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
 METRICS="$OUT_DIR/metrics.json"
+INDEX="$OUT_DIR/evidence-index.json"
 LOG="$OUT_DIR/certification.log"
 : > "$LOG"
 
@@ -271,6 +272,26 @@ Generated: $created_at
 Machine-readable metrics: \`metrics.json\`
 EOF
 
+cat > "$INDEX" <<EOF
+{
+  "generated_at": "$created_at",
+  "overall_status": "pass",
+  "certification": {
+    "category": "certification",
+    "status": "pass",
+    "label": "Local certification",
+    "path": "metrics.json",
+    "summary_path": "summary.md",
+    "generated_at": "$created_at"
+  },
+  "harness": {},
+  "recall_quality": null,
+  "missing": ["harness", "recall_quality"],
+  "stale": []
+}
+EOF
+
 log "certification passed"
 printf 'Summary: %s\n' "$SUMMARY"
 printf 'Metrics: %s\n' "$METRICS"
+printf 'Evidence index: %s\n' "$INDEX"

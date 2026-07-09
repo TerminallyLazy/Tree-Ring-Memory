@@ -23,6 +23,9 @@ pub enum ActionKind {
         include_superseded: bool,
     },
     Sync,
+    RefreshCertification {
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +119,16 @@ impl PendingAction {
         }
     }
 
+    pub fn refresh_certification(command: &str) -> Self {
+        Self {
+            kind: ActionKind::RefreshCertification {
+                command: command.to_string(),
+            },
+            memory_id: None,
+            summary: "Refresh certification evidence".to_string(),
+        }
+    }
+
     pub fn confirmation_prompt(&self) -> String {
         format!("{} - press y to confirm, n/Esc to cancel", self.summary)
     }
@@ -131,5 +144,19 @@ mod tests {
 
         assert!(pending.confirmation_prompt().contains("press y"));
         assert_eq!(pending.memory_id.as_deref(), Some("mem_1"));
+    }
+
+    #[test]
+    fn evidence_refresh_is_explicit_pending_value() {
+        let pending = PendingAction::refresh_certification("sh scripts/certify-tree-ring.sh");
+
+        assert!(pending.confirmation_prompt().contains("press y"));
+        assert!(pending.summary.contains("Refresh certification evidence"));
+        assert_eq!(
+            pending.kind,
+            ActionKind::RefreshCertification {
+                command: "sh scripts/certify-tree-ring.sh".to_string()
+            }
+        );
     }
 }

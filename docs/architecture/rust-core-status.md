@@ -18,6 +18,10 @@ v0.11 Rust-native source adapters plus framework discovery.
   recall, forget, import/export, audit, consolidate, maintain, DOX sync,
   Revolve sync, framework discovery, welcome onboarding, and TUI operation.
 - Rust CLI has JSON output for machine-readable adapter use.
+- CLI and TUI durable operations now share action request/report contracts for
+  behavior-preserving command execution. This keeps CLI output ownership, TUI
+  state/render ownership, and storage ownership separate while preparing the
+  TUI cockpit and integration-link workflows.
 - The repository no longer tracks a root Python package, Python wrapper layer,
   pytest suite, Python smoke scripts, PyO3 crate, or CPython extension.
 - The v0.4 Rust core and SQLite store own portable JSONL import/export.
@@ -64,6 +68,11 @@ v0.11 Rust-native source adapters plus framework discovery.
   surface for formatting, tests, Clippy, release build, isolated installs, CLI
   smokes, DOX/Revolve smokes, integration marker origins, import throughput, and
   recall timing.
+- The TUI includes `/evidence` for a read-only-first evidence browser backed
+  by `target/tree-ring-certification/evidence-index.json` and existing
+  certification metrics. Refresh certification is confirmation-gated and
+  presents the external command instead of running a hidden background proof
+  job.
 - Project-local agent guidance is generated under `.tree-ring/AGENTS.md`,
   `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md`. The current bridge-linking
   design keeps those files canonical, prefers project-level harness bridges,
@@ -108,18 +117,18 @@ sh scripts/certify-tree-ring.sh
   conservative synthetic-workload thresholds of at least 500 inserts/sec and max
   recall latency of 250 ms.
 
-Latest local certification run generated at `2026-07-09T02:42:24Z` with Agent
-Zero plugin smoke enabled:
+Latest local certification run generated at `2026-07-09T04:22:38Z`:
 
-- Release binary: 6,104,272 bytes.
-- Project install with init: 6,032 KB.
-- Global install: 5,988 KB.
+- Release binary: 6,137,088 bytes.
+- Project install with init: 6,064 KB.
+- Global install: 6,020 KB.
 - CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
-- 10k performance smoke: 2,059.6 inserts/sec, recall average 3.887 ms,
-  recall max 6.740 ms.
-- 30k performance smoke: 667.8 inserts/sec, recall average 8.300 ms, recall
-  max 14.705 ms.
-- Agent Zero plugin smoke: passed.
+- 10k performance smoke: 2,146.6 inserts/sec, recall average 3.729 ms,
+  recall max 6.539 ms.
+- 30k performance smoke: 711.5 inserts/sec, recall average 7.978 ms, recall
+  max 14.444 ms.
+- Agent Zero plugin smoke: skipped because `TREE_RING_AGENT_ZERO_ROOT` was not
+  set.
 - Extended 50k smoke was skipped; enable it with `TREE_RING_CERT_EXTENDED=1`.
 
 ## Compatibility Rule

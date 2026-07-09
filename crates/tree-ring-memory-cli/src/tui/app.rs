@@ -1,11 +1,14 @@
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent, SensitivityGuard};
+use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
 
-use crate::integrations::{scan_integrations, IntegrationScanReport};
+use crate::actions::export_import::{export_jsonl, ExportActionRequest};
+use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
+use crate::actions::remember::{remember, RememberRequest};
+use crate::evidence::{certification_dir_for_project, load_snapshot, EvidenceSnapshot};
+use crate::integrations::IntegrationScanReport;
 
 use super::actions::{ActionKind, PendingAction};
 use super::input::{parse_slash_command, SlashCommand};
@@ -22,6 +25,7 @@ pub enum AppMode {
     Stream,
     Watch,
     Integrations,
+    Evidence,
 }
 
 pub struct App {
@@ -42,6 +46,7 @@ pub struct App {
     pub status: String,
     pub live_events: Vec<LiveEvent>,
     pub integration_report: Option<IntegrationScanReport>,
+    pub evidence_snapshot: Option<EvidenceSnapshot>,
     event_stream: Option<EventStreamReader>,
     pub tick: u64,
     pub should_quit: bool,
@@ -69,6 +74,7 @@ impl App {
             status: format!("Store {}", db_path.display()),
             live_events: Vec::new(),
             integration_report: None,
+            evidence_snapshot: None,
             event_stream: event_stream_path.map(EventStreamReader::new),
             tick: 0,
             should_quit: false,
@@ -247,6 +253,15 @@ impl App {
             SlashCommand::Export(target) => self.pending_export(target),
             SlashCommand::Sync => self.pending_action = Some(PendingAction::sync_placeholder()),
             SlashCommand::Integrations => self.show_integrations(),
+            SlashCommand::Evidence(argument) => {
+                if argument.eq_ignore_ascii_case("refresh") {
+                    self.pending_action = Some(PendingAction::refresh_certification(
+                        "sh scripts/certify-tree-ring.sh",
+                    ));
+                } else {
+                    self.show_evidence();
+                }
+            }
             SlashCommand::Stream => {
                 self.mode = AppMode::Stream;
                 self.status = "showing recent event-stream signals".to_string();
@@ -271,21 +286,18 @@ impl App {
             self.status = "remember requires a summary".to_string();
             return Ok(());
         }
-        let mut event =
-            MemoryEvent::new(summary.trim(), "lesson").map_err(|err| err.to_string())?;
-        event.ring = "cambium".to_string();
-        event.source.source_type = "manual".to_string();
-        let guard = SensitivityGuard::default();
-        let detected = guard
-            .detect_memory_event_sensitivity(&event)
-            .map_err(|err| err.to_string())?;
-        if detected != "normal" {
-            event.sensitivity = detected;
-        }
-        event.validate().map_err(|err| err.to_string())?;
-        let id = event.id.clone();
-        self.store.put(&event).map_err(|err| err.to_string())?;
-        self.status = format!("remembered {id}");
+        let report = remember(
+            &mut self.store,
+            RememberRequest {
+                summary: summary.trim().to_string(),
+                event_type: "lesson".to_string(),
+                ring: "cambium".to_string(),
+                scope: "global".to_string(),
+                project: None,
+                tags: Vec::new(),
+            },
+        )?;
+        self.status = format!("remembered {}", report.memory.id);
         self.refresh_store()
     }
 
@@ -371,25 +383,26 @@ impl App {
                 if output.exists() {
                     self.status = format!("export refused existing file {}", output.display());
                 } else {
-                    let (jsonl, report) = self
-                        .store
-                        .export_jsonl(include_sensitive, include_superseded)
-                        .map_err(|err| err.to_string())?;
-                    if let Some(parent) = output.parent() {
-                        if !parent.as_os_str().is_empty() {
-                            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-                        }
-                    }
-                    fs::write(&output, jsonl).map_err(|err| err.to_string())?;
+                    let report = export_jsonl(
+                        &self.store,
+                        ExportActionRequest {
+                            output: Some(output.clone()),
+                            include_sensitive,
+                            include_superseded,
+                        },
+                    )?;
                     self.status = format!(
                         "exported {} memories to {}",
-                        report.memory_count,
+                        report.report.memory_count,
                         output.display()
                     );
                 }
             }
             ActionKind::Sync => {
                 self.status = "sync adapters are available through CLI commands".to_string();
+            }
+            ActionKind::RefreshCertification { command } => {
+                self.status = format!("run externally: {command}");
             }
         }
         self.refresh_store()
@@ -418,14 +431,23 @@ impl App {
 
     fn show_integrations(&mut self) {
         let root = project_root_for_memory_root(&self.root);
-        let report = scan_integrations(&root);
+        let report = scan_integrations_action(IntegrationScanRequest { source_root: root });
         self.status = format!(
             "integration scan: {} detected under {}",
-            report.detected_count,
-            report.root.display()
+            report.report.detected_count,
+            report.report.root.display()
         );
-        self.integration_report = Some(report);
+        self.integration_report = Some(report.report);
         self.mode = AppMode::Integrations;
+    }
+
+    fn show_evidence(&mut self) {
+        let project_root = project_root_for_memory_root(&self.root);
+        let evidence_dir = certification_dir_for_project(&project_root);
+        let snapshot = load_snapshot(&evidence_dir);
+        self.status = format!("evidence: {}", snapshot.message);
+        self.evidence_snapshot = Some(snapshot);
+        self.mode = AppMode::Evidence;
     }
 
     pub fn run_search(&mut self) -> Result<(), String> {
@@ -575,6 +597,22 @@ mod tests {
     }
 
     #[test]
+    fn slash_remember_uses_shared_action_and_keeps_status_shape() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/remember Use shared TUI remember action")
+            .unwrap();
+
+        assert!(app.status.starts_with("remembered mem_"));
+        let memories = app.store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].summary, "Use shared TUI remember action");
+        assert_eq!(memories[0].ring, "cambium");
+        assert_eq!(memories[0].scope, "global");
+    }
+
+    #[test]
     fn secret_like_remember_is_blocked() {
         let dir = tempdir().unwrap();
         let mut app = app(&dir);
@@ -671,6 +709,21 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_export_uses_shared_action_and_keeps_default_filters() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/remember Export through shared TUI action")
+            .unwrap();
+        app.execute_slash_command("/export shared.jsonl").unwrap();
+        confirm(&mut app);
+
+        let output = dir.path().join(".tree-ring/exports/shared.jsonl");
+        let jsonl = fs::read_to_string(output).unwrap();
+        assert!(jsonl.contains("tree_ring_memory_export"));
+        assert!(jsonl.contains("Export through shared TUI action"));
+    }
+
+    #[test]
     fn export_path_rejects_parent_dir_in_relative_and_absolute_targets() {
         let dir = tempdir().unwrap();
         let root = dir.path().join(".tree-ring");
@@ -760,5 +813,38 @@ mod tests {
         let report = app.integration_report.as_ref().unwrap();
         assert!(report.detected_count >= 2);
         assert!(app.status.contains("integration scan"));
+    }
+
+    #[test]
+    fn slash_evidence_opens_missing_evidence_state() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/evidence").unwrap();
+
+        assert_eq!(app.mode, AppMode::Evidence);
+        let snapshot = app.evidence_snapshot.as_ref().unwrap();
+        assert_eq!(snapshot.status, crate::evidence::EvidenceStatus::Missing);
+        assert!(app.status.contains("evidence"));
+    }
+
+    #[test]
+    fn slash_evidence_refresh_requires_confirmation_without_running() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/evidence refresh").unwrap();
+
+        assert!(app.pending_action.is_some());
+        assert!(app
+            .pending_action
+            .as_ref()
+            .unwrap()
+            .summary
+            .contains("Refresh certification"));
+        confirm(&mut app);
+        assert!(app
+            .status
+            .contains("run externally: sh scripts/certify-tree-ring.sh"));
     }
 }
