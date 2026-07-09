@@ -263,6 +263,15 @@ tree-ring integrations certify --source-root .
   `target/tree-ring-certification/harness/` and updates
   `target/tree-ring-certification/evidence-index.json`. Pass, fail, and skip
   states are evidence records, not broad compatibility claims.
+- `recall-quality` writes non-private recall diagnostics under
+  `target/tree-ring-certification/recall-quality/default-fixture-v1.json`
+  and merges the result into `evidence-index.json`. It uses deterministic
+  safe fixture memories, records returned ids, rank positions, score factors,
+  and latency, and marks each query as `pass`, `fail`, or `needs_review`.
+
+```bash
+tree-ring recall-quality --source-root .
+```
 
 It looks for local markers for DOX, Revolve, Codex, Claude Code, Agent Zero/A0,
 Goose, OpenCode, Hermes, and Pi, then suggests next steps without editing those
@@ -381,8 +390,9 @@ for the synthetic workload.
 
 `scripts/certify-tree-ring.sh` runs the fuller local certification suite:
 formatting, tests, Clippy, release build, isolated project/global installs, CLI
-JSON smokes, DOX/Revolve adapter smokes, integration-scan origin checks, import
-throughput, and 10k/30k recall timing. It writes
+JSON smokes, DOX/Revolve adapter smokes, integration-scan origin checks,
+install-size, recall-speed, recall-quality diagnostics, CLI, adapter, and
+harness checks, import throughput, and 10k/30k recall timing. It writes
 `target/tree-ring-certification/summary.md` and `metrics.json`.
 
 Latest local certification run, generated at `2026-07-09T02:42:24Z` with

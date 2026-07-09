@@ -325,9 +325,21 @@ grep -F '"harness"' "$INDEX" > /dev/null \
   || fail "evidence index did not include harness records"
 grep -F '"codex"' "$INDEX" > /dev/null \
   || fail "evidence index did not include Codex harness record"
+"$BIN" --json recall-quality --source-root "$scan_root" --out-dir "$OUT_DIR" \
+  > "$OUT_DIR/recall-quality.json"
+require_file "$OUT_DIR/recall-quality/default-fixture-v1.json"
+grep -E '"status"[[:space:]]*:[[:space:]]*"pass"' "$OUT_DIR/recall-quality.json" > /dev/null \
+  || fail "recall quality command did not report pass status"
+grep -E '"fail_count"[[:space:]]*:[[:space:]]*0' "$OUT_DIR/recall-quality.json" > /dev/null \
+  || fail "recall quality command reported failing queries"
+grep -F '"recall_quality": {' "$INDEX" > /dev/null \
+  || fail "evidence index did not include recall quality record"
+grep -F '"missing": []' "$INDEX" > /dev/null \
+  || fail "evidence index still reports missing evidence categories"
 
 log "certification passed"
 printf 'Summary: %s\n' "$SUMMARY"
 printf 'Metrics: %s\n' "$METRICS"
 printf 'Evidence index: %s\n' "$INDEX"
 printf 'Harness evidence: %s\n' "$OUT_DIR/harness"
+printf 'Recall quality evidence: %s\n' "$OUT_DIR/recall-quality/default-fixture-v1.json"
