@@ -1,10 +1,6 @@
-use rusqlite::{
-    params, params_from_iter, types::Value, Connection, ErrorCode, OpenFlags, OptionalExtension,
-    Row, Transaction,
-};
+use rusqlite::{params, params_from_iter, types::Value, Connection, ErrorCode, OptionalExtension};
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Duration;
 
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
@@ -14,9 +10,11 @@ use tree_ring_memory_core::{
     MaintenanceActionType, MaintenanceFtsReport, MaintenanceReport, MaintenanceRequest,
 };
 
-const WRITE_RETRY_ATTEMPTS: usize = 8;
-const WRITE_RETRY_INITIAL_DELAY_MS: u64 = 5;
-const WRITE_RETRY_MAX_DELAY_MS: u64 = 100;
+mod lifecycle;
+mod schema;
+mod search;
+mod write;
+
 const EXISTING_ID_QUERY_CHUNK: usize = 500;
 
 #[derive(Debug, Clone)]
@@ -55,42 +53,14 @@ pub struct ImportReport {
 
 impl SQLiteMemoryStore {
     pub fn open(path: impl AsRef<Path>) -> TreeRingResult<Self> {
-        let path = path.as_ref();
-        if let Some(parent) = parent_dir_to_create(path) {
-            std::fs::create_dir_all(parent).map_err(|err| sqlite_error(err.to_string()))?;
-        }
-        let connection = Connection::open(path).map_err(sqlite_error_from_rusqlite)?;
-        connection
-            .busy_timeout(std::time::Duration::from_millis(30_000))
-            .map_err(sqlite_error_from_rusqlite)?;
-        connection
-            .execute_batch(
-                "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;",
-            )
-            .map_err(sqlite_error_from_rusqlite)?;
+        let connection = schema::open_connection(path.as_ref())?;
         let store = Self { connection };
         store.migrate()?;
         Ok(store)
     }
 
     pub fn open_read_only(path: impl AsRef<Path>) -> TreeRingResult<Self> {
-        let path = path
-            .as_ref()
-            .canonicalize()
-            .map_err(|err| sqlite_error(err.to_string()))?;
-        let normalized_path = normalize_sqlite_uri_path(&path.to_string_lossy());
-        let uri = format!(
-            "file:{}?mode=ro&immutable=1",
-            sqlite_uri_path(&normalized_path)
-        );
-        let connection = Connection::open_with_flags(
-            uri,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-        )
-        .map_err(sqlite_error_from_rusqlite)?;
-        connection
-            .busy_timeout(std::time::Duration::from_millis(30_000))
-            .map_err(sqlite_error_from_rusqlite)?;
+        let connection = schema::open_read_only_connection(path.as_ref())?;
         Ok(Self { connection })
     }
 
@@ -150,19 +120,19 @@ impl SQLiteMemoryStore {
     }
 
     pub fn put(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
-        retry_locked(|| {
+        write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction()
                 .map_err(sqlite_error_from_rusqlite)?;
-            put_in_transaction(&transaction, event)?;
+            write::put_in_transaction(&transaction, event)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
         })
     }
 
     pub fn put_many(&mut self, events: &[MemoryEvent]) -> TreeRingResult<()> {
-        retry_locked(|| {
+        write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction()
@@ -188,7 +158,7 @@ impl SQLiteMemoryStore {
                     .map_err(sqlite_error_from_rusqlite)?;
 
                 for event in events {
-                    put_with_statements(
+                    write::put_with_statements(
                         event,
                         &mut insert_memory,
                         &mut delete_fts,
@@ -206,7 +176,7 @@ impl SQLiteMemoryStore {
             .query_row(
                 "SELECT raw_json FROM memories WHERE id = ?",
                 params![memory_id],
-                event_from_row,
+                search::event_from_row,
             )
             .optional()
             .map_err(sqlite_error_from_rusqlite)?
@@ -224,9 +194,9 @@ impl SQLiteMemoryStore {
             .prepare(sql)
             .map_err(sqlite_error_from_rusqlite)?;
         let rows = statement
-            .query_map([], event_from_row)
+            .query_map([], search::event_from_row)
             .map_err(sqlite_error_from_rusqlite)?;
-        collect_rows(rows)
+        search::collect_rows(rows)
     }
 
     pub fn search_text(
@@ -277,14 +247,14 @@ impl SQLiteMemoryStore {
             .map_err(sqlite_error_from_rusqlite)?;
         let rows = if let Some(limit) = limit {
             statement
-                .query_map(params![fts_query, limit as i64], event_from_row)
+                .query_map(params![fts_query, limit as i64], search::event_from_row)
                 .map_err(sqlite_error_from_rusqlite)?
         } else {
             statement
-                .query_map(params![fts_query], event_from_row)
+                .query_map(params![fts_query], search::event_from_row)
                 .map_err(sqlite_error_from_rusqlite)?
         };
-        collect_rows(rows)
+        search::collect_rows(rows)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -338,10 +308,10 @@ impl SQLiteMemoryStore {
             parameters.push(Value::Text(scope.to_string()));
         }
         if let Some(rings) = rings {
-            push_in_filter(&mut sql, &mut parameters, "memories.ring", rings);
+            search::push_in_filter(&mut sql, &mut parameters, "memories.ring", rings);
         }
         if let Some(event_types) = event_types {
-            push_in_filter(
+            search::push_in_filter(
                 &mut sql,
                 &mut parameters,
                 "memories.event_type",
@@ -362,9 +332,9 @@ impl SQLiteMemoryStore {
             .prepare(&sql)
             .map_err(sqlite_error_from_rusqlite)?;
         let rows = statement
-            .query_map(params_from_iter(parameters), event_from_row)
+            .query_map(params_from_iter(parameters), search::event_from_row)
             .map_err(sqlite_error_from_rusqlite)?;
-        collect_rows(rows)
+        search::collect_rows(rows)
     }
 
     pub fn supersede(&mut self, old_id: &str, new_id: &str) -> TreeRingResult<()> {
@@ -373,7 +343,7 @@ impl SQLiteMemoryStore {
         };
         old.superseded_by = Some(new_id.to_string());
         let raw_json = serde_json::to_string(&old)?;
-        retry_locked(|| {
+        write::retry_locked(|| {
             self.connection
                 .execute(
                     "UPDATE memories SET superseded_by = ?, raw_json = ? WHERE id = ?",
@@ -385,7 +355,7 @@ impl SQLiteMemoryStore {
     }
 
     pub fn delete(&mut self, memory_id: &str) -> TreeRingResult<()> {
-        retry_locked(|| {
+        write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction()
@@ -545,7 +515,7 @@ impl SQLiteMemoryStore {
                         && apply_secret_redactions
             });
         if needs_transaction {
-            let (applied_indexes, fts_repaired) = retry_locked(|| {
+            let (applied_indexes, fts_repaired) = write::retry_locked(|| {
                 let transaction = self
                     .connection
                     .transaction()
@@ -555,7 +525,7 @@ impl SQLiteMemoryStore {
                 for (index, action) in report.actions.iter().enumerate() {
                     if action.action_type == MaintenanceActionType::RedactSecret
                         && apply_secret_redactions
-                        && redact_in_transaction(&transaction, &action.memory_id)?
+                        && write::redact_in_transaction(&transaction, &action.memory_id)?
                     {
                         transaction_applied.push(index);
                     }
@@ -564,14 +534,14 @@ impl SQLiteMemoryStore {
                 for (index, action) in report.actions.iter().enumerate() {
                     if action.action_type == MaintenanceActionType::DeleteExpired
                         && apply_expired
-                        && delete_in_transaction(&transaction, &action.memory_id)?
+                        && write::delete_in_transaction(&transaction, &action.memory_id)?
                     {
                         transaction_applied.push(index);
                     }
                 }
 
                 if repair_fts {
-                    rebuild_fts_in_transaction(&transaction)?;
+                    lifecycle::rebuild_fts_in_transaction(&transaction)?;
                 }
 
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
@@ -614,7 +584,7 @@ impl SQLiteMemoryStore {
                 LIMIT 1
                 "#,
                 params![period_type, period_key, source_ids_json],
-                stored_consolidation_from_row,
+                lifecycle::stored_consolidation_from_row,
             )
             .optional()
             .map_err(sqlite_error_from_rusqlite)?
@@ -670,13 +640,13 @@ impl SQLiteMemoryStore {
             serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
         let output_ids_json =
             serde_json::to_string(&report.output_memory_ids).map_err(TreeRingError::Json)?;
-        retry_locked(|| {
+        write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction()
                 .map_err(sqlite_error_from_rusqlite)?;
             for event in output_events {
-                put_in_transaction(&transaction, event)?;
+                write::put_in_transaction(&transaction, event)?;
             }
             for (old, new_id) in supersession_pairs {
                 let mut updated = old.clone();
@@ -749,9 +719,9 @@ impl SQLiteMemoryStore {
 
     fn fts_report(&self, repaired: bool) -> TreeRingResult<MaintenanceFtsReport> {
         Ok(MaintenanceFtsReport {
-            memory_rows: count_query(&self.connection, "SELECT count(*) FROM memories")?,
-            fts_rows: count_query(&self.connection, "SELECT count(*) FROM memory_fts")?,
-            missing_fts_rows: count_query(
+            memory_rows: lifecycle::count_query(&self.connection, "SELECT count(*) FROM memories")?,
+            fts_rows: lifecycle::count_query(&self.connection, "SELECT count(*) FROM memory_fts")?,
+            missing_fts_rows: lifecycle::count_query(
                 &self.connection,
                 r#"
                 SELECT count(*)
@@ -760,7 +730,7 @@ impl SQLiteMemoryStore {
                 WHERE memory_fts.id IS NULL
                 "#,
             )?,
-            orphan_fts_rows: count_query(
+            orphan_fts_rows: lifecycle::count_query(
                 &self.connection,
                 r#"
                 SELECT count(*)
@@ -886,11 +856,6 @@ fn matches_filters(
     true
 }
 
-fn event_from_row(row: &Row<'_>) -> rusqlite::Result<TreeRingResult<MemoryEvent>> {
-    let raw_json: String = row.get(0)?;
-    Ok(serde_json::from_str::<MemoryEvent>(&raw_json).map_err(Into::into))
-}
-
 fn consolidation_supersession_pairs(
     previous_outputs: &[MemoryEvent],
     new_outputs: &[MemoryEvent],
@@ -952,112 +917,6 @@ fn maintenance_status(report: &MaintenanceReport) -> String {
     }
 }
 
-fn count_query(connection: &Connection, sql: &str) -> TreeRingResult<usize> {
-    let count: i64 = connection
-        .query_row(sql, [], |row| row.get(0))
-        .map_err(sqlite_error_from_rusqlite)?;
-    Ok(count as usize)
-}
-
-fn delete_in_transaction(transaction: &Transaction<'_>, memory_id: &str) -> TreeRingResult<bool> {
-    let deleted = transaction
-        .execute("DELETE FROM memories WHERE id = ?", params![memory_id])
-        .map_err(sqlite_error_from_rusqlite)?;
-    transaction
-        .execute("DELETE FROM memory_fts WHERE id = ?", params![memory_id])
-        .map_err(sqlite_error_from_rusqlite)?;
-    Ok(deleted > 0)
-}
-
-fn redact_in_transaction(transaction: &Transaction<'_>, memory_id: &str) -> TreeRingResult<bool> {
-    let Some(mut event) = transaction
-        .query_row(
-            "SELECT raw_json FROM memories WHERE id = ?",
-            params![memory_id],
-            event_from_row,
-        )
-        .optional()
-        .map_err(sqlite_error_from_rusqlite)?
-        .transpose()?
-    else {
-        return Ok(false);
-    };
-    event.redact();
-    put_in_transaction(transaction, &event)?;
-    Ok(true)
-}
-
-fn rebuild_fts_in_transaction(transaction: &Transaction<'_>) -> TreeRingResult<()> {
-    let events = {
-        let mut statement = transaction
-            .prepare("SELECT raw_json FROM memories ORDER BY created_at DESC")
-            .map_err(sqlite_error_from_rusqlite)?;
-        let rows = statement
-            .query_map([], event_from_row)
-            .map_err(sqlite_error_from_rusqlite)?;
-        collect_rows(rows)?
-    };
-    transaction
-        .execute("DELETE FROM memory_fts", [])
-        .map_err(sqlite_error_from_rusqlite)?;
-    let mut insert_fts = transaction
-        .prepare("INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)")
-        .map_err(sqlite_error_from_rusqlite)?;
-    for event in events {
-        insert_fts
-            .execute(params![
-                &event.id,
-                &event.summary,
-                &event.details,
-                event.tags.join(" "),
-                &event.source.ref_,
-            ])
-            .map_err(sqlite_error_from_rusqlite)?;
-    }
-    Ok(())
-}
-
-fn stored_consolidation_from_row(
-    row: &Row<'_>,
-) -> rusqlite::Result<TreeRingResult<StoredConsolidation>> {
-    let id: String = row.get(0)?;
-    let created_at: String = row.get(1)?;
-    let output_ids_json: String = row.get(2)?;
-    Ok(serde_json::from_str::<Vec<String>>(&output_ids_json)
-        .map(|output_memory_ids| StoredConsolidation {
-            id,
-            created_at,
-            output_memory_ids,
-        })
-        .map_err(Into::into))
-}
-
-fn parent_dir_to_create(path: &Path) -> Option<&Path> {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-}
-
-fn normalize_sqlite_uri_path(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix("\\\\?\\UNC\\") {
-        format!("\\\\{rest}").replace('\\', "/")
-    } else if let Some(rest) = path.strip_prefix("\\\\?\\") {
-        rest.replace('\\', "/")
-    } else {
-        path.replace('\\', "/")
-    }
-}
-
-fn sqlite_uri_path(path: &str) -> String {
-    path.bytes()
-        .flat_map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
-                vec![byte as char]
-            }
-            _ => format!("%{byte:02X}").chars().collect(),
-        })
-        .collect()
-}
-
 fn sqlite_error_from_rusqlite(error: rusqlite::Error) -> TreeRingError {
     let is_locked = matches!(
         &error,
@@ -1069,133 +928,6 @@ fn sqlite_error_from_rusqlite(error: rusqlite::Error) -> TreeRingError {
     } else {
         sqlite_error(error.to_string())
     }
-}
-
-fn retry_locked<T>(mut operation: impl FnMut() -> TreeRingResult<T>) -> TreeRingResult<T> {
-    let mut delay = Duration::from_millis(WRITE_RETRY_INITIAL_DELAY_MS);
-    for attempt in 0..WRITE_RETRY_ATTEMPTS {
-        match operation() {
-            Ok(value) => return Ok(value),
-            Err(error) if is_sqlite_lock_error(&error) && attempt + 1 < WRITE_RETRY_ATTEMPTS => {
-                std::thread::sleep(delay);
-                delay = (delay * 2).min(Duration::from_millis(WRITE_RETRY_MAX_DELAY_MS));
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    unreachable!("retry loop either returns a value or the final error")
-}
-
-fn is_sqlite_lock_error(error: &TreeRingError) -> bool {
-    matches!(error, TreeRingError::StorageLocked(_))
-}
-
-fn push_in_filter(
-    sql: &mut String,
-    parameters: &mut Vec<Value>,
-    column_name: &str,
-    values: &[String],
-) {
-    sql.push_str(" AND ");
-    sql.push_str(column_name);
-    sql.push_str(" IN (");
-    sql.push_str(
-        &std::iter::repeat_n("?", values.len())
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-    sql.push(')');
-    parameters.extend(values.iter().cloned().map(Value::Text));
-}
-
-fn put_in_transaction(transaction: &Transaction<'_>, event: &MemoryEvent) -> TreeRingResult<()> {
-    let mut insert_memory = transaction
-        .prepare(
-            r#"
-            INSERT OR REPLACE INTO memories (
-              id, created_at, updated_at, project, agent_profile, scope, ring,
-              event_type, summary, details, source_json, tags_json, salience,
-              confidence, sensitivity, retention, expires_at, supersedes_json,
-              superseded_by, links_json, review_json, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .map_err(sqlite_error_from_rusqlite)?;
-    let mut delete_fts = transaction
-        .prepare("DELETE FROM memory_fts WHERE id = ?")
-        .map_err(sqlite_error_from_rusqlite)?;
-    let mut insert_fts = transaction
-        .prepare("INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)")
-        .map_err(sqlite_error_from_rusqlite)?;
-    put_with_statements(event, &mut insert_memory, &mut delete_fts, &mut insert_fts)
-}
-
-fn put_with_statements(
-    event: &MemoryEvent,
-    insert_memory: &mut rusqlite::Statement<'_>,
-    delete_fts: &mut rusqlite::Statement<'_>,
-    insert_fts: &mut rusqlite::Statement<'_>,
-) -> TreeRingResult<()> {
-    event.validate()?;
-    let source_json = serde_json::to_string(&event.source)?;
-    let tags_json = serde_json::to_string(&event.tags)?;
-    let supersedes_json = serde_json::to_string(&event.supersedes)?;
-    let links_json = serde_json::to_string(&event.links)?;
-    let review_json = serde_json::to_string(&event.review)?;
-    let raw_json = serde_json::to_string(event)?;
-
-    insert_memory
-        .execute(params![
-            &event.id,
-            &event.created_at,
-            &event.updated_at,
-            event.project.as_deref(),
-            event.agent_profile.as_deref(),
-            &event.scope,
-            &event.ring,
-            &event.event_type,
-            &event.summary,
-            &event.details,
-            source_json,
-            tags_json,
-            event.salience,
-            event.confidence,
-            &event.sensitivity,
-            &event.retention,
-            event.expires_at.as_deref(),
-            supersedes_json,
-            event.superseded_by.as_deref(),
-            links_json,
-            review_json,
-            raw_json,
-        ])
-        .map_err(sqlite_error_from_rusqlite)?;
-
-    delete_fts
-        .execute(params![&event.id])
-        .map_err(sqlite_error_from_rusqlite)?;
-    insert_fts
-        .execute(params![
-            &event.id,
-            &event.summary,
-            &event.details,
-            event.tags.join(" "),
-            &event.source.ref_,
-        ])
-        .map_err(sqlite_error_from_rusqlite)?;
-    Ok(())
-}
-
-fn collect_rows<I>(rows: I) -> TreeRingResult<Vec<MemoryEvent>>
-where
-    I: IntoIterator<Item = rusqlite::Result<TreeRingResult<MemoryEvent>>>,
-{
-    rows.into_iter()
-        .map(|row| {
-            row.map_err(sqlite_error_from_rusqlite)
-                .and_then(|event| event)
-        })
-        .collect()
 }
 
 fn format_plain_text_fts_query(query: &str) -> Option<String> {
@@ -1221,6 +953,38 @@ mod tests {
     use std::thread;
     use tempfile::tempdir;
     use tree_ring_memory_core::models::MemorySource;
+
+    #[test]
+    fn public_store_facade_still_covers_write_search_export_import_and_maintenance() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let event = MemoryEvent::new("Facade preservation memory.", "lesson").unwrap();
+        store.put(&event).unwrap();
+
+        assert!(store.get(&event.id).unwrap().is_some());
+        assert_eq!(
+            store
+                .search_text("facade preservation", false)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let (jsonl, export_report) = store.export_jsonl(false, false).unwrap();
+        assert_eq!(export_report.memory_count, 1);
+
+        let target_dir = tempdir().unwrap();
+        let mut target = SQLiteMemoryStore::open(target_dir.path().join("memory.sqlite")).unwrap();
+        let import_report = target.import_jsonl(&jsonl, false, false).unwrap();
+        assert_eq!(import_report.inserted_count, 1);
+
+        let audit = store.audit("all").unwrap();
+        assert_eq!(audit.memory_count, 1);
+
+        let maintenance = store.maintain(&MaintenanceRequest::default()).unwrap();
+        assert_eq!(maintenance.memory_count, 1);
+    }
 
     #[test]
     fn store_inserts_and_gets_memory() {
@@ -1257,39 +1021,6 @@ mod tests {
 
         assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
         assert!(busy_timeout >= 30_000);
-    }
-
-    #[test]
-    fn plain_relative_sqlite_path_has_no_parent_to_create() {
-        assert!(parent_dir_to_create(Path::new("memory.sqlite")).is_none());
-        assert_eq!(
-            parent_dir_to_create(Path::new("relative/memory.sqlite")),
-            Some(Path::new("relative"))
-        );
-    }
-
-    #[test]
-    fn normalizes_windows_paths_for_sqlite_uri_open() {
-        assert_eq!(
-            normalize_sqlite_uri_path(r"\\?\C:\Users\lazy\memory.sqlite"),
-            "C:/Users/lazy/memory.sqlite"
-        );
-        assert_eq!(
-            normalize_sqlite_uri_path(r"\\?\UNC\server\share\memory.sqlite"),
-            "//server/share/memory.sqlite"
-        );
-        assert_eq!(
-            normalize_sqlite_uri_path(r"C:\Users\lazy\memory.sqlite"),
-            "C:/Users/lazy/memory.sqlite"
-        );
-    }
-
-    #[test]
-    fn sqlite_uri_path_percent_encodes_only_unsafe_bytes() {
-        assert_eq!(
-            sqlite_uri_path("/tmp/tree ring/mémoire.sqlite"),
-            "/tmp/tree%20ring/m%C3%A9moire.sqlite"
-        );
     }
 
     #[test]
