@@ -55,7 +55,7 @@
 
 - [ ] **Step 1: Write the failing parser and boundary tests**
 
-Create `crates/tree-ring-memory-core/tests/workflow_scenario.rs` with an inline valid JSON fixture containing one `workspace_files` entry, one `expected_files` entry, and one seed memory. Do not use the Task 3 fixture pack yet. Assert that parsing succeeds, a `../escape.txt` path is rejected, unknown top-level fields are rejected, and serializing `WorkflowAgentRequest` does not contain the expected file text.
+Create `crates/tree-ring-memory-core/tests/workflow_scenario.rs` with an inline valid JSON fixture containing one `workspace_files` entry, one `expected_files` entry, and no seed memories. Do not use the Task 3 fixture pack yet. Assert that parsing succeeds, a `../escape.txt` path is rejected, unknown top-level fields are rejected, and serializing `WorkflowAgentRequest` does not contain the actual expected-file text.
 
 ```rust
 use tree_ring_memory_core::{parse_workflow_scenario, WorkflowAgentRequest, WorkflowArm};
@@ -79,7 +79,7 @@ fn parses_safe_workflow_fixture_and_keeps_validator_out_of_agent_request() {
         Vec::new(),
     );
     let serialized = serde_json::to_string(&request).unwrap();
-    assert!(!serialized.contains("no hidden durable writer"));
+    assert!(!serialized.contains("safe action"));
 }
 ```
 
