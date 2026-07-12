@@ -8,6 +8,7 @@ pub mod quality;
 pub mod recall;
 pub mod revolve;
 pub mod sensitivity;
+pub mod workflow;
 
 pub use audit::{audit_memories, AuditFinding, AuditReport, AuditSeverity, AuditType, AUDIT_TYPES};
 pub use consolidation::{
@@ -36,3 +37,8 @@ pub use quality::{
 pub use recall::{RecallRanking, RecallScore, RecallScorer};
 pub use revolve::{collect_revolve_memories, RevolveSyncReport, RevolveSyncRequest};
 pub use sensitivity::{SensitivityGuard, SensitivityResult};
+pub use workflow::{
+    evaluate_workspace, parse_workflow_scenario, WorkflowAgentRequest, WorkflowAgentResponse,
+    WorkflowArm, WorkflowFileCheckReport, WorkflowFileExpectation, WorkflowMemoryContext,
+    WorkflowScenario, WorkflowWorkspaceFile,
+};
