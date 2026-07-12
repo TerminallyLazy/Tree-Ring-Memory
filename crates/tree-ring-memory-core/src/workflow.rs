@@ -4,9 +4,11 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, Deserialize, Serialize};
 
-use crate::models::{MemoryEvent, TreeRingError, TreeRingResult};
+use crate::models::{
+    MemoryEvent, MemoryLink, MemoryReview, MemorySource, TreeRingError, TreeRingResult,
+};
 
 const WORKFLOW_SCHEMA_VERSION: u8 = 1;
 
@@ -23,12 +25,154 @@ pub enum WorkflowArm {
 pub struct WorkflowScenario {
     pub name: String,
     pub task: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_seed_memories")]
     pub seed_memories: Vec<MemoryEvent>,
     #[serde(default)]
     pub workspace_files: Vec<WorkflowWorkspaceFile>,
     #[serde(default)]
     pub expected_files: Vec<WorkflowFileExpectation>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkflowSeedMemory {
+    id: String,
+    created_at: String,
+    updated_at: String,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    agent_profile: Option<String>,
+    #[serde(default = "default_workflow_seed_scope")]
+    scope: String,
+    #[serde(default = "default_workflow_seed_ring")]
+    ring: String,
+    event_type: String,
+    summary: String,
+    #[serde(default)]
+    details: String,
+    #[serde(default)]
+    source: WorkflowSeedMemorySource,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default = "default_workflow_seed_score")]
+    salience: f64,
+    #[serde(default = "default_workflow_seed_score")]
+    confidence: f64,
+    #[serde(default = "default_workflow_seed_sensitivity")]
+    sensitivity: String,
+    #[serde(default = "default_workflow_seed_retention")]
+    retention: String,
+    #[serde(default)]
+    expires_at: Option<String>,
+    #[serde(default)]
+    supersedes: Vec<String>,
+    #[serde(default)]
+    superseded_by: Option<String>,
+    #[serde(default)]
+    links: Vec<WorkflowSeedMemoryLink>,
+    #[serde(default)]
+    review: WorkflowSeedMemoryReview,
+}
+
+impl From<WorkflowSeedMemory> for MemoryEvent {
+    fn from(seed_memory: WorkflowSeedMemory) -> Self {
+        Self {
+            id: seed_memory.id,
+            created_at: seed_memory.created_at,
+            updated_at: seed_memory.updated_at,
+            project: seed_memory.project,
+            agent_profile: seed_memory.agent_profile,
+            scope: seed_memory.scope,
+            ring: seed_memory.ring,
+            event_type: seed_memory.event_type,
+            summary: seed_memory.summary,
+            details: seed_memory.details,
+            source: seed_memory.source.into(),
+            tags: seed_memory.tags,
+            salience: seed_memory.salience,
+            confidence: seed_memory.confidence,
+            sensitivity: seed_memory.sensitivity,
+            retention: seed_memory.retention,
+            expires_at: seed_memory.expires_at,
+            supersedes: seed_memory.supersedes,
+            superseded_by: seed_memory.superseded_by,
+            links: seed_memory.links.into_iter().map(Into::into).collect(),
+            review: seed_memory.review.into(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkflowSeedMemorySource {
+    #[serde(rename = "type", default = "default_workflow_seed_source_type")]
+    source_type: String,
+    #[serde(rename = "ref", default)]
+    ref_: String,
+    #[serde(default)]
+    quote: String,
+}
+
+impl Default for WorkflowSeedMemorySource {
+    fn default() -> Self {
+        Self {
+            source_type: default_workflow_seed_source_type(),
+            ref_: String::new(),
+            quote: String::new(),
+        }
+    }
+}
+
+impl From<WorkflowSeedMemorySource> for MemorySource {
+    fn from(source: WorkflowSeedMemorySource) -> Self {
+        Self {
+            source_type: source.source_type,
+            ref_: source.ref_,
+            quote: source.quote,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkflowSeedMemoryLink {
+    #[serde(rename = "type")]
+    link_type: String,
+    target: String,
+}
+
+impl From<WorkflowSeedMemoryLink> for MemoryLink {
+    fn from(link: WorkflowSeedMemoryLink) -> Self {
+        Self {
+            link_type: link.link_type,
+            target: link.target,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkflowSeedMemoryReview {
+    #[serde(default)]
+    needs_review: bool,
+    #[serde(default)]
+    review_reason: Option<String>,
+    #[serde(default)]
+    reviewed_at: Option<String>,
+    #[serde(default)]
+    reviewed_by: Option<String>,
+}
+
+impl From<WorkflowSeedMemoryReview> for MemoryReview {
+    fn from(review: WorkflowSeedMemoryReview) -> Self {
+        Self {
+            needs_review: review.needs_review,
+            review_reason: review.review_reason,
+            reviewed_at: review.reviewed_at,
+            reviewed_by: review.reviewed_by,
+        }
+    }
 }
 
 impl WorkflowScenario {
@@ -223,6 +367,38 @@ fn validate_nonblank(field: &str, value: &str) -> TreeRingResult<()> {
     Ok(())
 }
 
+fn deserialize_seed_memories<'de, D>(deserializer: D) -> Result<Vec<MemoryEvent>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<WorkflowSeedMemory>::deserialize(deserializer)
+        .map(|seed_memories| seed_memories.into_iter().map(Into::into).collect())
+}
+
+fn default_workflow_seed_scope() -> String {
+    "global".to_string()
+}
+
+fn default_workflow_seed_ring() -> String {
+    "cambium".to_string()
+}
+
+fn default_workflow_seed_score() -> f64 {
+    0.5
+}
+
+fn default_workflow_seed_sensitivity() -> String {
+    "normal".to_string()
+}
+
+fn default_workflow_seed_retention() -> String {
+    "normal".to_string()
+}
+
+fn default_workflow_seed_source_type() -> String {
+    "manual".to_string()
+}
+
 fn validate_safe_relative_path(field: &str, value: &str) -> TreeRingResult<()> {
     if value.trim().is_empty() {
         return Err(TreeRingError::Validation(format!(
@@ -236,14 +412,31 @@ fn validate_safe_relative_path(field: &str, value: &str) -> TreeRingResult<()> {
             "{field} must be relative"
         )));
     }
+    if has_windows_root_or_prefix(value) {
+        return Err(TreeRingError::Validation(format!(
+            "{field} must not use a Windows root or prefix"
+        )));
+    }
     if path
         .components()
         .any(|component| matches!(component, Component::ParentDir))
+        || value.split(['/', '\\']).any(|component| component == "..")
     {
         return Err(TreeRingError::Validation(format!(
             "{field} must not contain parent directory components"
         )));
     }
+    if value.split(['/', '\\']).any(|component| component == ".") {
+        return Err(TreeRingError::Validation(format!(
+            "{field} must not contain current directory components"
+        )));
+    }
 
     Ok(())
+}
+
+fn has_windows_root_or_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    value.starts_with('\\')
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
 }
