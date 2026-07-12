@@ -51,6 +51,7 @@
 - Produces `parse_workflow_scenario(input: &str) -> TreeRingResult<WorkflowScenario>`.
 - Produces `WorkflowArm::{NoMemory, RawMemory, TreeRing}` with serde names `no_memory`, `raw_memory`, and `tree_ring`.
 - Produces `WorkflowAgentRequest` containing only `schema_version`, `scenario_id`, `arm`, `task`, `workspace_root`, and `memory_context`.
+- Produces `WorkflowAgentResponse { summary: String, used_memory_ids: Vec<String> }`; validation requires a nonblank summary and unique, nonblank IDs. The runner, not the response type, checks that cited IDs were actually supplied.
 - Produces `evaluate_workspace(scenario: &WorkflowScenario, workspace_root: &Path) -> Vec<WorkflowFileCheckReport>`.
 
 - [ ] **Step 1: Write the failing parser and boundary tests**
@@ -110,9 +111,14 @@ pub struct WorkflowAgentRequest {
     pub workspace_root: PathBuf,
     pub memory_context: Vec<WorkflowMemoryContext>,
 }
+
+pub struct WorkflowAgentResponse {
+    pub summary: String,
+    #[serde(default)] pub used_memory_ids: Vec<String>,
+}
 ```
 
-`WorkflowScenario::validate` must require nonblank `name` and `task`, at least one expected file, unique workspace-file paths, unique expected-file `(path, contains)` pairs, valid seed memories, safe paths, and nonblank expected `contains` strings. `WorkflowAgentRequest::new` must not accept a `WorkflowScenario` or any validator data.
+`WorkflowScenario::validate` must require nonblank `name` and `task`, at least one expected file, unique workspace-file paths, unique expected-file `(path, contains)` pairs, valid seed memories, safe paths, and nonblank expected `contains` strings. `WorkflowMemoryContext` must contain `id`, `summary`, `details`, `ring`, `event_type`, `source_ref`, and `confidence`. `WorkflowAgentRequest::new` must not accept a `WorkflowScenario` or any validator data. `WorkflowAgentResponse::validate` must reject an empty summary, blank memory IDs, and duplicate memory IDs.
 
 - [ ] **Step 4: Export and verify the core contract**
 
