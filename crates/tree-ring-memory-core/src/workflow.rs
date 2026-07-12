@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use serde::{de::Deserializer, Deserialize, Serialize};
@@ -188,11 +188,11 @@ impl WorkflowScenario {
 
         let mut workspace_paths = HashSet::new();
         for (index, file) in self.workspace_files.iter().enumerate() {
-            validate_safe_relative_path(
+            let path_key = canonical_workflow_path(
                 &format!("workflow scenario workspace_files[{index}].path"),
                 &file.path,
             )?;
-            if !workspace_paths.insert(file.path.as_str()) {
+            if !workspace_paths.insert(path_key) {
                 return Err(TreeRingError::Validation(format!(
                     "workflow scenario workspace_files[{index}] duplicates path {}",
                     file.path
@@ -202,7 +202,7 @@ impl WorkflowScenario {
 
         let mut expected_file_pairs = HashSet::new();
         for (index, expectation) in self.expected_files.iter().enumerate() {
-            validate_safe_relative_path(
+            let path_key = canonical_workflow_path(
                 &format!("workflow scenario expected_files[{index}].path"),
                 &expectation.path,
             )?;
@@ -210,9 +210,7 @@ impl WorkflowScenario {
                 &format!("workflow scenario expected_files[{index}].contains"),
                 &expectation.contains,
             )?;
-            if !expected_file_pairs
-                .insert((expectation.path.as_str(), expectation.contains.as_str()))
-            {
+            if !expected_file_pairs.insert((path_key, expectation.contains.clone())) {
                 return Err(TreeRingError::Validation(format!(
                     "workflow scenario expected_files[{index}] duplicates path and contains"
                 )));
@@ -335,20 +333,19 @@ pub fn evaluate_workspace(
         .expected_files
         .iter()
         .map(|expectation| {
-            let (exists, passed) =
-                if validate_safe_relative_path("workflow file expectation path", &expectation.path)
-                    .is_ok()
-                {
-                    let path = workspace_root.join(&expectation.path);
-                    let exists = path.is_file();
-                    let passed = exists
-                        && fs::read_to_string(&path)
-                            .map(|content| content.contains(&expectation.contains))
-                            .unwrap_or(false);
-                    (exists, passed)
-                } else {
-                    (false, false)
-                };
+            let (exists, passed) = if let Ok(path_key) =
+                canonical_workflow_path("workflow file expectation path", &expectation.path)
+            {
+                let path = workspace_root.join(path_key);
+                let exists = path.is_file();
+                let passed = exists
+                    && fs::read_to_string(&path)
+                        .map(|content| content.contains(&expectation.contains))
+                        .unwrap_or(false);
+                (exists, passed)
+            } else {
+                (false, false)
+            };
 
             WorkflowFileCheckReport {
                 path: expectation.path.clone(),
@@ -399,44 +396,53 @@ fn default_workflow_seed_source_type() -> String {
     "manual".to_string()
 }
 
-fn validate_safe_relative_path(field: &str, value: &str) -> TreeRingResult<()> {
+fn canonical_workflow_path(field: &str, value: &str) -> TreeRingResult<String> {
     if value.trim().is_empty() {
         return Err(TreeRingError::Validation(format!(
             "{field} must not be empty"
         )));
     }
 
-    let path = Path::new(value);
-    if path.is_absolute() {
+    if value.starts_with('/') || value.starts_with('\\') {
         return Err(TreeRingError::Validation(format!(
             "{field} must be relative"
         )));
     }
-    if has_windows_root_or_prefix(value) {
+    if has_windows_drive_prefix(value) {
         return Err(TreeRingError::Validation(format!(
-            "{field} must not use a Windows root or prefix"
+            "{field} must not use a Windows drive prefix"
         )));
     }
-    if path
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-        || value.split(['/', '\\']).any(|component| component == "..")
-    {
+    if value.contains('\\') {
         return Err(TreeRingError::Validation(format!(
-            "{field} must not contain parent directory components"
-        )));
-    }
-    if value.split(['/', '\\']).any(|component| component == ".") {
-        return Err(TreeRingError::Validation(format!(
-            "{field} must not contain current directory components"
+            "{field} must use forward slash separators"
         )));
     }
 
-    Ok(())
+    let mut segments = Vec::new();
+    for segment in value.split('/') {
+        if segment.is_empty() {
+            return Err(TreeRingError::Validation(format!(
+                "{field} must not contain empty path components"
+            )));
+        }
+        if segment == "." {
+            return Err(TreeRingError::Validation(format!(
+                "{field} must not contain current directory components"
+            )));
+        }
+        if segment == ".." {
+            return Err(TreeRingError::Validation(format!(
+                "{field} must not contain parent directory components"
+            )));
+        }
+        segments.push(segment);
+    }
+
+    Ok(segments.join("/"))
 }
 
-fn has_windows_root_or_prefix(value: &str) -> bool {
+fn has_windows_drive_prefix(value: &str) -> bool {
     let bytes = value.as_bytes();
-    value.starts_with('\\')
-        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }

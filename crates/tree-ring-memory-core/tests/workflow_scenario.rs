@@ -271,8 +271,13 @@ fn workspace_evaluation_does_not_follow_unsafe_paths_from_manually_built_scenari
 }
 
 #[test]
-fn rejects_windows_root_and_prefix_paths() {
-    for unsafe_path in [r"\\escape.txt", "C:escape.txt"] {
+fn rejects_root_prefix_and_backslash_separator_paths() {
+    for unsafe_path in [
+        "/escape.txt",
+        r"\\escape.txt",
+        "C:escape.txt",
+        r"out\decision.md",
+    ] {
         let mut scenario = scenario_value();
         scenario["workspace_files"][0]["path"] = json!(unsafe_path);
         let input = serde_json::to_string(&scenario).unwrap();
@@ -310,10 +315,50 @@ fn workspace_evaluation_rejects_windows_root_and_prefix_paths() {
 }
 
 #[test]
+fn workspace_evaluation_rejects_portable_root_and_backslash_separator_paths() {
+    let workspace = tempdir().unwrap();
+    fs::create_dir_all(workspace.path().join("out")).unwrap();
+    fs::write(workspace.path().join(r"out\decision.md"), "safe action").unwrap();
+    let scenario = WorkflowScenario {
+        name: "unsafe direct construction".to_string(),
+        task: "Do not escape the workspace.".to_string(),
+        seed_memories: Vec::new(),
+        workspace_files: Vec::new(),
+        expected_files: vec![
+            WorkflowFileExpectation {
+                path: "/escape.txt".to_string(),
+                contains: "safe action".to_string(),
+            },
+            WorkflowFileExpectation {
+                path: r"out\decision.md".to_string(),
+                contains: "safe action".to_string(),
+            },
+        ],
+    };
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert_eq!(reports.len(), 2);
+    assert!(reports.iter().all(|report| !report.exists));
+    assert!(reports.iter().all(|report| !report.passed));
+}
+
+#[test]
 fn rejects_dot_path_components_that_create_lexical_aliases() {
     let mut scenario = scenario_value();
     scenario["workspace_files"] = json!([
         {"path": "out/./decision.md", "content": "draft"},
+        {"path": "out/decision.md", "content": "revised"}
+    ]);
+
+    assert!(parse_workflow_scenario(&serde_json::to_string(&scenario).unwrap()).is_err());
+}
+
+#[test]
+fn rejects_empty_path_components_that_create_lexical_aliases() {
+    let mut scenario = scenario_value();
+    scenario["workspace_files"] = json!([
+        {"path": "out//decision.md", "content": "draft"},
         {"path": "out/decision.md", "content": "revised"}
     ]);
 
