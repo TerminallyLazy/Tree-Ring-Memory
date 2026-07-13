@@ -1,7 +1,18 @@
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
+    io::Read,
     path::{Path, PathBuf},
+};
+
+#[cfg(unix)]
+use std::{
+    ffi::{CString, OsStr},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::{ffi::OsStrExt, fs::MetadataExt},
+    },
+    path::Component,
 };
 
 use serde::{de::Deserializer, Deserialize, Serialize};
@@ -408,35 +419,111 @@ pub fn evaluate_workspace(
 }
 
 fn read_regular_workspace_file(workspace_root: &Path, path_key: &str) -> Option<String> {
-    let workspace_metadata = fs::symlink_metadata(workspace_root).ok()?;
-    if workspace_metadata.file_type().is_symlink() || !workspace_metadata.is_dir() {
-        return None;
-    }
-    let canonical_workspace = fs::canonicalize(workspace_root).ok()?;
+    let mut file = open_regular_workspace_file(workspace_root, path_key)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content).ok()?;
+    Some(content)
+}
 
-    let segments: Vec<_> = path_key.split('/').collect();
-    let mut path = workspace_root.to_path_buf();
-    for (index, segment) in segments.iter().enumerate() {
-        path.push(segment);
-        let metadata = fs::symlink_metadata(&path).ok()?;
-        if metadata.file_type().is_symlink() {
+#[cfg(unix)]
+fn open_regular_workspace_file(workspace_root: &Path, path_key: &str) -> Option<fs::File> {
+    let mut directory = open_workspace_directory_no_follow(workspace_root)?;
+    let mut segments = path_key.split('/').peekable();
+
+    while let Some(segment) = segments.next() {
+        let is_final = segments.peek().is_none();
+        let file = open_child_no_follow(&directory, OsStr::new(segment), is_final)?;
+
+        if is_final {
+            let metadata = file.metadata().ok()?;
+            // A link count above one can make the output name an alias for data outside the
+            // workspace. Workflow artifacts do not need hard-link semantics, so reject them.
+            return (metadata.is_file() && metadata.nlink() == 1).then_some(file);
+        }
+
+        if !file.metadata().ok()?.is_dir() {
             return None;
         }
-        if index + 1 == segments.len() {
-            if !metadata.is_file() {
-                return None;
+        directory = file;
+    }
+
+    None
+}
+
+#[cfg(not(unix))]
+fn open_regular_workspace_file(_workspace_root: &Path, _path_key: &str) -> Option<fs::File> {
+    // The evaluator fails closed until a descriptor-relative, no-follow implementation is
+    // available for this platform. A pathname-based fallback would reintroduce a TOCTOU read.
+    None
+}
+
+#[cfg(unix)]
+fn open_workspace_directory_no_follow(workspace_root: &Path) -> Option<fs::File> {
+    if workspace_root.as_os_str().is_empty() {
+        return None;
+    }
+
+    let is_absolute = workspace_root.is_absolute();
+    let mut directory = open_trusted_directory_anchor(is_absolute)?;
+
+    for component in workspace_root.components() {
+        match component {
+            Component::RootDir if is_absolute => {}
+            Component::CurDir => {}
+            Component::Normal(segment) => {
+                let next_directory = open_child_no_follow(&directory, segment, false)?;
+                if !next_directory.metadata().ok()?.is_dir() {
+                    return None;
+                }
+                directory = next_directory;
             }
-        } else if !metadata.is_dir() {
-            return None;
+            Component::RootDir | Component::ParentDir | Component::Prefix(_) => return None,
         }
     }
 
-    let canonical_path = fs::canonicalize(&path).ok()?;
-    if !canonical_path.starts_with(&canonical_workspace) {
+    Some(directory)
+}
+
+#[cfg(unix)]
+fn open_trusted_directory_anchor(is_absolute: bool) -> Option<fs::File> {
+    let anchor = CString::new(if is_absolute { "/" } else { "." }).ok()?;
+    let flags =
+        libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK;
+    let descriptor = unsafe {
+        // SAFETY: `anchor` is one of the NUL-terminated paths "/" or ".", and the returned
+        // descriptor is immediately owned by `File`, which closes it on every return path.
+        // Workspace paths are never opened by pathname.
+        libc::open(anchor.as_ptr(), flags)
+    };
+    let directory = file_from_descriptor(descriptor)?;
+    directory.metadata().ok()?.is_dir().then_some(directory)
+}
+
+#[cfg(unix)]
+fn open_child_no_follow(directory: &fs::File, segment: &OsStr, is_final: bool) -> Option<fs::File> {
+    let segment = CString::new(segment.as_bytes()).ok()?;
+    let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK;
+    if !is_final {
+        flags |= libc::O_DIRECTORY;
+    }
+    let descriptor = unsafe {
+        // SAFETY: `directory` owns a live directory descriptor, and `segment` is a NUL-terminated
+        // single path component. The returned descriptor is immediately owned by `File`.
+        libc::openat(directory.as_raw_fd(), segment.as_ptr(), flags)
+    };
+    file_from_descriptor(descriptor)
+}
+
+#[cfg(unix)]
+fn file_from_descriptor(descriptor: libc::c_int) -> Option<fs::File> {
+    if descriptor < 0 {
         return None;
     }
 
-    fs::read_to_string(path).ok()
+    Some(unsafe {
+        // SAFETY: `open` and `openat` return an owned descriptor when it is non-negative.
+        fs::File::from_raw_fd(descriptor)
+    })
 }
 
 fn validate_nonblank(field: &str, value: &str) -> TreeRingResult<()> {
@@ -578,10 +665,19 @@ fn has_windows_drive_prefix(value: &str) -> bool {
 mod tests {
     use std::fs;
 
+    #[cfg(unix)]
+    use std::io::Read;
+
+    #[cfg(unix)]
+    use std::path::{Path, PathBuf};
+
     use serde_json::json;
     use tempfile::tempdir;
 
     use super::{evaluate_workspace, WorkflowFileExpectation, WorkflowScenario};
+
+    #[cfg(unix)]
+    use super::{open_regular_workspace_file, open_workspace_directory_no_follow};
 
     fn scenario_with_expectations(
         expected_files: Vec<WorkflowFileExpectation>,
@@ -593,6 +689,33 @@ mod tests {
             workspace_files: Vec::new(),
             expected_files,
         }
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn evaluate_workspace_fails_closed_without_descriptor_relative_support() {
+        let workspace = tempdir().unwrap();
+        fs::write(
+            workspace.path().join("decision.md"),
+            "Choose the safe action.",
+        )
+        .unwrap();
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "decision.md".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
+        }]);
+
+        let reports = evaluate_workspace(&scenario, workspace.path());
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    fn physical_path(path: &Path) -> PathBuf {
+        fs::canonicalize(path).expect("test path must resolve to its physical location")
     }
 
     #[cfg(unix)]
@@ -611,11 +734,103 @@ mod tests {
             json_fields: None,
         }]);
 
-        let reports = evaluate_workspace(&scenario, workspace.path());
+        let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
         assert_eq!(reports.len(), 1);
         assert!(!reports[0].exists);
         assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluate_workspace_rejects_a_hard_linked_expected_file() {
+        let root = tempdir().unwrap();
+        let workspace_path = root.path().join("workspace");
+        let outside_path = root.path().join("outside");
+        fs::create_dir(&workspace_path).unwrap();
+        fs::create_dir(&outside_path).unwrap();
+        let external_file = outside_path.join("decision.md");
+        fs::write(&external_file, "Choose the safe action.").unwrap();
+        fs::hard_link(&external_file, workspace_path.join("decision.md")).unwrap();
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "decision.md".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
+        }]);
+
+        let reports = evaluate_workspace(&scenario, &physical_path(&workspace_path));
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluate_workspace_rejects_a_symlinked_workspace_root() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let parent = tempdir().unwrap();
+        let workspace_path = physical_path(workspace.path());
+        let parent_path = physical_path(parent.path());
+        fs::write(
+            workspace_path.join("decision.md"),
+            "Choose the safe action.",
+        )
+        .unwrap();
+        let linked_workspace = parent_path.join("linked-workspace");
+        symlink(&workspace_path, &linked_workspace).unwrap();
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "decision.md".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
+        }]);
+
+        let reports = evaluate_workspace(&scenario, &linked_workspace);
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluate_workspace_rejects_a_symlinked_ancestor_of_workspace_root() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let root_path = physical_path(root.path());
+        let trusted_parent = root_path.join("trusted-parent");
+        let outside_parent = root_path.join("outside-parent");
+        fs::create_dir(&trusted_parent).unwrap();
+        fs::create_dir(&outside_parent).unwrap();
+        let outside_workspace = outside_parent.join("workspace");
+        fs::create_dir(&outside_workspace).unwrap();
+        fs::write(
+            outside_workspace.join("decision.md"),
+            "Choose the safe action.",
+        )
+        .unwrap();
+        symlink(&outside_parent, trusted_parent.join("route")).unwrap();
+        let routed_workspace = trusted_parent.join("route/workspace");
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "decision.md".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
+        }]);
+
+        let reports = evaluate_workspace(&scenario, &routed_workspace);
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_directory_open_rejects_relative_parent_traversal() {
+        assert!(open_workspace_directory_no_follow(Path::new("../outside")).is_none());
     }
 
     #[cfg(unix)]
@@ -625,36 +840,63 @@ mod tests {
 
         let workspace = tempdir().unwrap();
         let outside = tempdir().unwrap();
+        let workspace_path = physical_path(workspace.path());
         fs::write(
             outside.path().join("decision.json"),
             r#"{"decision": {"status": "approved"}}"#,
         )
         .unwrap();
-        symlink(outside.path(), workspace.path().join("out")).unwrap();
+        symlink(outside.path(), workspace_path.join("out")).unwrap();
         let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
             path: "out/decision.json".to_string(),
             contains: None,
             json_fields: Some([("/decision/status".to_string(), json!("approved"))].into()),
         }]);
 
-        let reports = evaluate_workspace(&scenario, workspace.path());
+        let reports = evaluate_workspace(&scenario, &workspace_path);
 
         assert_eq!(reports.len(), 1);
         assert!(!reports[0].exists);
         assert!(!reports[0].passed);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn approved_workspace_file_stays_bound_after_its_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let workspace_path = physical_path(workspace.path());
+        let outside = tempdir().unwrap();
+        let decision_path = workspace_path.join("decision.md");
+        fs::write(&decision_path, "approved workspace content").unwrap();
+        let external_file = outside.path().join("decision.md");
+        fs::write(&external_file, "external replacement content").unwrap();
+
+        let mut approved_file =
+            open_regular_workspace_file(&workspace_path, "decision.md").expect("regular file");
+        fs::rename(&decision_path, workspace_path.join("decision.previous.md")).unwrap();
+        symlink(&external_file, &decision_path).unwrap();
+
+        let mut content = String::new();
+        approved_file.read_to_string(&mut content).unwrap();
+
+        assert_eq!(content, "approved workspace content");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn evaluate_workspace_accepts_regular_nested_files_for_both_check_modes() {
         let workspace = tempdir().unwrap();
-        fs::create_dir_all(workspace.path().join("out")).unwrap();
+        let workspace_path = physical_path(workspace.path());
+        fs::create_dir_all(workspace_path.join("out")).unwrap();
         fs::write(
-            workspace.path().join("out/decision.md"),
+            workspace_path.join("out/decision.md"),
             "Choose the safe action.",
         )
         .unwrap();
         fs::write(
-            workspace.path().join("out/decision.json"),
+            workspace_path.join("out/decision.json"),
             r#"{"decision": {"status": "approved"}}"#,
         )
         .unwrap();
@@ -671,7 +913,7 @@ mod tests {
             },
         ]);
 
-        let reports = evaluate_workspace(&scenario, workspace.path());
+        let reports = evaluate_workspace(&scenario, &workspace_path);
 
         assert_eq!(reports.len(), 2);
         assert!(reports.iter().all(|report| report.exists));

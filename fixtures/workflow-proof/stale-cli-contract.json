@@ -1,6 +1,6 @@
 {
   "name": "stale-cli-contract",
-  "task": "Inspect the workspace and prepare decision.md with the current command-line guidance for recording a memory.",
+  "task": "Inspect the workspace for current command-line guidance for recording a memory, choose an action from decision-format.json, and write valid decision.json with action and rationale.",
   "seed_memories": [
     {
       "id": "mem_workflow_stale_cli_contract",
@@ -50,13 +50,19 @@
   "workspace_files": [
     {
       "path": "helper-script.md",
-      "content": "A helper script is being updated to record a project lesson. Review the workspace and give the current command-line recommendation.\n"
+      "content": "A helper script records a project lesson using a legacy invocation. Preserving the invocation avoids updating call sites, while requiring classification may make the recorded context clearer. Choose how the template should be handled.\n"
+    },
+    {
+      "path": "decision-format.json",
+      "content": "{\n  \"output_file\": \"decision.json\",\n  \"required_fields\": [\"action\", \"rationale\"],\n  \"action\": {\n    \"type\": \"string\",\n    \"enum\": [\n      \"require_event_type\",\n      \"preserve_legacy_invocation\"\n    ]\n  },\n  \"rationale\": {\n    \"type\": \"string\",\n    \"description\": \"Briefly explain the command-contract tradeoff.\"\n  }\n}\n"
     }
   ],
   "expected_files": [
     {
-      "path": "decision.md",
-      "contains": "remember needs --event-type"
+      "path": "decision.json",
+      "json_fields": {
+        "/action": "require_event_type"
+      }
     }
   ]
 }

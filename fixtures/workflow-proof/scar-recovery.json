@@ -1,6 +1,6 @@
 {
   "name": "scar-recovery",
-  "task": "Inspect the workspace and prepare decision.md with the appropriate workflow decision.",
+  "task": "Inspect the cache migration incident involving stale state in the workspace, choose an action from decision-format.json, and write valid decision.json with action and rationale.",
   "seed_memories": [
     {
       "id": "mem_workflow_cache_migration_scar",
@@ -27,13 +27,19 @@
   "workspace_files": [
     {
       "path": "incident.md",
-      "content": "A cache migration left stale state after a failed rollout. Review the incident and choose the next recovery action.\n"
+      "content": "A failed cache migration left stale state in a rollout. Retrying might restore service faster, but it could reuse inconsistent state; rolling back first adds recovery work but restores a known baseline. Choose the next recovery action.\n"
+    },
+    {
+      "path": "decision-format.json",
+      "content": "{\n  \"output_file\": \"decision.json\",\n  \"required_fields\": [\"action\", \"rationale\"],\n  \"action\": {\n    \"type\": \"string\",\n    \"enum\": [\n      \"rollback_cache_migration\",\n      \"retry_cache_migration\"\n    ]\n  },\n  \"rationale\": {\n    \"type\": \"string\",\n    \"description\": \"Briefly explain the recovery tradeoff.\"\n  }\n}\n"
     }
   ],
   "expected_files": [
     {
-      "path": "decision.md",
-      "contains": "roll back the cache migration"
+      "path": "decision.json",
+      "json_fields": {
+        "/action": "rollback_cache_migration"
+      }
     }
   ]
 }

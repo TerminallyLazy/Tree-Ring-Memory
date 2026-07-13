@@ -4,6 +4,9 @@ use std::{
     path::Path,
 };
 
+#[cfg(unix)]
+use std::path::PathBuf;
+
 use serde_json::{json, Value};
 use tempfile::tempdir;
 use tree_ring_memory_core::{
@@ -43,6 +46,11 @@ fn json_field_scenario(json_fields: Value) -> WorkflowScenario {
         .unwrap(),
     )
     .unwrap()
+}
+
+#[cfg(unix)]
+fn physical_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path).expect("test path must resolve to its physical location")
 }
 
 fn valid_seed_memory() -> Value {
@@ -349,6 +357,7 @@ fn validates_agent_responses_without_validating_context_membership() {
     .is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn evaluates_expected_files_in_fixture_order() {
     let scenario = parse_workflow_scenario(
@@ -370,7 +379,7 @@ fn evaluates_expected_files_in_fixture_order() {
     )
     .unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert_eq!(reports.len(), 2);
     assert_eq!(reports[0].path, "decision.md");
@@ -381,6 +390,7 @@ fn evaluates_expected_files_in_fixture_order() {
     assert!(!reports[1].passed);
 }
 
+#[cfg(unix)]
 #[test]
 fn retains_legacy_contains_file_checks() {
     let scenario = parse_workflow_scenario(VALID_SCENARIO).unwrap();
@@ -391,7 +401,7 @@ fn retains_legacy_contains_file_checks() {
     )
     .unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].contains.as_deref(), Some("safe action"));
@@ -399,6 +409,7 @@ fn retains_legacy_contains_file_checks() {
     assert!(reports[0].passed);
 }
 
+#[cfg(unix)]
 #[test]
 fn evaluates_json_field_expectations_with_exact_json_pointer_values() {
     let scenario = parse_workflow_scenario(
@@ -427,7 +438,7 @@ fn evaluates_json_field_expectations_with_exact_json_pointer_values() {
     )
     .unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert_eq!(reports.len(), 1);
     assert!(reports[0].exists);
@@ -453,6 +464,7 @@ fn evaluates_json_field_expectations_with_exact_json_pointer_values() {
     assert!(serialized_report.contains("\"json_fields\""));
 }
 
+#[cfg(unix)]
 #[test]
 fn marks_json_field_check_failed_when_a_pointer_is_missing() {
     let scenario = json_field_scenario(json!({
@@ -466,12 +478,13 @@ fn marks_json_field_check_failed_when_a_pointer_is_missing() {
     )
     .unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert!(reports[0].exists);
     assert!(!reports[0].passed);
 }
 
+#[cfg(unix)]
 #[test]
 fn marks_json_field_check_failed_when_a_value_is_wrong() {
     let scenario = json_field_scenario(json!({"/decision/status": "approved"}));
@@ -482,19 +495,20 @@ fn marks_json_field_check_failed_when_a_value_is_wrong() {
     )
     .unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert!(reports[0].exists);
     assert!(!reports[0].passed);
 }
 
+#[cfg(unix)]
 #[test]
 fn marks_json_field_check_failed_when_file_is_not_json() {
     let scenario = json_field_scenario(json!({"/decision/status": "approved"}));
     let workspace = tempdir().unwrap();
     fs::write(workspace.path().join("decision.json"), "not JSON").unwrap();
 
-    let reports = evaluate_workspace(&scenario, workspace.path());
+    let reports = evaluate_workspace(&scenario, &physical_path(workspace.path()));
 
     assert!(reports[0].exists);
     assert!(!reports[0].passed);

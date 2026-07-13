@@ -303,6 +303,12 @@ git commit -m "docs: add agent workflow proof fixtures"
 
 ### Task 4: Execute the Explicit Real-Agent Proof and Capture Evidence
 
+> **Implementation update (2026-07-13):** The shipped fixtures now require a
+> structured `decision.json` action and validate its exact JSON field, rather
+> than matching prose in `decision.md`. Preserve every prior run as evidence:
+> use a fresh, absent output directory for each new run instead of deleting an
+> earlier artifact.
+
 **Files:**
 - Generated only: `target/tree-ring-certification/workflow-proof/`
 
@@ -315,9 +321,10 @@ git commit -m "docs: add agent workflow proof fixtures"
 Run:
 
 ```bash
-rm -rf target/tree-ring-certification/workflow-proof
+proof_output=target/tree-ring-certification/workflow-proof-<run-id>
+test ! -e "$proof_output"
 cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
-  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  fixtures/workflow-proof "$proof_output" \
   --model <model-id>
 ```
 
@@ -328,8 +335,8 @@ Expected: all nine paired trials complete, the report exists, and the process ex
 Run:
 
 ```bash
-sed -n '1,260p' target/tree-ring-certification/workflow-proof/workflow-proof-report.json
-find target/tree-ring-certification/workflow-proof/trials -maxdepth 4 -type f | sort
+sed -n '1,260p' "$proof_output/workflow-proof-report.json"
+find "$proof_output/trials" -maxdepth 4 -type f | sort
 ```
 
 Expected: report context IDs differ only by arm; no-memory trials have empty contexts; each retained workspace exposes the validator-observable file state.

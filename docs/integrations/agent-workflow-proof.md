@@ -28,18 +28,25 @@ The command runs the same task in three retained workspaces for every fixture:
 
 The fixture pack exercises constraint recall (`no-background-writer`), current
 rules over superseded rules (`stale-cli-contract`), and a failure scar changing
-the recovery decision (`scar-recovery`). The agent task only asks it to inspect
-the materialized workspace and prepare `decision.md`; deterministic validators
-remain outside the request.
+the recovery decision (`scar-recovery`). Each workspace materializes a
+`decision-format.json` action enum. The agent task asks it to inspect that
+workspace and write `decision.json` with an `action` and `rationale`; it does
+not name the expected action. Deterministic validators remain outside the agent
+request and compare only the exact `decision.json` `/action` value.
 
 ## Evidence and Reproducibility
 
 The selected output directory retains all trial workspaces at
 `trials/<scenario>/<arm>/workspace/`, plus a machine-readable
 `workflow-proof-report.json` and a readable `workflow-proof-summary.md`.
+For evidence integrity, artifacts use the resolved output directory, and
+descriptor-relative validation accepts only regular unlinked workspace files,
+rejecting symlink and hard-link outputs; non-Unix evaluation currently fails
+closed until an equivalent descriptor-safe implementation exists.
 Treat `workflow-proof-report.json` as observed paired evidence for these
 specific controlled fixtures: inspect the retained workspaces, memory context,
-agent response, and deterministic file checks before drawing a conclusion.
+agent response, and deterministic JSON field checks before drawing a
+conclusion.
 
 For every run, record alongside the output:
 

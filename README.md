@@ -476,7 +476,8 @@ cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
 ```
 
 See [agent workflow proof](docs/integrations/agent-workflow-proof.md) for the
-controlled command, retained artifacts, and interpretation limits.
+controlled command, retained artifacts, exact structured-outcome checks, and
+interpretation limits.
 
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes

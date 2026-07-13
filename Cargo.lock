@@ -1690,7 +1690,7 @@ checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "tree-ring-memory-cli"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "chrono",
  "clap",
@@ -1704,9 +1704,10 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "chrono",
+ "libc",
  "once_cell",
  "regex",
  "serde",
@@ -1718,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "tree-ring-memory-sqlite"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "rusqlite",
  "serde_json",

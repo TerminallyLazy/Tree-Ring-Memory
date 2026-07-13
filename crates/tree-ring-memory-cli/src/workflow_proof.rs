@@ -210,6 +210,12 @@ fn run_workflow_proof_with_tree_ring_context_builder(
 ) -> Result<WorkflowProofReport, String> {
     fs::create_dir_all(output_dir)
         .map_err(|error| format!("output_directory_create_error: {error}"))?;
+    let output_dir = fs::canonicalize(output_dir).map_err(|error| {
+        format!(
+            "output_directory_canonicalize_error {}: {error}",
+            output_dir.display()
+        )
+    })?;
 
     let fixture_paths = sorted_fixture_paths(fixture_dir)?;
     if fixture_paths.is_empty() {
@@ -227,14 +233,14 @@ fn run_workflow_proof_with_tree_ring_context_builder(
         scenarios.push(run_scenario(
             &scenario,
             &scenario_id,
-            output_dir,
+            &output_dir,
             agent,
             &tree_ring_context_builder,
         )?);
     }
 
     let report = summarize(agent.evidence_identity(), scenarios);
-    write_reports(output_dir, &report)?;
+    write_reports(&output_dir, &report)?;
     Ok(report)
 }
 
@@ -717,8 +723,8 @@ mod tests {
             self.calls.lock().unwrap().push(request.arm.clone());
             if request.arm == WorkflowArm::RawMemory {
                 fs::write(
-                    request.workspace_root.join("decision.md"),
-                    "Use the seeded control decision.\n",
+                    request.workspace_root.join("decision.json"),
+                    r#"{"action":"use_seeded_control_decision","rationale":"The visible control memory resolves the choice."}"#,
                 )
                 .map_err(|error| error.to_string())?;
             }
@@ -763,6 +769,14 @@ mod tests {
         assert_eq!(trials[0].status, WorkflowProofTrialStatus::Fail);
         assert_eq!(trials[1].status, WorkflowProofTrialStatus::Pass);
         assert_eq!(trials[2].status, WorkflowProofTrialStatus::Error);
+        assert_eq!(trials[1].file_checks[0].path, "decision.json");
+        assert_eq!(
+            trials[1].file_checks[0]
+                .json_fields
+                .as_ref()
+                .and_then(|fields| fields.get("/action")),
+            Some(&json!("use_seeded_control_decision"))
+        );
         assert_eq!(trials[2].errors, vec!["tree_ring_context_error"]);
         assert!(trials[2].agent_response.is_none());
         assert!(trials[2].memory_context.is_empty());
@@ -781,6 +795,41 @@ mod tests {
         assert_eq!(persisted, report);
         assert!(!persisted_json.contains(forced_error));
         assert!(output.path().join("workflow-proof-summary.md").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_output_directory_before_deriving_workspaces_and_keeps_report_paths_relative() {
+        let fixtures = tempdir().unwrap();
+        let physical_output = tempdir().unwrap();
+        let output_parent = tempdir().unwrap();
+        let linked_output = output_parent.path().join("workflow-proof-output");
+        symlink(physical_output.path(), &linked_output).unwrap();
+        write_context_failure_fixture(fixtures.path());
+        let agent = ControlAgent {
+            calls: Mutex::new(Vec::new()),
+        };
+
+        let report = run_workflow_proof_with_tree_ring_context_builder(
+            fixtures.path(),
+            &linked_output,
+            &agent,
+            |_| Err("forced tree-ring context failure".to_string()),
+        )
+        .unwrap();
+
+        let raw_memory = &report.scenarios[0].trials[1];
+        assert_eq!(raw_memory.status, WorkflowProofTrialStatus::Pass);
+        assert_eq!(
+            raw_memory.workspace,
+            "trials/context-failure/raw_memory/workspace"
+        );
+        assert!(!std::path::Path::new(&raw_memory.workspace).is_absolute());
+
+        let resolved_output = fs::canonicalize(&linked_output).unwrap();
+        assert!(resolved_output.join(&raw_memory.workspace).is_dir());
+        assert!(resolved_output.join("workflow-proof-report.json").is_file());
+        assert!(resolved_output.join("workflow-proof-summary.md").is_file());
     }
 
     #[cfg(unix)]
@@ -837,7 +886,7 @@ mod tests {
             fixture_dir.join("context-failure.json"),
             r#"{
   "name": "context failure",
-  "task": "Create decision.md from the visible control memory.",
+  "task": "Inspect the visible control memory and workspace, choose an action from decision-format.json, and write valid decision.json with action and rationale.",
   "seed_memories": [
     {
       "id": "mem_control",
@@ -856,10 +905,11 @@ mod tests {
     }
   ],
   "workspace_files": [
-    {"path": "task.md", "content": "Create the requested decision."}
+    {"path": "task.md", "content": "A visible control note may resolve this workflow choice."},
+    {"path": "decision-format.json", "content": "{\n  \"output_file\": \"decision.json\",\n  \"required_fields\": [\"action\", \"rationale\"],\n  \"action\": {\n    \"type\": \"string\",\n    \"enum\": [\n      \"use_seeded_control_decision\",\n      \"defer_without_memory\"\n    ]\n  },\n  \"rationale\": {\n    \"type\": \"string\"\n  }\n}\n"}
   ],
   "expected_files": [
-    {"path": "decision.md", "contains": "seeded control decision"}
+    {"path": "decision.json", "json_fields": {"/action": "use_seeded_control_decision"}}
   ]
 }"#,
         )
