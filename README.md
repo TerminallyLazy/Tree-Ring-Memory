@@ -464,6 +464,11 @@ The quality report is written to
 `target/tree-ring-certification/quality/quality-report.json` with a readable
 summary at `target/tree-ring-certification/quality/quality-summary.md`.
 
+An explicit agent workflow evaluation keeps paired trial workspaces and an
+observed evidence report separate from normal certification and CI. See [agent
+workflow proof](docs/integrations/agent-workflow-proof.md) for its controlled
+command, retained artifacts, and interpretation limits.
+
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
 run the release artifact workflow for Linux and macOS.

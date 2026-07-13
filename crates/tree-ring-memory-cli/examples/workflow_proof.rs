@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use tree_ring_memory_cli::workflow_proof::{
     run_workflow_proof, CodexWorkflowAgent, WorkflowProofReport,
@@ -6,6 +6,16 @@ use tree_ring_memory_cli::workflow_proof::{
 
 const USAGE: &str =
     "usage: workflow_proof <fixture-dir> <output-dir> [--codex-bin <path>] [--model <model>]";
+
+enum WorkflowProofCliArgs {
+    Help,
+    Run {
+        fixture_dir: PathBuf,
+        output_dir: PathBuf,
+        codex_binary: PathBuf,
+        model: Option<String>,
+    },
+}
 
 fn main() {
     if let Err(error) = run() {
@@ -15,11 +25,44 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let mut args = std::env::args_os().skip(1);
-    let fixture_dir = args
-        .next()
-        .map(PathBuf::from)
-        .ok_or_else(|| USAGE.to_string())?;
+    let args = match parse_cli_args(std::env::args_os().skip(1))? {
+        WorkflowProofCliArgs::Help => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        WorkflowProofCliArgs::Run {
+            fixture_dir,
+            output_dir,
+            codex_binary,
+            model,
+        } => (fixture_dir, output_dir, codex_binary, model),
+    };
+
+    let (fixture_dir, output_dir, codex_binary, model) = args;
+    let agent = CodexWorkflowAgent::new(codex_binary, model);
+    let report = run_workflow_proof(&fixture_dir, &output_dir, &agent)?;
+    print_summary(&report);
+    if !report.tree_ring_complete {
+        return Err(format!(
+            "Tree Ring trials were incomplete after reports were written: {} failed or errored trial(s)",
+            tree_ring_non_passes(&report)
+        ));
+    }
+    Ok(())
+}
+
+fn parse_cli_args(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<WorkflowProofCliArgs, String> {
+    let mut args = arguments.into_iter();
+    let Some(first_argument) = args.next() else {
+        return Err(USAGE.to_string());
+    };
+    if first_argument == "--help" {
+        return Ok(WorkflowProofCliArgs::Help);
+    }
+
+    let fixture_dir = PathBuf::from(first_argument);
     let output_dir = args
         .next()
         .map(PathBuf::from)
@@ -53,16 +96,12 @@ fn run() -> Result<(), String> {
         }
     }
 
-    let agent = CodexWorkflowAgent::new(codex_binary, model);
-    let report = run_workflow_proof(&fixture_dir, &output_dir, &agent)?;
-    print_summary(&report);
-    if !report.tree_ring_complete {
-        return Err(format!(
-            "Tree Ring trials were incomplete after reports were written: {} failed or errored trial(s)",
-            tree_ring_non_passes(&report)
-        ));
-    }
-    Ok(())
+    Ok(WorkflowProofCliArgs::Run {
+        fixture_dir,
+        output_dir,
+        codex_binary,
+        model,
+    })
 }
 
 fn print_summary(report: &WorkflowProofReport) {
@@ -82,4 +121,19 @@ fn tree_ring_non_passes(report: &WorkflowProofReport) -> usize {
         .find(|summary| summary.arm == tree_ring_memory_core::WorkflowArm::TreeRing)
         .map(|summary| summary.fail_count + summary.error_count)
         .unwrap_or(report.scenario_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+
+    use super::{parse_cli_args, WorkflowProofCliArgs};
+
+    #[test]
+    fn parse_cli_args_recognizes_help() {
+        assert!(matches!(
+            parse_cli_args([OsString::from("--help")]),
+            Ok(WorkflowProofCliArgs::Help)
+        ));
+    }
 }

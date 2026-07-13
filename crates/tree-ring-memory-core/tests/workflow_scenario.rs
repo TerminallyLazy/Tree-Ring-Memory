@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::BTreeSet, fs, path::Path};
 
 use serde_json::{json, Value};
 use tempfile::tempdir;
@@ -335,6 +335,46 @@ fn workspace_evaluation_rejects_windows_root_and_prefix_paths() {
         assert_eq!(reports.len(), 1);
         assert!(!reports[0].exists, "{unsafe_path:?} must not be read");
         assert!(!reports[0].passed, "{unsafe_path:?} must not pass");
+    }
+}
+
+#[test]
+fn workflow_proof_fixtures_parse_and_cover_the_required_scenarios() {
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("fixtures/workflow-proof");
+    let entries = fs::read_dir(&fixture_dir)
+        .unwrap_or_else(|error| panic!("read {}: {error}", fixture_dir.display()));
+    let mut scenario_names = BTreeSet::new();
+
+    for entry in entries {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            let input = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+            let scenario = parse_workflow_scenario(&input)
+                .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+            assert!(
+                !scenario.expected_files.is_empty(),
+                "{} must define an expected file",
+                path.display()
+            );
+            scenario_names.insert(scenario.name);
+        }
+    }
+
+    for required_name in [
+        "no-background-writer",
+        "stale-cli-contract",
+        "scar-recovery",
+    ] {
+        assert!(
+            scenario_names.contains(required_name),
+            "missing workflow proof scenario {required_name}"
+        );
     }
 }
 
