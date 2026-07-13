@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
@@ -38,11 +38,49 @@ impl CodexWorkflowAgent {
         if model.is_empty() {
             return Err("codex workflow model is required".to_string());
         }
+        let binary = resolve_codex_binary(&binary)?;
         Ok(Self {
             binary,
             model: model.to_string(),
         })
     }
+}
+
+fn resolve_codex_binary(binary: &Path) -> Result<PathBuf, String> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    resolve_codex_binary_from_path(binary, path.as_os_str())
+}
+
+fn resolve_codex_binary_from_path(binary: &Path, path: &OsStr) -> Result<PathBuf, String> {
+    if binary.as_os_str().is_empty() {
+        return Err("codex workflow binary is required".to_string());
+    }
+
+    let candidate = if is_bare_executable_name(binary) {
+        std::env::split_paths(path)
+            .map(|directory| directory.join(binary))
+            .find(|candidate| candidate.is_file())
+            .ok_or_else(|| {
+                format!(
+                    "codex workflow executable `{}` was not found on PATH",
+                    binary.display()
+                )
+            })?
+    } else {
+        binary.to_path_buf()
+    };
+
+    fs::canonicalize(&candidate).map_err(|error| {
+        format!(
+            "codex workflow executable `{}` could not be resolved: {error}",
+            candidate.display()
+        )
+    })
+}
+
+fn is_bare_executable_name(binary: &Path) -> bool {
+    let mut components = binary.components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
 impl WorkflowAgent for CodexWorkflowAgent {
@@ -656,6 +694,9 @@ memory_context:\n{}",
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use std::sync::Mutex;
 
     use super::*;
@@ -740,6 +781,55 @@ mod tests {
         assert_eq!(persisted, report);
         assert!(!persisted_json.contains(forced_error));
         assert!(output.path().join("workflow-proof-summary.md").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_a_bare_codex_name_from_the_supplied_path_and_canonicalizes_the_symlink() {
+        let directory = tempdir().unwrap();
+        let release = directory.path().join("release");
+        let bin = directory.path().join("bin");
+        fs::create_dir_all(&release).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+
+        let target = release.join("codex");
+        fs::write(&target, "fake codex").unwrap();
+        symlink(&target, bin.join("codex")).unwrap();
+        let path = env::join_paths([bin]).unwrap();
+
+        let resolved = resolve_codex_binary_from_path(Path::new("codex"), path.as_os_str())
+            .expect("bare Codex name should resolve from the supplied PATH");
+
+        assert_eq!(resolved, fs::canonicalize(target).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalizes_an_explicit_codex_binary_symlink() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("codex-release");
+        let alias = directory.path().join("codex");
+        fs::write(&target, "fake codex").unwrap();
+        symlink(&target, &alias).unwrap();
+
+        let agent = CodexWorkflowAgent::new(alias, "test-model".to_string())
+            .expect("explicit Codex path should resolve its symlink");
+
+        assert_eq!(agent.binary, fs::canonicalize(target).unwrap());
+    }
+
+    #[test]
+    fn reports_a_clear_error_when_a_bare_codex_name_is_not_on_the_supplied_path() {
+        let directory = tempdir().unwrap();
+        let path = env::join_paths([directory.path()]).unwrap();
+
+        let error = resolve_codex_binary_from_path(Path::new("codex"), path.as_os_str())
+            .expect_err("missing bare Codex binary must fail");
+
+        assert_eq!(
+            error,
+            "codex workflow executable `codex` was not found on PATH"
+        );
     }
 
     fn write_context_failure_fixture(fixture_dir: &Path) {
