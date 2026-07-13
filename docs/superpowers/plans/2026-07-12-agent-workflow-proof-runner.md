@@ -151,7 +151,7 @@ git commit -m "feat: add workflow proof scenario contract"
 
 **Interfaces:**
 - Produces `run_workflow_proof(fixture_dir: &Path, output_dir: &Path, agent: &impl WorkflowAgent) -> Result<WorkflowProofReport, String>`.
-- Produces `CodexWorkflowAgent::new(binary: PathBuf, model: Option<String>)`.
+- Produces `CodexWorkflowAgent::new(binary: PathBuf, model: String) -> Result<CodexWorkflowAgent, String>`; it rejects blank model IDs and always passes `--model` when executing Codex.
 - Produces `workflow-proof-report.json`, `workflow-proof-summary.md`, and `trials/<scenario>/<arm>/` under the selected output directory.
 - Consumes the Task 1 types and `MemoryRetriever` without changing SQLite or normal certification behavior.
 
@@ -181,7 +181,7 @@ Add a CLI library target exposing `workflow_proof`. In `run_workflow_proof`:
 5. Require every `used_memory_id` returned by the agent to be present in the request's `memory_context`; otherwise emit a trial error.
 6. Apply `evaluate_workspace` after agent execution. A control failure is a normal `Fail`; a Tree Ring failure or error makes the example exit nonzero after reports are written.
 
-Use report fields `schema_version`, `generated_at`, `scenario_count`, `trial_count`, `arm_summaries`, `scenarios`, `tree_ring_wins_over_no_memory`, `tree_ring_wins_over_raw_memory`, and `tree_ring_complete`. Name the comparison signal `observed` lift, never `proven` lift.
+Use report fields `schema_version`, `generated_at`, `agent_identity`, `scenario_count`, `trial_count`, `arm_summaries`, `scenarios`, `tree_ring_wins_over_no_memory`, `tree_ring_wins_over_raw_memory`, and `tree_ring_complete`. Name the comparison signal `observed` lift, never `proven` lift.
 
 - [ ] **Step 4: Implement the explicit Codex adapter**
 
@@ -193,12 +193,13 @@ pub trait WorkflowAgent {
 }
 ```
 
-`CodexWorkflowAgent` must invoke exactly this shape (with an optional `--model` pair only when supplied):
+`CodexWorkflowAgent` must require a validated nonblank model ID and invoke exactly this shape:
 
 ```text
 codex exec --ephemeral --sandbox workspace-write --cd <workspace>
   --output-schema <workspace>/.tree-ring-workflow-schema.json
   --output-last-message <workspace>/.tree-ring-workflow-response.json
+  --model <model-id>
   <constructed prompt>
 ```
 
@@ -207,7 +208,7 @@ The prompt must say: work only in the workspace, use source/task files over memo
 The example parser must accept:
 
 ```text
-workflow_proof <fixture-dir> <output-dir> [--codex-bin <path>] [--model <model>]
+workflow_proof <fixture-dir> <output-dir> --model <model-id> [--codex-bin <path>]
 ```
 
 The default binary is `codex`; no invocation happens until a user runs this example.
@@ -272,7 +273,8 @@ Create `docs/integrations/agent-workflow-proof.md` containing:
 
 ```bash
 cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
-  fixtures/workflow-proof target/tree-ring-certification/workflow-proof
+  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  --model <model-id>
 ```
 
 Document the three arms, retained workspace evidence, no automatic Codex invocation in CI, required `--model <model-id>` plus model/version/commit capture, no claim beyond the specific controlled fixtures, and the next step of running external benchmark adapters. The model identity must be visible in both `workflow-proof-report.json` and `workflow-proof-summary.md`; do not make it an operator-only side note.
@@ -315,7 +317,8 @@ Run:
 ```bash
 rm -rf target/tree-ring-certification/workflow-proof
 cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
-  fixtures/workflow-proof target/tree-ring-certification/workflow-proof
+  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  --model <model-id>
 ```
 
 Expected: all nine paired trials complete, the report exists, and the process exits zero only when every Tree Ring arm satisfies its deterministic validator.
