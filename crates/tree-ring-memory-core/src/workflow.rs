@@ -388,13 +388,10 @@ pub fn evaluate_workspace(
             let (exists, passed) = if let Ok(path_key) =
                 canonical_workflow_path("workflow file expectation path", &expectation.path)
             {
-                let path = workspace_root.join(path_key);
-                let exists = path.is_file();
-                let passed = exists
-                    && fs::read_to_string(&path)
-                        .map(|content| evaluate_file_content(expectation, &content))
-                        .unwrap_or(false);
-                (exists, passed)
+                match read_regular_workspace_file(workspace_root, &path_key) {
+                    Some(content) => (true, evaluate_file_content(expectation, &content)),
+                    None => (false, false),
+                }
             } else {
                 (false, false)
             };
@@ -408,6 +405,38 @@ pub fn evaluate_workspace(
             }
         })
         .collect()
+}
+
+fn read_regular_workspace_file(workspace_root: &Path, path_key: &str) -> Option<String> {
+    let workspace_metadata = fs::symlink_metadata(workspace_root).ok()?;
+    if workspace_metadata.file_type().is_symlink() || !workspace_metadata.is_dir() {
+        return None;
+    }
+    let canonical_workspace = fs::canonicalize(workspace_root).ok()?;
+
+    let segments: Vec<_> = path_key.split('/').collect();
+    let mut path = workspace_root.to_path_buf();
+    for (index, segment) in segments.iter().enumerate() {
+        path.push(segment);
+        let metadata = fs::symlink_metadata(&path).ok()?;
+        if metadata.file_type().is_symlink() {
+            return None;
+        }
+        if index + 1 == segments.len() {
+            if !metadata.is_file() {
+                return None;
+            }
+        } else if !metadata.is_dir() {
+            return None;
+        }
+    }
+
+    let canonical_path = fs::canonicalize(&path).ok()?;
+    if !canonical_path.starts_with(&canonical_workspace) {
+        return None;
+    }
+
+    fs::read_to_string(path).ok()
 }
 
 fn validate_nonblank(field: &str, value: &str) -> TreeRingResult<()> {
@@ -543,4 +572,109 @@ fn canonical_workflow_path(field: &str, value: &str) -> TreeRingResult<String> {
 fn has_windows_drive_prefix(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    use super::{evaluate_workspace, WorkflowFileExpectation, WorkflowScenario};
+
+    fn scenario_with_expectations(
+        expected_files: Vec<WorkflowFileExpectation>,
+    ) -> WorkflowScenario {
+        WorkflowScenario {
+            name: "workspace evaluation".to_string(),
+            task: "Check the generated files.".to_string(),
+            seed_memories: Vec::new(),
+            workspace_files: Vec::new(),
+            expected_files,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluate_workspace_rejects_a_final_symlinked_expected_file() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let external_file = outside.path().join("decision.md");
+        fs::write(&external_file, "Choose the safe action.").unwrap();
+        symlink(&external_file, workspace.path().join("decision.md")).unwrap();
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "decision.md".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
+        }]);
+
+        let reports = evaluate_workspace(&scenario, workspace.path());
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evaluate_workspace_rejects_a_symlinked_parent_of_a_structured_expected_file() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        fs::write(
+            outside.path().join("decision.json"),
+            r#"{"decision": {"status": "approved"}}"#,
+        )
+        .unwrap();
+        symlink(outside.path(), workspace.path().join("out")).unwrap();
+        let scenario = scenario_with_expectations(vec![WorkflowFileExpectation {
+            path: "out/decision.json".to_string(),
+            contains: None,
+            json_fields: Some([("/decision/status".to_string(), json!("approved"))].into()),
+        }]);
+
+        let reports = evaluate_workspace(&scenario, workspace.path());
+
+        assert_eq!(reports.len(), 1);
+        assert!(!reports[0].exists);
+        assert!(!reports[0].passed);
+    }
+
+    #[test]
+    fn evaluate_workspace_accepts_regular_nested_files_for_both_check_modes() {
+        let workspace = tempdir().unwrap();
+        fs::create_dir_all(workspace.path().join("out")).unwrap();
+        fs::write(
+            workspace.path().join("out/decision.md"),
+            "Choose the safe action.",
+        )
+        .unwrap();
+        fs::write(
+            workspace.path().join("out/decision.json"),
+            r#"{"decision": {"status": "approved"}}"#,
+        )
+        .unwrap();
+        let scenario = scenario_with_expectations(vec![
+            WorkflowFileExpectation {
+                path: "out/decision.md".to_string(),
+                contains: Some("safe action".to_string()),
+                json_fields: None,
+            },
+            WorkflowFileExpectation {
+                path: "out/decision.json".to_string(),
+                contains: None,
+                json_fields: Some([("/decision/status".to_string(), json!("approved"))].into()),
+            },
+        ]);
+
+        let reports = evaluate_workspace(&scenario, workspace.path());
+
+        assert_eq!(reports.len(), 2);
+        assert!(reports.iter().all(|report| report.exists));
+        assert!(reports.iter().all(|report| report.passed));
+    }
 }
