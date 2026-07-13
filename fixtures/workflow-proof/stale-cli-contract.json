@@ -1,6 +1,6 @@
 {
   "name": "stale-cli-contract",
-  "task": "Inspect the workspace and prepare decision.md with the appropriate workflow decision.",
+  "task": "Inspect the workspace and prepare decision.md with the current command-line guidance for recording a memory.",
   "seed_memories": [
     {
       "id": "mem_workflow_stale_cli_contract",

@@ -118,6 +118,34 @@ fn paired_runner_keeps_controls_and_records_observed_lift() {
 }
 
 #[test]
+fn stale_cli_fixture_injects_current_contract_and_omits_superseded_contract() {
+    let fixtures = tempdir().unwrap();
+    let output = tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("fixtures/workflow-proof/stale-cli-contract.json");
+    fs::copy(&fixture, fixtures.path().join("stale-cli-contract.json"))
+        .unwrap_or_else(|error| panic!("copy {}: {error}", fixture.display()));
+    let agent = FakeAgent::new(false);
+
+    let report = run_workflow_proof(fixtures.path(), output.path(), &agent).unwrap();
+
+    let scenario = &report.scenarios[0];
+    let raw_memory = trial_for(scenario, WorkflowArm::RawMemory);
+    assert_eq!(
+        memory_ids(&raw_memory.memory_context),
+        ["mem_workflow_current_cli_contract"]
+    );
+
+    let tree_ring = trial_for(scenario, WorkflowArm::TreeRing);
+    assert_eq!(
+        memory_ids(&tree_ring.memory_context),
+        ["mem_workflow_current_cli_contract"]
+    );
+    assert!(!memory_ids(&tree_ring.memory_context).contains(&"mem_workflow_stale_cli_contract"));
+}
+
+#[test]
 fn unknown_cited_memory_is_recorded_as_a_trial_error() {
     let fixtures = tempdir().unwrap();
     let output = tempdir().unwrap();
@@ -244,6 +272,10 @@ fn request_for(requests: &[WorkflowAgentRequest], arm: WorkflowArm) -> &Workflow
         .iter()
         .find(|request| request.arm == arm)
         .unwrap_or_else(|| panic!("missing {arm:?} request"))
+}
+
+fn memory_ids(memories: &[tree_ring_memory_core::WorkflowMemoryContext]) -> Vec<&str> {
+    memories.iter().map(|memory| memory.id.as_str()).collect()
 }
 
 fn write_no_background_writer_fixture(fixture_dir: &Path) {
