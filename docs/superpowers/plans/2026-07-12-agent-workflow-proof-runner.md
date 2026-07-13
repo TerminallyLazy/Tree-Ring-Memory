@@ -36,6 +36,7 @@
 - Create `crates/tree-ring-memory-cli/tests/workflow_proof.rs`: end-to-end runner tests using a fake in-process agent.
 - Create `fixtures/workflow-proof/no-background-writer.json`, `fixtures/workflow-proof/stale-cli-contract.json`, and `fixtures/workflow-proof/scar-recovery.json`: reviewable, source-linked workflow fixtures.
 - Create `docs/integrations/agent-workflow-proof.md`: command contract, evidence layout, interpretation limits, and reproducibility checklist.
+- Modify `crates/tree-ring-memory-cli/examples/workflow_proof.rs`: factor its positional parser into a testable private parser and make `--help` print the exact usage text without invoking Codex.
 - Modify `README.md`: link the explicit workflow-proof command and make its evidence claim precise.
 
 ---
@@ -243,7 +244,7 @@ git commit -m "feat: add paired agent workflow proof runner"
 
 - [ ] **Step 1: Write failing fixture-validation coverage**
 
-Add a test to `workflow_scenario.rs` that walks `fixtures/workflow-proof`, parses every JSON file, asserts all three required scenario names are present, and asserts each fixture has an expected file. Add a CLI test that invokes `workflow_proof --help` through `CARGO_BIN_EXE` only if the example is registered; otherwise test `parse_cli_args` directly.
+Add a test to `workflow_scenario.rs` that walks `fixtures/workflow-proof`, parses every JSON file, asserts all three required scenario names are present, and asserts each fixture has an expected file. In `examples/workflow_proof.rs`, factor the current argument parsing into a private `parse_cli_args` returning `Help` or `Run`, add a `#[cfg(test)]` unit test that `--help` returns `Help`, and make `run` print the exact usage text then exit zero for that result. This remains an example-only parser; it must not add a normal CLI subcommand or require Cargo example registration.
 
 - [ ] **Step 2: Run it to verify it fails**
 
