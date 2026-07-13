@@ -17,6 +17,7 @@ const REPORT_SCHEMA_VERSION: u8 = 1;
 const RECALL_LIMIT: usize = 8;
 const CODEX_SCHEMA_FILE: &str = ".tree-ring-workflow-schema.json";
 const CODEX_RESPONSE_FILE: &str = ".tree-ring-workflow-response.json";
+const TREE_RING_CONTEXT_ERROR: &str = "tree_ring_context_error";
 
 pub trait WorkflowAgent {
     fn execute(&self, request: &WorkflowAgentRequest) -> Result<WorkflowAgentResponse, String>;
@@ -140,6 +141,20 @@ pub fn run_workflow_proof(
     output_dir: &Path,
     agent: &impl WorkflowAgent,
 ) -> Result<WorkflowProofReport, String> {
+    run_workflow_proof_with_tree_ring_context_builder(
+        fixture_dir,
+        output_dir,
+        agent,
+        recalled_memories,
+    )
+}
+
+fn run_workflow_proof_with_tree_ring_context_builder(
+    fixture_dir: &Path,
+    output_dir: &Path,
+    agent: &impl WorkflowAgent,
+    tree_ring_context_builder: impl Fn(&WorkflowScenario) -> Result<Vec<WorkflowMemoryContext>, String>,
+) -> Result<WorkflowProofReport, String> {
     fs::create_dir_all(output_dir)
         .map_err(|error| format!("output_directory_create_error: {error}"))?;
 
@@ -156,7 +171,13 @@ pub fn run_workflow_proof(
         let scenario = parse_workflow_scenario(&input)
             .map_err(|error| format!("workflow_fixture_parse_error {}: {error}", path.display()))?;
         let scenario_id = unique_scenario_id(&scenario.name, &mut scenario_ids);
-        scenarios.push(run_scenario(&scenario, &scenario_id, output_dir, agent)?);
+        scenarios.push(run_scenario(
+            &scenario,
+            &scenario_id,
+            output_dir,
+            agent,
+            &tree_ring_context_builder,
+        )?);
     }
 
     let report = summarize(scenarios);
@@ -169,35 +190,64 @@ fn run_scenario(
     scenario_id: &str,
     output_dir: &Path,
     agent: &impl WorkflowAgent,
+    tree_ring_context_builder: &impl Fn(&WorkflowScenario) -> Result<Vec<WorkflowMemoryContext>, String>,
 ) -> Result<WorkflowProofScenarioReport, String> {
     let raw_memory = visible_seed_memories(scenario);
-    let tree_ring_memory = recalled_memories(scenario)?;
     let mut trials = Vec::with_capacity(3);
-
-    for arm in [
+    trials.push(run_trial(
+        scenario,
+        scenario_id,
         WorkflowArm::NoMemory,
+        Vec::new(),
+        output_dir,
+        agent,
+    )?);
+    trials.push(run_trial(
+        scenario,
+        scenario_id,
         WorkflowArm::RawMemory,
-        WorkflowArm::TreeRing,
-    ] {
-        let memory_context = match arm {
-            WorkflowArm::NoMemory => Vec::new(),
-            WorkflowArm::RawMemory => raw_memory.clone(),
-            WorkflowArm::TreeRing => tree_ring_memory.clone(),
-        };
-        trials.push(run_trial(
+        raw_memory,
+        output_dir,
+        agent,
+    )?);
+    let tree_ring_trial = match tree_ring_context_builder(scenario) {
+        Ok(tree_ring_memory) => run_trial(
             scenario,
             scenario_id,
-            arm,
-            memory_context,
+            WorkflowArm::TreeRing,
+            tree_ring_memory,
             output_dir,
             agent,
-        )?);
-    }
+        )?,
+        Err(_) => run_tree_ring_context_error_trial(scenario, scenario_id, output_dir)?,
+    };
+    trials.push(tree_ring_trial);
 
     Ok(WorkflowProofScenarioReport {
         name: scenario.name.clone(),
         scenario_id: scenario_id.to_string(),
         trials,
+    })
+}
+
+fn run_tree_ring_context_error_trial(
+    scenario: &WorkflowScenario,
+    scenario_id: &str,
+    output_dir: &Path,
+) -> Result<WorkflowProofTrialReport, String> {
+    let arm = WorkflowArm::TreeRing;
+    let workspace = trial_workspace(output_dir, scenario_id, &arm);
+    materialize_workspace(&workspace, scenario)?;
+    let file_checks = evaluate_workspace(scenario, &workspace);
+
+    Ok(WorkflowProofTrialReport {
+        arm,
+        workspace: workspace_report_path(&workspace, output_dir),
+        memory_context: Vec::new(),
+        agent_response: None,
+        file_checks,
+        status: WorkflowProofTrialStatus::Error,
+        errors: vec![TREE_RING_CONTEXT_ERROR.to_string()],
     })
 }
 
@@ -209,11 +259,7 @@ fn run_trial(
     output_dir: &Path,
     agent: &impl WorkflowAgent,
 ) -> Result<WorkflowProofTrialReport, String> {
-    let workspace = output_dir
-        .join("trials")
-        .join(scenario_id)
-        .join(arm_directory(&arm))
-        .join("workspace");
+    let workspace = trial_workspace(output_dir, scenario_id, &arm);
     materialize_workspace(&workspace, scenario)?;
 
     let request = WorkflowAgentRequest::new(
@@ -258,17 +304,29 @@ fn run_trial(
 
     Ok(WorkflowProofTrialReport {
         arm,
-        workspace: workspace
-            .strip_prefix(output_dir)
-            .unwrap_or(&workspace)
-            .display()
-            .to_string(),
+        workspace: workspace_report_path(&workspace, output_dir),
         memory_context,
         agent_response,
         file_checks,
         status,
         errors,
     })
+}
+
+fn trial_workspace(output_dir: &Path, scenario_id: &str, arm: &WorkflowArm) -> PathBuf {
+    output_dir
+        .join("trials")
+        .join(scenario_id)
+        .join(arm_directory(arm))
+        .join("workspace")
+}
+
+fn workspace_report_path(workspace: &Path, output_dir: &Path) -> String {
+    workspace
+        .strip_prefix(output_dir)
+        .unwrap_or(workspace)
+        .display()
+        .to_string()
 }
 
 fn visible_seed_memories(scenario: &WorkflowScenario) -> Vec<WorkflowMemoryContext> {
@@ -574,4 +632,127 @@ task:\n{}\n\n\
 memory_context:\n{}",
         request.task, memory_context
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use tempfile::tempdir;
+
+    struct ControlAgent {
+        calls: Mutex<Vec<WorkflowArm>>,
+    }
+
+    impl ControlAgent {
+        fn calls(&self) -> Vec<WorkflowArm> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl WorkflowAgent for ControlAgent {
+        fn execute(&self, request: &WorkflowAgentRequest) -> Result<WorkflowAgentResponse, String> {
+            self.calls.lock().unwrap().push(request.arm.clone());
+            if request.arm == WorkflowArm::RawMemory {
+                fs::write(
+                    request.workspace_root.join("decision.md"),
+                    "Use the seeded control decision.\n",
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            Ok(WorkflowAgentResponse {
+                summary: "finished the control task".to_string(),
+                used_memory_ids: request
+                    .memory_context
+                    .first()
+                    .map(|memory| vec![memory.id.clone()])
+                    .unwrap_or_default(),
+            })
+        }
+    }
+
+    #[test]
+    fn preserves_controls_and_reports_when_tree_ring_context_setup_fails() {
+        let fixtures = tempdir().unwrap();
+        let output = tempdir().unwrap();
+        write_context_failure_fixture(fixtures.path());
+        let agent = ControlAgent {
+            calls: Mutex::new(Vec::new()),
+        };
+        let forced_error = "untrusted tree-ring store failure detail";
+
+        let report = run_workflow_proof_with_tree_ring_context_builder(
+            fixtures.path(),
+            output.path(),
+            &agent,
+            |_| Err(forced_error.to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(report.scenario_count, 1);
+        assert_eq!(report.trial_count, 3);
+        assert!(!report.tree_ring_complete);
+        assert_eq!(
+            agent.calls(),
+            vec![WorkflowArm::NoMemory, WorkflowArm::RawMemory]
+        );
+
+        let trials = &report.scenarios[0].trials;
+        assert_eq!(trials[0].status, WorkflowProofTrialStatus::Fail);
+        assert_eq!(trials[1].status, WorkflowProofTrialStatus::Pass);
+        assert_eq!(trials[2].status, WorkflowProofTrialStatus::Error);
+        assert_eq!(trials[2].errors, vec!["tree_ring_context_error"]);
+        assert!(trials[2].agent_response.is_none());
+        assert!(trials[2].memory_context.is_empty());
+
+        for arm in ["no_memory", "raw_memory", "tree_ring"] {
+            assert!(output
+                .path()
+                .join("trials/context-failure")
+                .join(arm)
+                .join("workspace")
+                .is_dir());
+        }
+        let report_path = output.path().join("workflow-proof-report.json");
+        let persisted_json = fs::read_to_string(report_path).unwrap();
+        let persisted = serde_json::from_str::<WorkflowProofReport>(&persisted_json).unwrap();
+        assert_eq!(persisted, report);
+        assert!(!persisted_json.contains(forced_error));
+        assert!(output.path().join("workflow-proof-summary.md").is_file());
+    }
+
+    fn write_context_failure_fixture(fixture_dir: &Path) {
+        fs::write(
+            fixture_dir.join("context-failure.json"),
+            r#"{
+  "name": "context failure",
+  "task": "Create decision.md from the visible control memory.",
+  "seed_memories": [
+    {
+      "id": "mem_control",
+      "created_at": "2026-07-12T00:00:00Z",
+      "updated_at": "2026-07-12T00:00:00Z",
+      "scope": "global",
+      "ring": "cambium",
+      "event_type": "decision",
+      "summary": "Use the seeded control decision.",
+      "details": "A normal visible seed for the raw-memory control.",
+      "source": {"type": "test", "ref": "test://context-failure"},
+      "salience": 0.9,
+      "confidence": 0.9,
+      "sensitivity": "normal",
+      "retention": "normal"
+    }
+  ],
+  "workspace_files": [
+    {"path": "task.md", "content": "Create the requested decision."}
+  ],
+  "expected_files": [
+    {"path": "decision.md", "contains": "seeded control decision"}
+  ]
+}"#,
+        )
+        .unwrap();
+    }
 }

@@ -149,6 +149,30 @@ fn rejects_invalid_seed_memories() {
 }
 
 #[test]
+fn rejects_blank_and_cross_sensitivity_duplicate_seed_memory_ids() {
+    let mut blank_id = valid_seed_memory();
+    blank_id["id"] = json!("   ");
+    let blank_error = parse_workflow_scenario(&scenario_with_seed_memory(blank_id))
+        .unwrap_err()
+        .to_string();
+    assert!(blank_error.contains("seed_memories[0].id"));
+
+    let mut normal = valid_seed_memory();
+    normal["id"] = json!("mem_shared");
+    normal["sensitivity"] = json!("normal");
+    let mut private = valid_seed_memory();
+    private["id"] = json!("mem_shared");
+    private["sensitivity"] = json!("private");
+    let mut scenario = scenario_value();
+    scenario["seed_memories"] = json!([normal, private]);
+
+    let duplicate_error = parse_workflow_scenario(&serde_json::to_string(&scenario).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(duplicate_error.contains("duplicates memory id mem_shared"));
+}
+
+#[test]
 fn rejects_unknown_seed_memory_fields_at_every_level() {
     let mut unknown_memory_field = valid_seed_memory();
     unknown_memory_field["unexpected"] = json!(true);

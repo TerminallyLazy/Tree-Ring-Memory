@@ -217,7 +217,18 @@ impl WorkflowScenario {
             }
         }
 
-        for memory in &self.seed_memories {
+        let mut seed_memory_ids = HashSet::new();
+        for (index, memory) in self.seed_memories.iter().enumerate() {
+            validate_nonblank(
+                &format!("workflow scenario seed_memories[{index}].id"),
+                &memory.id,
+            )?;
+            if !seed_memory_ids.insert(memory.id.as_str()) {
+                return Err(TreeRingError::Validation(format!(
+                    "workflow scenario seed_memories[{index}] duplicates memory id {}",
+                    memory.id
+                )));
+            }
             memory.validate()?;
         }
 
