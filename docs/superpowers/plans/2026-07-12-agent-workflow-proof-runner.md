@@ -21,6 +21,7 @@
 - Exit nonzero only when a Tree-Ring arm errors or fails its deterministic validator; do not require controls to pass.
 - Do not add a public `tree-ring eval` subcommand. The only executable entry point in this slice is `cargo run -p tree-ring-memory-cli --example workflow_proof -- ...`.
 - Do not invoke Codex from normal unit tests or `scripts/certify-tree-ring.sh`; a real run remains a user-visible, explicit command.
+- Evidence-producing example runs must require `--model <id>` and record that requested model identity in both JSON and Markdown reports; never silently rely on an unrecorded Codex default.
 - Preserve unrelated files; work only on `codex/agent-workflow-proof`.
 
 ---
@@ -37,6 +38,7 @@
 - Create `fixtures/workflow-proof/no-background-writer.json`, `fixtures/workflow-proof/stale-cli-contract.json`, and `fixtures/workflow-proof/scar-recovery.json`: reviewable, source-linked workflow fixtures.
 - Create `docs/integrations/agent-workflow-proof.md`: command contract, evidence layout, interpretation limits, and reproducibility checklist.
 - Modify `crates/tree-ring-memory-cli/examples/workflow_proof.rs`: factor its positional parser into a testable private parser and make `--help` print the exact usage text without invoking Codex.
+- Modify `crates/tree-ring-memory-cli/src/workflow_proof.rs`: surface the agent evidence identity in `WorkflowProofReport`; Codex must include the explicitly requested model ID.
 - Modify `README.md`: link the explicit workflow-proof command and make its evidence claim precise.
 
 ---
@@ -240,7 +242,7 @@ git commit -m "feat: add paired agent workflow proof runner"
 
 **Interfaces:**
 - Fixtures use the Task 1 JSON contract and contain only normal, source-linked synthetic/project-safe memories.
-- Documentation gives the exact explicit command and names `workflow-proof-report.json` as observed paired evidence, not a universal benchmark score.
+- Documentation gives the exact explicit command, requires `--model <model-id>`, records the requested model identity in `workflow-proof-report.json`, and names that output as observed paired evidence rather than a universal benchmark score.
 
 - [ ] **Step 1: Write failing fixture-validation coverage**
 
@@ -273,7 +275,7 @@ cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
   fixtures/workflow-proof target/tree-ring-certification/workflow-proof
 ```
 
-Document the three arms, retained workspace evidence, no automatic Codex invocation in CI, model/version/commit capture requirements, no claim beyond the specific controlled fixtures, and the next step of running external benchmark adapters.
+Document the three arms, retained workspace evidence, no automatic Codex invocation in CI, required `--model <model-id>` plus model/version/commit capture, no claim beyond the specific controlled fixtures, and the next step of running external benchmark adapters. The model identity must be visible in both `workflow-proof-report.json` and `workflow-proof-summary.md`; do not make it an operator-only side note.
 
 Add a concise README link under certification/evidence documentation.
 
