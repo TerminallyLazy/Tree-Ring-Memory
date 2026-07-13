@@ -5,7 +5,7 @@ use tree_ring_memory_cli::workflow_proof::{
 };
 
 const USAGE: &str =
-    "usage: workflow_proof <fixture-dir> <output-dir> [--codex-bin <path>] [--model <model>]";
+    "usage: workflow_proof <fixture-dir> <output-dir> --model <model-id> [--codex-bin <path>]";
 
 enum WorkflowProofCliArgs {
     Help,
@@ -13,7 +13,7 @@ enum WorkflowProofCliArgs {
         fixture_dir: PathBuf,
         output_dir: PathBuf,
         codex_binary: PathBuf,
-        model: Option<String>,
+        model: String,
     },
 }
 
@@ -39,7 +39,7 @@ fn run() -> Result<(), String> {
     };
 
     let (fixture_dir, output_dir, codex_binary, model) = args;
-    let agent = CodexWorkflowAgent::new(codex_binary, model);
+    let agent = CodexWorkflowAgent::new(codex_binary, Some(model));
     let report = run_workflow_proof(&fixture_dir, &output_dir, &agent)?;
     print_summary(&report);
     if !report.tree_ring_complete {
@@ -96,6 +96,11 @@ fn parse_cli_args(
         }
     }
 
+    let model = model
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+        .ok_or_else(|| USAGE.to_string())?;
+
     Ok(WorkflowProofCliArgs::Run {
         fixture_dir,
         output_dir,
@@ -127,7 +132,7 @@ fn tree_ring_non_passes(report: &WorkflowProofReport) -> usize {
 mod tests {
     use std::ffi::OsString;
 
-    use super::{parse_cli_args, WorkflowProofCliArgs};
+    use super::{parse_cli_args, WorkflowProofCliArgs, USAGE};
 
     #[test]
     fn parse_cli_args_recognizes_help() {
@@ -135,5 +140,32 @@ mod tests {
             parse_cli_args([OsString::from("--help")]),
             Ok(WorkflowProofCliArgs::Help)
         ));
+    }
+
+    #[test]
+    fn parse_cli_args_rejects_missing_model() {
+        assert_eq!(
+            parse_cli_args([OsString::from("fixtures"), OsString::from("output")])
+                .err()
+                .as_deref(),
+            Some(USAGE)
+        );
+    }
+
+    #[test]
+    fn parse_cli_args_rejects_blank_model() {
+        for model in ["", "  "] {
+            assert_eq!(
+                parse_cli_args([
+                    OsString::from("fixtures"),
+                    OsString::from("output"),
+                    OsString::from("--model"),
+                    OsString::from(model),
+                ])
+                .err()
+                .as_deref(),
+                Some(USAGE)
+            );
+        }
     }
 }

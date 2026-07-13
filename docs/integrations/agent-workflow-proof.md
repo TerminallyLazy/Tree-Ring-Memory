@@ -8,8 +8,14 @@ Run it deliberately from a source checkout with a locally available Codex CLI:
 
 ```bash
 cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
-  fixtures/workflow-proof target/tree-ring-certification/workflow-proof
+  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  --model <model-id>
 ```
+
+`--model <model-id>` is required for an evidence-producing run; an omitted or
+blank value is a usage error before Codex is invoked. The report records that
+requested value as `agent_identity: "codex:<model-id>"` in JSON and as an
+agent-identity line in the Markdown summary.
 
 The command runs the same task in three retained workspaces for every fixture:
 
@@ -37,8 +43,9 @@ agent response, and deterministic file checks before drawing a conclusion.
 For every run, record alongside the output:
 
 - the Tree Ring commit (`git rev-parse HEAD`);
-- the Codex CLI version (`codex --version`) and selected model, if `--model` is
-  supplied;
+- the Codex CLI version (`codex --version`) and the required `--model` value;
+- the `agent_identity` recorded in both reports (normally
+  `codex:<model-id>` for this example);
 - the complete command, timestamp, and any non-default Codex binary path.
 
 No unit test, normal certification command, or CI job invokes Codex

@@ -21,6 +21,10 @@ const TREE_RING_CONTEXT_ERROR: &str = "tree_ring_context_error";
 
 pub trait WorkflowAgent {
     fn execute(&self, request: &WorkflowAgentRequest) -> Result<WorkflowAgentResponse, String>;
+
+    fn evidence_identity(&self) -> String {
+        "unspecified-agent".to_string()
+    }
 }
 
 pub struct CodexWorkflowAgent {
@@ -35,6 +39,14 @@ impl CodexWorkflowAgent {
 }
 
 impl WorkflowAgent for CodexWorkflowAgent {
+    fn evidence_identity(&self) -> String {
+        self.model
+            .as_deref()
+            .filter(|model| !model.trim().is_empty())
+            .map(|model| format!("codex:{model}"))
+            .unwrap_or_else(|| "codex:unrequested-model".to_string())
+    }
+
     fn execute(&self, request: &WorkflowAgentRequest) -> Result<WorkflowAgentResponse, String> {
         fs::create_dir_all(&request.workspace_root)
             .map_err(|error| format!("workspace_create_error: {error}"))?;
@@ -127,6 +139,7 @@ pub struct WorkflowProofArmSummary {
 pub struct WorkflowProofReport {
     pub schema_version: u8,
     pub generated_at: String,
+    pub agent_identity: String,
     pub scenario_count: usize,
     pub trial_count: usize,
     pub arm_summaries: Vec<WorkflowProofArmSummary>,
@@ -180,7 +193,7 @@ fn run_workflow_proof_with_tree_ring_context_builder(
         )?);
     }
 
-    let report = summarize(scenarios);
+    let report = summarize(agent.evidence_identity(), scenarios);
     write_reports(output_dir, &report)?;
     Ok(report)
 }
@@ -460,7 +473,10 @@ fn arm_directory(arm: &WorkflowArm) -> &'static str {
     }
 }
 
-fn summarize(scenarios: Vec<WorkflowProofScenarioReport>) -> WorkflowProofReport {
+fn summarize(
+    agent_identity: String,
+    scenarios: Vec<WorkflowProofScenarioReport>,
+) -> WorkflowProofReport {
     let arm_summaries = [
         WorkflowArm::NoMemory,
         WorkflowArm::RawMemory,
@@ -487,6 +503,7 @@ fn summarize(scenarios: Vec<WorkflowProofScenarioReport>) -> WorkflowProofReport
     WorkflowProofReport {
         schema_version: REPORT_SCHEMA_VERSION,
         generated_at: now_iso(),
+        agent_identity,
         scenario_count,
         trial_count,
         arm_summaries,
@@ -553,6 +570,7 @@ fn markdown_summary(report: &WorkflowProofReport) -> String {
     let mut lines = vec![
         "# Tree Ring Workflow Proof Summary".to_string(),
         String::new(),
+        format!("- agent identity: {}", report.agent_identity),
         format!("- Tree Ring complete: {}", report.tree_ring_complete),
         format!(
             "- observed Tree Ring wins over no-memory: {}",

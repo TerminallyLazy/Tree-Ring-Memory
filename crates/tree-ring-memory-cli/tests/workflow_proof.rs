@@ -71,6 +71,7 @@ fn paired_runner_keeps_controls_and_records_observed_lift() {
     assert_eq!(report.tree_ring_wins_over_no_memory, 1);
     assert_eq!(report.tree_ring_wins_over_raw_memory, 0);
     assert!(report.tree_ring_complete);
+    assert_eq!(report.agent_identity, "unspecified-agent");
 
     let scenario = &report.scenarios[0];
     let no_memory = trial_for(scenario, WorkflowArm::NoMemory);
@@ -110,8 +111,10 @@ fn paired_runner_keeps_controls_and_records_observed_lift() {
             .join("workspace")
             .is_dir());
     }
-    assert!(output.path().join("workflow-proof-report.json").is_file());
-    assert!(output.path().join("workflow-proof-summary.md").is_file());
+    let report_json = fs::read_to_string(output.path().join("workflow-proof-report.json")).unwrap();
+    assert!(report_json.contains("\"agent_identity\": \"unspecified-agent\""));
+    let summary = fs::read_to_string(output.path().join("workflow-proof-summary.md")).unwrap();
+    assert!(summary.contains("- agent identity: unspecified-agent"));
 }
 
 #[test]
@@ -162,9 +165,9 @@ fn codex_adapter_uses_request_context_and_optional_model_pair() {
         }],
     );
 
-    let response = CodexWorkflowAgent::new(binary.clone(), Some("test-model".to_string()))
-        .execute(&request)
-        .unwrap();
+    let agent = CodexWorkflowAgent::new(binary.clone(), Some("test-model".to_string()));
+    assert_eq!(agent.evidence_identity(), "codex:test-model");
+    let response = agent.execute(&request).unwrap();
 
     assert_eq!(response.used_memory_ids, vec![TARGET_MEMORY_ID]);
     let arguments = fake_codex_arguments(&binary);
