@@ -139,7 +139,7 @@ fn unknown_cited_memory_is_recorded_as_a_trial_error() {
 
 #[cfg(unix)]
 #[test]
-fn codex_adapter_uses_request_context_and_optional_model_pair() {
+fn codex_adapter_uses_request_context_and_required_model() {
     use std::os::unix::fs::PermissionsExt;
 
     let workspace = tempdir().unwrap();
@@ -165,7 +165,7 @@ fn codex_adapter_uses_request_context_and_optional_model_pair() {
         }],
     );
 
-    let agent = CodexWorkflowAgent::new(binary.clone(), Some("test-model".to_string()));
+    let agent = CodexWorkflowAgent::new(binary.clone(), "test-model".to_string()).unwrap();
     assert_eq!(agent.evidence_identity(), "codex:test-model");
     let response = agent.execute(&request).unwrap();
 
@@ -219,33 +219,13 @@ fn codex_adapter_uses_request_context_and_optional_model_pair() {
         .is_file());
 }
 
-#[cfg(unix)]
 #[test]
-fn codex_adapter_omits_model_flag_when_no_model_is_configured() {
-    use std::os::unix::fs::PermissionsExt;
+fn codex_adapter_rejects_blank_model_at_construction() {
+    let error = CodexWorkflowAgent::new(PathBuf::from("codex"), " \t ".to_string())
+        .err()
+        .expect("blank model must be rejected");
 
-    let workspace = tempdir().unwrap();
-    let binary = workspace.path().join("fake-codex-no-model");
-    write_fake_codex(&binary, "");
-    let mut permissions = fs::metadata(&binary).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&binary, permissions).unwrap();
-
-    let request = WorkflowAgentRequest::new(
-        "adapter scenario".to_string(),
-        WorkflowArm::NoMemory,
-        "Do the source task.".to_string(),
-        workspace.path().to_path_buf(),
-        Vec::new(),
-    );
-
-    CodexWorkflowAgent::new(binary.clone(), None)
-        .execute(&request)
-        .unwrap();
-
-    let arguments = fake_codex_arguments(&binary);
-    assert_eq!(arguments.len(), 11);
-    assert!(!arguments.iter().any(|argument| argument == "--model"));
+    assert_eq!(error, "codex workflow model is required");
 }
 
 fn trial_for(

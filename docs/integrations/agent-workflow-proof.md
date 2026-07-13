@@ -13,9 +13,10 @@ cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
 ```
 
 `--model <model-id>` is required for an evidence-producing run; an omitted or
-blank value is a usage error before Codex is invoked. The report records that
-requested value as `agent_identity: "codex:<model-id>"` in JSON and as an
-agent-identity line in the Markdown summary.
+blank value is a usage error before a Codex adapter is constructed. The adapter
+also validates its model and always passes that recorded ID to Codex. The report
+records the requested value as `agent_identity: "codex:<model-id>"` in JSON
+and as an agent-identity line in the Markdown summary.
 
 The command runs the same task in three retained workspaces for every fixture:
 

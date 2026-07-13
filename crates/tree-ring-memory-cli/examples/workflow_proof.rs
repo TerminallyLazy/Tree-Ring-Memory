@@ -39,7 +39,7 @@ fn run() -> Result<(), String> {
     };
 
     let (fixture_dir, output_dir, codex_binary, model) = args;
-    let agent = CodexWorkflowAgent::new(codex_binary, Some(model));
+    let agent = CodexWorkflowAgent::new(codex_binary, model)?;
     let report = run_workflow_proof(&fixture_dir, &output_dir, &agent)?;
     print_summary(&report);
     if !report.tree_ring_complete {

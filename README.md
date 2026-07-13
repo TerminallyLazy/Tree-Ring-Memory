@@ -466,7 +466,8 @@ summary at `target/tree-ring-certification/quality/quality-summary.md`.
 
 An explicit agent workflow evaluation keeps paired trial workspaces and an
 observed evidence report separate from normal certification and CI. It requires
-an explicit model ID and records `codex:<model-id>` in the paired reports:
+a validated explicit model ID and records `codex:<model-id>` in the paired
+reports:
 
 ```bash
 cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \

@@ -29,22 +29,25 @@ pub trait WorkflowAgent {
 
 pub struct CodexWorkflowAgent {
     binary: PathBuf,
-    model: Option<String>,
+    model: String,
 }
 
 impl CodexWorkflowAgent {
-    pub fn new(binary: PathBuf, model: Option<String>) -> Self {
-        Self { binary, model }
+    pub fn new(binary: PathBuf, model: String) -> Result<Self, String> {
+        let model = model.trim();
+        if model.is_empty() {
+            return Err("codex workflow model is required".to_string());
+        }
+        Ok(Self {
+            binary,
+            model: model.to_string(),
+        })
     }
 }
 
 impl WorkflowAgent for CodexWorkflowAgent {
     fn evidence_identity(&self) -> String {
-        self.model
-            .as_deref()
-            .filter(|model| !model.trim().is_empty())
-            .map(|model| format!("codex:{model}"))
-            .unwrap_or_else(|| "codex:unrequested-model".to_string())
+        format!("codex:{}", self.model)
     }
 
     fn execute(&self, request: &WorkflowAgentRequest) -> Result<WorkflowAgentResponse, String> {
@@ -74,10 +77,9 @@ impl WorkflowAgent for CodexWorkflowAgent {
             .arg("--output-schema")
             .arg(&schema_path)
             .arg("--output-last-message")
-            .arg(&response_path);
-        if let Some(model) = &self.model {
-            command.arg("--model").arg(model);
-        }
+            .arg(&response_path)
+            .arg("--model")
+            .arg(&self.model);
         let status = command
             .arg(prompt)
             .status()
