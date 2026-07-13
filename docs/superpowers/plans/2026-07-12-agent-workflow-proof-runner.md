@@ -21,7 +21,7 @@
 - Exit nonzero only when a Tree-Ring arm errors or fails its deterministic validator; do not require controls to pass.
 - Do not add a public `tree-ring eval` subcommand. The only executable entry point in this slice is `cargo run -p tree-ring-memory-cli --example workflow_proof -- ...`.
 - Do not invoke Codex from normal unit tests or `scripts/certify-tree-ring.sh`; a real run remains a user-visible, explicit command.
-- Evidence-producing example runs must require `--model <id>` and record that requested model identity in both JSON and Markdown reports; never silently rely on an unrecorded Codex default.
+- `CodexWorkflowAgent` itself must require a validated nonblank model ID, always pass `--model`, and record that requested model identity in both JSON and Markdown reports; never silently rely on an unrecorded Codex default.
 - Preserve unrelated files; work only on `codex/agent-workflow-proof`.
 
 ---
