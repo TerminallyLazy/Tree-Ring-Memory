@@ -1,10 +1,11 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
 
 use serde::{de::Deserializer, Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::models::{
     MemoryEvent, MemoryLink, MemoryReview, MemorySource, TreeRingError, TreeRingResult,
@@ -200,19 +201,23 @@ impl WorkflowScenario {
             }
         }
 
-        let mut expected_file_pairs = HashSet::new();
+        let mut expected_file_checks = HashSet::new();
         for (index, expectation) in self.expected_files.iter().enumerate() {
             let path_key = canonical_workflow_path(
                 &format!("workflow scenario expected_files[{index}].path"),
                 &expectation.path,
             )?;
-            validate_nonblank(
-                &format!("workflow scenario expected_files[{index}].contains"),
-                &expectation.contains,
-            )?;
-            if !expected_file_pairs.insert((path_key, expectation.contains.clone())) {
+            let check_key = match expectation
+                .check_mode(&format!("workflow scenario expected_files[{index}]"))?
+            {
+                WorkflowFileCheckMode::Contains(contains) => format!("contains:{contains}"),
+                WorkflowFileCheckMode::JsonFields(json_fields) => {
+                    format!("json_fields:{}", serde_json::to_string(json_fields)?)
+                }
+            };
+            if !expected_file_checks.insert((path_key, check_key)) {
                 return Err(TreeRingError::Validation(format!(
-                    "workflow scenario expected_files[{index}] duplicates path and contains"
+                    "workflow scenario expected_files[{index}] duplicates path and check"
                 )));
             }
         }
@@ -247,7 +252,40 @@ pub struct WorkflowWorkspaceFile {
 #[serde(deny_unknown_fields)]
 pub struct WorkflowFileExpectation {
     pub path: String,
-    pub contains: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contains: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_fields: Option<BTreeMap<String, Value>>,
+}
+
+impl WorkflowFileExpectation {
+    fn check_mode(&self, field: &str) -> TreeRingResult<WorkflowFileCheckMode<'_>> {
+        match (&self.contains, &self.json_fields) {
+            (Some(contains), None) => {
+                validate_nonblank(&format!("{field}.contains"), contains)?;
+                Ok(WorkflowFileCheckMode::Contains(contains))
+            }
+            (None, Some(json_fields)) => {
+                if json_fields.is_empty() {
+                    return Err(TreeRingError::Validation(format!(
+                        "{field}.json_fields requires at least one JSON pointer"
+                    )));
+                }
+                for pointer in json_fields.keys() {
+                    validate_json_pointer(&format!("{field}.json_fields"), pointer)?;
+                }
+                Ok(WorkflowFileCheckMode::JsonFields(json_fields))
+            }
+            _ => Err(TreeRingError::Validation(format!(
+                "{field} requires exactly one check mode: contains or json_fields"
+            ))),
+        }
+    }
+}
+
+enum WorkflowFileCheckMode<'a> {
+    Contains(&'a str),
+    JsonFields(&'a BTreeMap<String, Value>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -325,7 +363,10 @@ impl WorkflowAgentResponse {
 #[serde(deny_unknown_fields)]
 pub struct WorkflowFileCheckReport {
     pub path: String,
-    pub contains: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contains: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_fields: Option<BTreeMap<String, Value>>,
     pub exists: bool,
     pub passed: bool,
 }
@@ -351,7 +392,7 @@ pub fn evaluate_workspace(
                 let exists = path.is_file();
                 let passed = exists
                     && fs::read_to_string(&path)
-                        .map(|content| content.contains(&expectation.contains))
+                        .map(|content| evaluate_file_content(expectation, &content))
                         .unwrap_or(false);
                 (exists, passed)
             } else {
@@ -361,6 +402,7 @@ pub fn evaluate_workspace(
             WorkflowFileCheckReport {
                 path: expectation.path.clone(),
                 contains: expectation.contains.clone(),
+                json_fields: expectation.json_fields.clone(),
                 exists,
                 passed,
             }
@@ -372,6 +414,51 @@ fn validate_nonblank(field: &str, value: &str) -> TreeRingResult<()> {
     if value.trim().is_empty() {
         return Err(TreeRingError::Validation(format!("{field} is required")));
     }
+    Ok(())
+}
+
+fn evaluate_file_content(expectation: &WorkflowFileExpectation, content: &str) -> bool {
+    match expectation.check_mode("workflow file expectation") {
+        Ok(WorkflowFileCheckMode::Contains(contains)) => content.contains(contains),
+        Ok(WorkflowFileCheckMode::JsonFields(json_fields)) => {
+            serde_json::from_str::<Value>(content)
+                .map(|document| {
+                    json_fields.iter().all(|(pointer, expected_value)| {
+                        document
+                            .pointer(pointer)
+                            .is_some_and(|actual_value| actual_value == expected_value)
+                    })
+                })
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    }
+}
+
+fn validate_json_pointer(field: &str, pointer: &str) -> TreeRingResult<()> {
+    if pointer.is_empty() {
+        return Ok(());
+    }
+    if !pointer.starts_with('/') {
+        return Err(TreeRingError::Validation(format!(
+            "{field} JSON pointer {pointer:?} must be empty or start with /"
+        )));
+    }
+
+    let mut characters = pointer.chars();
+    while let Some(character) = characters.next() {
+        if character == '~' {
+            match characters.next() {
+                Some('0' | '1') => {}
+                _ => {
+                    return Err(TreeRingError::Validation(format!(
+                        "{field} JSON pointer {pointer:?} has an invalid ~ escape"
+                    )));
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

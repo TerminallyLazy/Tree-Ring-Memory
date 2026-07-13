@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use serde_json::{json, Value};
 use tempfile::tempdir;
@@ -23,6 +27,22 @@ fn scenario_with_seed_memory(seed_memory: Value) -> String {
     let mut scenario = scenario_value();
     scenario["seed_memories"] = json!([seed_memory]);
     serde_json::to_string(&scenario).unwrap()
+}
+
+fn json_field_scenario(json_fields: Value) -> WorkflowScenario {
+    parse_workflow_scenario(
+        &serde_json::to_string(&json!({
+            "name": "structured workspace evaluation",
+            "task": "Check the generated JSON file.",
+            "workspace_files": [],
+            "expected_files": [{
+                "path": "decision.json",
+                "json_fields": json_fields
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap()
 }
 
 fn valid_seed_memory() -> Value {
@@ -65,7 +85,10 @@ fn parses_safe_workflow_fixture_and_keeps_validator_out_of_agent_request() {
     let request_fields = serde_json::to_value(&request).unwrap();
 
     assert_eq!(scenario.workspace_files[0].path, "proposal.md");
-    assert_eq!(scenario.expected_files[0].contains, "safe action");
+    assert_eq!(
+        scenario.expected_files[0].contains.as_deref(),
+        Some("safe action")
+    );
     assert!(!serialized.contains("safe action"));
     assert_eq!(
         request_fields
@@ -83,6 +106,27 @@ fn parses_safe_workflow_fixture_and_keeps_validator_out_of_agent_request() {
             "workspace_root",
         ]
     );
+}
+
+#[test]
+fn keeps_json_field_validators_out_of_agent_request() {
+    let scenario = json_field_scenario(json!({
+        "/decision/status": "must-not-leak",
+        "/metadata/requires_review": false
+    }));
+    let request = WorkflowAgentRequest::new(
+        scenario.name.clone(),
+        WorkflowArm::TreeRing,
+        scenario.task.clone(),
+        "/tmp/trial".into(),
+        Vec::new(),
+    );
+    let serialized = serde_json::to_string(&request).unwrap();
+
+    assert!(scenario.expected_files[0].json_fields.is_some());
+    assert!(!serialized.contains("/decision/status"));
+    assert!(!serialized.contains("must-not-leak"));
+    assert!(!serialized.contains("expected_files"));
 }
 
 #[test]
@@ -130,6 +174,73 @@ fn rejects_invalid_scenario_contract_values() {
 
     let blank_expected_content = VALID_SCENARIO.replace("safe action", "   ");
     assert!(parse_workflow_scenario(&blank_expected_content).is_err());
+}
+
+#[test]
+fn permits_multiple_distinct_checks_for_the_same_expected_file() {
+    let input = VALID_SCENARIO.replace(
+        "[{\"path\": \"decision.md\", \"contains\": \"safe action\"}]",
+        "[\
+          {\"path\": \"decision.md\", \"contains\": \"safe action\"},\
+          {\"path\": \"decision.md\", \"contains\": \"durable rationale\"}\
+        ]",
+    );
+
+    assert!(parse_workflow_scenario(&input).is_ok());
+}
+
+#[test]
+fn rejects_mixed_or_missing_file_check_modes() {
+    let mut mixed = scenario_value();
+    mixed["expected_files"] = json!([{
+        "path": "decision.json",
+        "contains": "approved",
+        "json_fields": {"/status": "approved"}
+    }]);
+    let mixed_error = parse_workflow_scenario(&serde_json::to_string(&mixed).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(mixed_error.contains("exactly one check mode"));
+
+    let mut missing = scenario_value();
+    missing["expected_files"] = json!([{"path": "decision.json"}]);
+    let missing_error = parse_workflow_scenario(&serde_json::to_string(&missing).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(missing_error.contains("exactly one check mode"));
+}
+
+#[test]
+fn rejects_empty_json_field_check_configurations() {
+    let mut scenario = scenario_value();
+    scenario["expected_files"] = json!([{
+        "path": "decision.json",
+        "json_fields": {}
+    }]);
+
+    let error = parse_workflow_scenario(&serde_json::to_string(&scenario).unwrap())
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("json_fields requires at least one JSON pointer"));
+}
+
+#[test]
+fn rejects_malformed_json_pointer_configurations() {
+    for pointer in ["decision/status", "/decision/~2status", "/decision/~"] {
+        let mut json_fields = serde_json::Map::new();
+        json_fields.insert(pointer.to_string(), json!("approved"));
+        let mut scenario = scenario_value();
+        scenario["expected_files"] = json!([{
+            "path": "decision.json",
+            "json_fields": json_fields
+        }]);
+
+        assert!(
+            parse_workflow_scenario(&serde_json::to_string(&scenario).unwrap()).is_err(),
+            "{pointer:?} must be rejected"
+        );
+    }
 }
 
 #[test]
@@ -271,6 +382,125 @@ fn evaluates_expected_files_in_fixture_order() {
 }
 
 #[test]
+fn retains_legacy_contains_file_checks() {
+    let scenario = parse_workflow_scenario(VALID_SCENARIO).unwrap();
+    let workspace = tempdir().unwrap();
+    fs::write(
+        workspace.path().join("decision.md"),
+        "Choose the safe action with durable rationale.",
+    )
+    .unwrap();
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].contains.as_deref(), Some("safe action"));
+    assert!(reports[0].json_fields.is_none());
+    assert!(reports[0].passed);
+}
+
+#[test]
+fn evaluates_json_field_expectations_with_exact_json_pointer_values() {
+    let scenario = parse_workflow_scenario(
+        r#"{
+          "name": "structured workspace evaluation",
+          "task": "Check the generated JSON file.",
+          "workspace_files": [],
+          "expected_files": [{
+            "path": "decision.json",
+            "json_fields": {
+              "/decision/status": "approved",
+              "/decision/retry_count": 0,
+              "/metadata/requires_review": false
+            }
+          }]
+        }"#,
+    )
+    .unwrap();
+    let workspace = tempdir().unwrap();
+    fs::write(
+        workspace.path().join("decision.json"),
+        r#"{
+          "decision": {"status": "approved", "retry_count": 0},
+          "metadata": {"requires_review": false}
+        }"#,
+    )
+    .unwrap();
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].exists);
+    assert!(reports[0].passed);
+    assert!(reports[0].contains.is_none());
+    assert_eq!(
+        reports[0].json_fields,
+        Some(
+            [
+                ("/decision/retry_count".to_string(), json!(0)),
+                ("/decision/status".to_string(), json!("approved")),
+                ("/metadata/requires_review".to_string(), json!(false)),
+            ]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>(),
+        )
+    );
+    let serialized_report = serde_json::to_string(&reports[0]).unwrap();
+    assert!(
+        serialized_report.find("/decision/retry_count").unwrap()
+            < serialized_report.find("/decision/status").unwrap()
+    );
+    assert!(serialized_report.contains("\"json_fields\""));
+}
+
+#[test]
+fn marks_json_field_check_failed_when_a_pointer_is_missing() {
+    let scenario = json_field_scenario(json!({
+        "/decision/status": "approved",
+        "/decision/owner": "release-team"
+    }));
+    let workspace = tempdir().unwrap();
+    fs::write(
+        workspace.path().join("decision.json"),
+        r#"{"decision": {"status": "approved"}}"#,
+    )
+    .unwrap();
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert!(reports[0].exists);
+    assert!(!reports[0].passed);
+}
+
+#[test]
+fn marks_json_field_check_failed_when_a_value_is_wrong() {
+    let scenario = json_field_scenario(json!({"/decision/status": "approved"}));
+    let workspace = tempdir().unwrap();
+    fs::write(
+        workspace.path().join("decision.json"),
+        r#"{"decision": {"status": "rejected"}}"#,
+    )
+    .unwrap();
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert!(reports[0].exists);
+    assert!(!reports[0].passed);
+}
+
+#[test]
+fn marks_json_field_check_failed_when_file_is_not_json() {
+    let scenario = json_field_scenario(json!({"/decision/status": "approved"}));
+    let workspace = tempdir().unwrap();
+    fs::write(workspace.path().join("decision.json"), "not JSON").unwrap();
+
+    let reports = evaluate_workspace(&scenario, workspace.path());
+
+    assert!(reports[0].exists);
+    assert!(!reports[0].passed);
+}
+
+#[test]
 fn workspace_evaluation_does_not_follow_unsafe_paths_from_manually_built_scenarios() {
     let root = tempdir().unwrap();
     let workspace = root.path().join("workspace");
@@ -283,7 +513,8 @@ fn workspace_evaluation_does_not_follow_unsafe_paths_from_manually_built_scenari
         workspace_files: Vec::new(),
         expected_files: vec![WorkflowFileExpectation {
             path: "../escape.md".to_string(),
-            contains: "safe action".to_string(),
+            contains: Some("safe action".to_string()),
+            json_fields: None,
         }],
     };
 
@@ -326,7 +557,8 @@ fn workspace_evaluation_rejects_windows_root_and_prefix_paths() {
             workspace_files: Vec::new(),
             expected_files: vec![WorkflowFileExpectation {
                 path: unsafe_path.to_string(),
-                contains: "safe action".to_string(),
+                contains: Some("safe action".to_string()),
+                json_fields: None,
             }],
         };
 
@@ -391,11 +623,13 @@ fn workspace_evaluation_rejects_portable_root_and_backslash_separator_paths() {
         expected_files: vec![
             WorkflowFileExpectation {
                 path: "/escape.txt".to_string(),
-                contains: "safe action".to_string(),
+                contains: Some("safe action".to_string()),
+                json_fields: None,
             },
             WorkflowFileExpectation {
                 path: r"out\decision.md".to_string(),
-                contains: "safe action".to_string(),
+                contains: Some("safe action".to_string()),
+                json_fields: None,
             },
         ],
     };
