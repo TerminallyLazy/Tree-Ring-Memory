@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-07T09:07:25Z</updated>
+  <updated>2026-07-15T22:09:47Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory v0.12.0 workflow-proof preview is live</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0"/>
+    <updated>2026-07-15T22:09:47Z</updated>
+    <summary>Tree Ring Memory v0.12.0 adds a controlled agent-workflow proof that retains paired workspaces, records the explicit model identity, and validates exact structured decisions. The proof reports only its observed fixture outcomes; it is not a universal memory benchmark.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory submitted to Awesome Command Line Tools</title>

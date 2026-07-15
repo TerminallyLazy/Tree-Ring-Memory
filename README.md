@@ -17,7 +17,7 @@ framework-agnostic and does not replace either protocol.
 Tree Ring Memory is in protocol-preview status. Current launch links:
 
 - Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -37,6 +37,7 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
 - v0.9 removed tracked Python source, tests, smoke scripts, and the optional CPython extension from the canonical repo.
 - v0.10 added a one-line installer plus Rust-native terminal onboarding with animated terminal tree rings.
 - v0.11 made the repo fully Rust-native, wired TUI export/consolidation actions, added DOX/Revolve sync adapters, and added agent-framework discovery.
+- v0.12 adds a controlled, retained agent-workflow proof with explicit model identity and exact structured-output checks; it reports observed outcomes without claiming a universal memory advantage.
 
 </details>
 
@@ -164,7 +165,7 @@ sh install.sh --project --init
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
-sh install.sh --archive-url https://example/tree-ring-memory-0.11.0-macos-arm64.tar.gz --archive-sha256 <sha256>
+sh install.sh --archive-url https://example/tree-ring-memory-0.12.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
 After install, rerun onboarding anytime:
@@ -441,19 +442,19 @@ harness checks, import throughput, and 10k/30k recall timing. It writes
 `target/tree-ring-certification/evidence-index.json`.
 
 Most recent branch-local certification run, generated at
-`2026-07-09T15:34:52Z`:
+`2026-07-15T22:02:33Z`:
 
-- Release binary: 6,352,528 bytes.
-- Project install with init: 6,272 KB.
-- Global install: 6,228 KB.
-- CLI import: 10,000 memories in 5 seconds, about 2,000/sec.
-- 10k recall: 3.643 ms average, 6.499 ms max.
-- 30k recall: 7.608 ms average, 13.634 ms max.
+- Release binary: 6,366,432 bytes.
+- Project install with init: 6,292 KB.
+- Global install: 6,244 KB.
+- CLI import: 10,000 memories in 4 seconds, about 2,500/sec.
+- 10k recall: 3.451 ms average, 6.197 ms max.
+- 30k recall: 7.538 ms average, 13.495 ms max.
 - Harness matrix: 5 pass, 1 skip. Codex, Claude Code, OpenCode, Goose, and
   Agent Zero/A0 passed; Pi was skipped because only a user-home marker was
   present in the fixture.
 - Recall quality: 4 queries, 4 pass, 0 fail, 0 needs review; average latency
-  0.118 ms, max latency 0.370 ms.
+  0.137 ms, max latency 0.418 ms.
 - Agent Zero plugin smoke: skipped because `TREE_RING_AGENT_ZERO_ROOT` was not
   set.
 
@@ -463,6 +464,21 @@ stale-truth suppression, evidence requirements, and behavior-proof outcomes.
 The quality report is written to
 `target/tree-ring-certification/quality/quality-report.json` with a readable
 summary at `target/tree-ring-certification/quality/quality-summary.md`.
+
+An explicit agent workflow evaluation keeps paired trial workspaces and an
+observed evidence report separate from normal certification and CI. It requires
+a validated explicit model ID and records `codex:<model-id>` in the paired
+reports:
+
+```bash
+cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
+  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  --model <model-id>
+```
+
+See [agent workflow proof](docs/integrations/agent-workflow-proof.md) for the
+controlled command, retained artifacts, exact structured-outcome checks, and
+interpretation limits.
 
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes

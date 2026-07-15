@@ -1,0 +1,68 @@
+{
+  "name": "stale-cli-contract",
+  "task": "Inspect the workspace for current command-line guidance for recording a memory, choose an action from decision-format.json, and write valid decision.json with action and rationale.",
+  "seed_memories": [
+    {
+      "id": "mem_workflow_stale_cli_contract",
+      "created_at": "2026-07-10T00:00:00Z",
+      "updated_at": "2026-07-10T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Legacy helper note: remember can be called without an event type.",
+      "details": "This legacy note has been replaced by the current CLI contract.",
+      "source": {
+        "type": "file",
+        "ref": "fixtures/quality/stale-cli-contract.json",
+        "quote": ""
+      },
+      "tags": ["cli-contract", "superseded"],
+      "salience": 0.7,
+      "confidence": 0.6,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "superseded_by": "mem_workflow_current_cli_contract"
+    },
+    {
+      "id": "mem_workflow_current_cli_contract",
+      "created_at": "2026-07-12T00:00:00Z",
+      "updated_at": "2026-07-12T00:00:00Z",
+      "project": "Tree_Ring_Memory",
+      "scope": "project",
+      "ring": "heartwood",
+      "event_type": "decision",
+      "summary": "Current CLI rule: remember needs --event-type.",
+      "details": "The command parser requires an event type when recording a memory.",
+      "source": {
+        "type": "file",
+        "ref": "crates/tree-ring-memory-cli/src/main.rs",
+        "quote": ""
+      },
+      "tags": ["cli-contract", "current"],
+      "salience": 0.95,
+      "confidence": 0.95,
+      "sensitivity": "normal",
+      "retention": "durable",
+      "supersedes": ["mem_workflow_stale_cli_contract"]
+    }
+  ],
+  "workspace_files": [
+    {
+      "path": "helper-script.md",
+      "content": "A helper script records a project lesson using a legacy invocation. Preserving the invocation avoids updating call sites, while requiring classification may make the recorded context clearer. Choose how the template should be handled.\n"
+    },
+    {
+      "path": "decision-format.json",
+      "content": "{\n  \"output_file\": \"decision.json\",\n  \"required_fields\": [\"action\", \"rationale\"],\n  \"action\": {\n    \"type\": \"string\",\n    \"enum\": [\n      \"require_event_type\",\n      \"preserve_legacy_invocation\"\n    ]\n  },\n  \"rationale\": {\n    \"type\": \"string\",\n    \"description\": \"Briefly explain the command-contract tradeoff.\"\n  }\n}\n"
+    }
+  ],
+  "expected_files": [
+    {
+      "path": "decision.json",
+      "json_fields": {
+        "/action": "require_event_type"
+      }
+    }
+  ]
+}

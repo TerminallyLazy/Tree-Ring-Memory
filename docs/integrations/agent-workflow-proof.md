@@ -1,0 +1,67 @@
+# Agent Workflow Proof
+
+The workflow-proof example is an explicit, controlled comparison for three
+small synthetic, project-safe scenarios. It is not a normal `tree-ring`
+subcommand, background process, CI job, or universal benchmark.
+
+Run it deliberately from a source checkout with a locally available Codex CLI:
+
+```bash
+cargo run --locked -p tree-ring-memory-cli --example workflow_proof -- \
+  fixtures/workflow-proof target/tree-ring-certification/workflow-proof \
+  --model <model-id>
+```
+
+`--model <model-id>` is required for an evidence-producing run; an omitted or
+blank value is a usage error before a Codex adapter is constructed. The adapter
+also validates its model and always passes that recorded ID to Codex. The report
+records the requested value as `agent_identity: "codex:<model-id>"` in JSON
+and as an agent-identity line in the Markdown summary.
+
+The command runs the same task in three retained workspaces for every fixture:
+
+- `no_memory` receives no memory context.
+- `raw_memory` receives the visible normal, non-superseded seed memories in
+  fixture order.
+- `tree_ring` receives the normal, non-superseded memories returned by local
+  Tree Ring retrieval.
+
+The fixture pack exercises constraint recall (`no-background-writer`), current
+rules over superseded rules (`stale-cli-contract`), and a failure scar changing
+the recovery decision (`scar-recovery`). Each workspace materializes a
+`decision-format.json` action enum. The agent task asks it to inspect that
+workspace and write `decision.json` with an `action` and `rationale`; it does
+not name the expected action. Deterministic validators remain outside the agent
+request and compare only the exact `decision.json` `/action` value.
+
+## Evidence and Reproducibility
+
+The selected output directory retains all trial workspaces at
+`trials/<scenario>/<arm>/workspace/`, plus a machine-readable
+`workflow-proof-report.json` and a readable `workflow-proof-summary.md`.
+For evidence integrity, artifacts use the resolved output directory, and
+descriptor-relative validation accepts only regular unlinked workspace files,
+rejecting symlink and hard-link outputs; non-Unix evaluation currently fails
+closed until an equivalent descriptor-safe implementation exists.
+Treat `workflow-proof-report.json` as observed paired evidence for these
+specific controlled fixtures: inspect the retained workspaces, memory context,
+agent response, and deterministic JSON field checks before drawing a
+conclusion.
+
+For every run, record alongside the output:
+
+- the Tree Ring commit (`git rev-parse HEAD`);
+- the Codex CLI version (`codex --version`) and the required `--model` value;
+- the `agent_identity` recorded in both reports (normally
+  `codex:<model-id>` for this example);
+- the complete command, timestamp, and any non-default Codex binary path.
+
+No unit test, normal certification command, or CI job invokes Codex
+automatically. A real model run happens only when an operator explicitly runs
+the example above, and a failed control arm remains evidence rather than a
+runner failure.
+
+This pack does not establish a universal model score, a general claim that
+memory improves all workflows, or a replacement for external evaluations. The
+next validation step is to run external benchmark adapters and preserve their
+native reports beside this controlled evidence.
