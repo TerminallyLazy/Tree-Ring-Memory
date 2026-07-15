@@ -309,7 +309,7 @@ python3 marketing/scripts/build-campaign-cards.py
 
 - Repository: `https://github.com/TerminallyLazy/Tree-Ring-Memory`
 - Launch page: `https://terminallylazy.github.io/Tree-Ring-Memory/`
-- Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.11.0`
+- Launch release: `https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0`
 - Launch discussion: `https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27`
 - Homebrew tap: `https://github.com/TerminallyLazy/homebrew-tree-ring`
 - Agent-Skills.md main repo listing:
