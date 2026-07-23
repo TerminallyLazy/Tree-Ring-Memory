@@ -17,7 +17,7 @@ framework-agnostic and does not replace either protocol.
 Tree Ring Memory is in protocol-preview status. Current launch links:
 
 - Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -38,6 +38,7 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
 - v0.10 added a one-line installer plus Rust-native terminal onboarding with animated terminal tree rings.
 - v0.11 made the repo fully Rust-native, wired TUI export/consolidation actions, added DOX/Revolve sync adapters, and added agent-framework discovery.
 - v0.12 adds a controlled, retained agent-workflow proof with explicit model identity and exact structured-output checks; it reports observed outcomes without claiming a universal memory advantage.
+- v0.13 adds same-host multi-agent identities and idempotency, opt-in coordinator authorization for shared writes, a protected-write audit, and a schema-v3 fence for old memory inserts, updates, and deletes.
 
 </details>
 
@@ -50,6 +51,8 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
   adapters, harness discovery, and terminal UI.
 - Same-host multi-agent correlation, scoped recall filters, and idempotent
   worker writes through the public CLI.
+- Optional coordinator capability enforcement for shared publication and
+  lifecycle mutations while ordinary workers stay agent-partitioned.
 - Evidence artifacts for install size, recall speed, harness readiness, and
   recall quality.
 - Privacy defaults that block secret-like memory, hide sensitive details, and
@@ -167,7 +170,7 @@ sh install.sh --project --init
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
-sh install.sh --archive-url https://example/tree-ring-memory-0.12.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
+sh install.sh --archive-url https://example/tree-ring-memory-0.13.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
 After install, rerun onboarding anytime:
@@ -221,6 +224,7 @@ tree-ring audit --audit-type sensitive
 tree-ring consolidate --period-type manual --dry-run
 tree-ring maintain
 tree-ring maintain --apply-expired --repair-fts
+tree-ring policy status
 tree-ring dox sync --source-root . --dry-run
 tree-ring revolve sync --source-root revolve --dry-run
 tree-ring integrations scan --source-root .
@@ -236,6 +240,8 @@ Command ownership is Rust-native:
 - `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
 - `integrations scan` discovers nearby agent-framework markers and suggests setup paths without changing their config.
 - `export`, `import`, `audit`, `consolidate`, and `maintain` are local maintenance surfaces over the same SQLite store.
+- `policy` manages optional coordinated multi-agent write authorization and its
+  protected-write audit trail.
 - `welcome` and `tui` are the terminal onboarding and operator-console surfaces.
 
 ## Same-Host Multi-Agent Workflow
@@ -271,9 +277,11 @@ tree-ring --root .tree-ring --json recall "release readiness" \
 When writing, `scope=agent` requires `agent_profile`, `scope=workflow` requires
 `workflow_id`, and `scope=session` requires `session_id`. A coordinator's
 aggregate recall may intentionally omit the agent-profile filter. Project and
-global scopes remain shared. These are routing and consolidation partitions,
-not ACLs; any process with filesystem access to the store can perform
-unfiltered recall.
+global scopes remain shared. These fields are always routing and consolidation
+partitions, not read ACLs; any process with filesystem access to the store can
+perform unfiltered recall. The optional Coordinated policy described below adds
+write authorization to official Rust/CLI paths without changing that read
+boundary.
 Pre-0.12 private-scope records that lack the now-required identity are migrated
 to a deterministic, per-record `legacy-*` partition and marked for review
 instead of being widened into shared scope or becoming unexportable.
@@ -297,10 +305,85 @@ evidence-preserving fan-in.
 The bounded acceptance test at
 `crates/tree-ring-memory-cli/tests/multi_agent_acceptance.rs` holds a real
 SQLite write lock, starts eight real CLI workers, verifies they wait and then
-complete, exercises each recall filter and operation conflict behavior, and
-checks exact row/FTS parity through `tree-ring --json maintain`. This is
-same-host evidence, not sustained-load, crash-recovery, fairness, or distributed
-storage certification.
+complete, exercises each recall filter and operation conflict behavior, checks
+exact row/FTS parity through `tree-ring --json maintain`, and then verifies
+concurrent worker denials, coordinator-authorized publication and promotion,
+capability rotation, and protected-write audit records. This is same-host
+evidence, not sustained-load, crash-recovery, fairness, adversarial local-user,
+or distributed-storage certification.
+
+### Coordinated Write Policy
+
+Every store starts in backward-compatible Open mode. For fan-out/fan-in where
+only a designated coordinator should publish shared conclusions or mutate
+existing memory, explicitly enable Coordinated mode:
+
+```bash
+tree-ring --root .tree-ring policy enable --coordinator release-coordinator
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring --root .tree-ring policy status
+tree-ring --root .tree-ring policy audit --limit 100
+```
+
+Enable prints the coordinator capability once. Put it only in
+`TREE_RING_COORDINATOR_TOKEN`; never pass it as a CLI flag or retain it in
+memory events, logs, source refs, scripts, or committed files. Tree Ring stores
+only a hash. `policy status` and `policy audit` are read-only and never reveal
+the capability. Inject the variable only into coordinator processes; explicitly
+remove it from every ordinary worker's environment so fan-out children cannot
+inherit coordinator authority.
+
+In Coordinated mode, an ordinary worker may create only non-heartwood
+`scope=agent` memory whose `agent_profile` matches the worker's write context.
+Set that identity with `--agent-profile <worker>` or
+`TREE_RING_AGENT_PROFILE=<worker>`. The coordinator capability is required for:
+
+- project, global, workflow, session, or other shared/non-agent writes
+- heartwood creation or promotion
+- JSONL import and persisted DOX/Revolve adapter results
+- persisted consolidation
+- ring changes and supersede/delete/redact lifecycle operations
+- maintenance with apply or repair flags
+
+Recall, export, policy status/audit, adapter dry-runs, consolidation dry-runs,
+and report-only maintenance remain read-only. Protected allow/deny decisions
+are recorded by `policy audit` without recording the plaintext capability.
+
+Rotate the capability while the current one is exported, then immediately
+replace the environment value with the newly printed capability:
+
+```bash
+tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
+export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+tree-ring --root .tree-ring policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+Rotation invalidates the old capability. `policy disable` also requires the
+current capability and returns the store to Open mode.
+
+This policy is operational write authorization in official Rust/CLI store
+paths. It is not a read ACL, an operating-system security boundary, or
+protection against an adversary who controls the local database files or
+process environment. The supported shared root remains one host and a local
+filesystem.
+
+### v0.13 Schema-v3 Upgrade
+
+Treat the first v0.13 open of an existing store as a coordinated, one-way
+upgrade:
+
+1. Stop every Tree Ring CLI, plugin, TUI, and bundled worker using the root.
+2. Checkpoint SQLite WAL state and make a verified backup of the store.
+3. Upgrade every CLI, plugin, and bundled worker before any process reopens it.
+4. Open the root with v0.13, which migrates it to schema v3 and installs the
+   writer-protocol fence.
+
+Do not run v0.12 against an upgraded root. Memory inserts, updates, and deletes
+from old v0.12 writers are fenced; all mixed-version operation is unsupported
+even if an older read or maintenance command appears to work.
+Rollback is supported only by stopping all processes and restoring the complete
+pre-upgrade backup.
 
 ## Evidence Loop
 
@@ -359,7 +442,9 @@ outcome-free files as durable truth.
 
 For both adapters, run `--dry-run` first. Imported memory is a concise recall
 aid; the source `AGENTS.md`, Revolve record, evaluation artifact, PR, issue,
-test, or run log remains authoritative.
+test, or run log remains authoritative. In Coordinated mode, persisting either
+adapter's result requires `TREE_RING_COORDINATOR_TOKEN`; dry-run discovery does
+not.
 
 Framework discovery is read-only:
 
@@ -429,6 +514,7 @@ operators working from a terminal:
 ```bash
 tree-ring tui
 tree-ring --root .tree-ring tui --event-stream ./tree-ring-events.jsonl --tick-ms 150
+tree-ring --root .tree-ring tui --agent-profile worker-storage
 ```
 
 From a source checkout without installing:
@@ -461,6 +547,13 @@ Useful keys and commands:
   `/consolidate`, `/export <file>`, `/sync`, `/integrations`, `/stream`, and
   `/watch`.
 
+`--agent-profile` (or `TREE_RING_AGENT_PROFILE`) makes TUI `/remember` create
+agent-scoped memory for that profile. Without a profile, `/remember` keeps its
+Open-mode global default and is therefore rejected for an unprivileged
+Coordinated-mode worker. TUI lifecycle operations such as promote, scar, seed,
+supersede, forget/redact, and persisted consolidation require
+`TREE_RING_COORDINATOR_TOKEN` in Coordinated mode.
+
 Destructive or authority-changing operations are confirmation-gated. Sensitive
 details stay hidden by default, and secret-like memory is blocked before
 storage.
@@ -485,6 +578,7 @@ cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
 cargo run -p tree-ring-memory-cli -- maintain --help
+cargo run -p tree-ring-memory-cli -- policy --help
 cargo run -p tree-ring-memory-cli -- dox sync --help
 cargo run -p tree-ring-memory-cli -- revolve sync --help
 cargo run -p tree-ring-memory-cli -- integrations scan --help

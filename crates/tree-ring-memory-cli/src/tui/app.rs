@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tree_ring_memory_core::{ConsolidationRequest, MemoryEvent};
-use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
+use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore, WriteContext};
 
 use crate::actions::export_import::{export_jsonl, ExportActionRequest};
 use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
@@ -30,6 +30,7 @@ pub enum AppMode {
 
 pub struct App {
     root: PathBuf,
+    agent_profile: Option<String>,
     pub store: SQLiteMemoryStore,
     watcher: StoreWatcher,
     pub dashboard: DashboardStats,
@@ -53,11 +54,35 @@ pub struct App {
 }
 
 impl App {
+    #[cfg(test)]
     pub fn new(root: PathBuf, event_stream_path: Option<PathBuf>) -> Result<Self, String> {
         let db_path = root.join("memory.sqlite");
         let store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
+        Self::from_store(root, event_stream_path, store, None)
+    }
+
+    pub fn new_with_context(
+        root: PathBuf,
+        event_stream_path: Option<PathBuf>,
+        context: WriteContext,
+        agent_profile: Option<String>,
+    ) -> Result<Self, String> {
+        let db_path = root.join("memory.sqlite");
+        let store = SQLiteMemoryStore::open_with_context(&db_path, context)
+            .map_err(|err| err.to_string())?;
+        Self::from_store(root, event_stream_path, store, agent_profile)
+    }
+
+    fn from_store(
+        root: PathBuf,
+        event_stream_path: Option<PathBuf>,
+        store: SQLiteMemoryStore,
+        agent_profile: Option<String>,
+    ) -> Result<Self, String> {
+        let db_path = root.join("memory.sqlite");
         let mut app = Self {
             root,
+            agent_profile,
             store,
             watcher: StoreWatcher::new(),
             dashboard: DashboardStats::empty(),
@@ -138,7 +163,12 @@ impl App {
 
     fn handle_pending_key(&mut self, key: KeyEvent) -> Result<(), String> {
         match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') => self.confirm_pending_action(),
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                if let Err(error) = self.confirm_pending_action() {
+                    self.status = format!("action failed: {error}");
+                }
+                Ok(())
+            }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 self.pending_action = None;
                 self.status = "action cancelled".to_string();
@@ -158,7 +188,9 @@ impl App {
                 let command = self.command_buffer.clone();
                 self.command_buffer.clear();
                 self.mode = AppMode::Default;
-                self.execute_slash_command(&command)?;
+                if let Err(error) = self.execute_slash_command(&command) {
+                    self.status = format!("command failed: {error}");
+                }
             }
             KeyCode::Backspace => {
                 self.command_buffer.pop();
@@ -286,15 +318,19 @@ impl App {
             self.status = "remember requires a summary".to_string();
             return Ok(());
         }
+        let (scope, agent_profile) = match &self.agent_profile {
+            Some(agent_profile) => ("agent".to_string(), Some(agent_profile.clone())),
+            None => ("global".to_string(), None),
+        };
         let report = remember(
             &mut self.store,
             RememberRequest {
                 summary: summary.trim().to_string(),
                 event_type: "lesson".to_string(),
                 ring: "cambium".to_string(),
-                scope: "global".to_string(),
+                scope,
                 project: None,
-                agent_profile: None,
+                agent_profile,
                 workflow_id: None,
                 session_id: None,
                 operation_id: None,
@@ -614,6 +650,23 @@ mod tests {
     }
 
     #[test]
+    fn agent_context_makes_tui_remember_worker_private() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let context = WriteContext::new(Some("reviewer".to_string()), None, "tui-test").unwrap();
+        let mut app =
+            App::new_with_context(root, None, context, Some("reviewer".to_string())).unwrap();
+
+        app.execute_slash_command("/remember Keep this worker-local")
+            .unwrap();
+
+        let memories = app.store.list_all(false).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].scope, "agent");
+        assert_eq!(memories[0].agent_profile.as_deref(), Some("reviewer"));
+    }
+
+    #[test]
     fn secret_like_remember_is_blocked() {
         let dir = tempdir().unwrap();
         let mut app = app(&dir);
@@ -667,6 +720,62 @@ mod tests {
         confirm(&mut app);
 
         assert_eq!(app.status, "memory not found: mem_missing");
+    }
+
+    #[test]
+    fn coordinated_worker_denial_is_visible_without_exiting_the_tui() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let db_path = root.join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        setup
+            .enable_coordinated_policy(Some("test-coordinator"))
+            .unwrap();
+        drop(setup);
+
+        let context = WriteContext::new(Some("worker-a".to_string()), None, "tui-test").unwrap();
+        let mut app =
+            App::new_with_context(root, None, context, Some("worker-a".to_string())).unwrap();
+        app.execute_slash_command("/remember Keep this worker-local")
+            .unwrap();
+        app.execute_slash_command("/promote").unwrap();
+
+        app.handle_key(KeyEvent::new(
+            KeyCode::Char('y'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
+
+        assert!(app.status.contains("action failed: authorization denied"));
+        assert!(app.pending_action.is_none());
+        assert_eq!(app.store.list_all(false).unwrap()[0].ring, "cambium");
+    }
+
+    #[test]
+    fn coordinated_unprofiled_remember_failure_is_visible_without_exiting_the_tui() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let db_path = root.join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        setup
+            .enable_coordinated_policy(Some("test-coordinator"))
+            .unwrap();
+        drop(setup);
+
+        let context = WriteContext::new(None, None, "tui-test").unwrap();
+        let mut app = App::new_with_context(root, None, context, None).unwrap();
+        app.mode = AppMode::Command;
+        app.command_buffer = "/remember Attempt a shared default".to_string();
+
+        app.handle_key(KeyEvent::new(
+            KeyCode::Enter,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
+
+        assert!(app.status.contains("command failed: authorization denied"));
+        assert_eq!(app.mode, AppMode::Default);
+        assert_eq!(app.dashboard.total, 0);
     }
 
     #[test]

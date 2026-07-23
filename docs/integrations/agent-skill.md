@@ -169,9 +169,71 @@ migration/import and marked for review. They remain privately partitioned and
 portable instead of being widened into project/global scope.
 
 The identifiers must be nonblank, contain no control characters, and stay at or
-below 256 characters. These fields are routing and correlation metadata, not an
-authorization boundary. A process with filesystem access to the SQLite store
-can read it, so host permissions still control access.
+below 256 characters. These fields are routing and correlation metadata, not a
+read-authorization boundary. A process with filesystem access to the SQLite
+store can read it, so host permissions still control access.
+
+### Coordinated Write Authorization
+
+Stores remain in backward-compatible Open mode unless a coordinator explicitly
+opts in. Enable Coordinated mode for a shared root when ordinary fan-out workers
+should publish only to their own agent partitions:
+
+```bash
+tree-ring --root .tree-ring policy enable --coordinator release-coordinator
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring --root .tree-ring policy status
+tree-ring --root .tree-ring policy audit --limit 100
+```
+
+Enable prints the capability exactly once. Supply it only through
+`TREE_RING_COORDINATOR_TOKEN`; there is no token CLI flag. Do not put the token
+in memory, a source ref, a log, a retained command, or a committed file. The
+store keeps only its hash, and policy status/audit never reveal it.
+Inject the variable only into coordinator processes. Ensure every ordinary
+worker is launched with `TREE_RING_COORDINATOR_TOKEN` unset so authority is not
+inherited through fan-out.
+
+In Coordinated mode, an ordinary worker may only create a non-heartwood
+`scope=agent` event whose `agent_profile` matches the `WriteContext` actor. The
+CLI constructs that actor from `--agent-profile` or
+`TREE_RING_AGENT_PROFILE`. Everything else that can publish shared state or
+mutate lifecycle state requires the coordinator capability:
+
+- project, global, workflow, session, or other non-agent creates
+- all heartwood creates and promotions
+- JSONL import and persisted DOX/Revolve sync
+- persisted consolidation
+- ring changes, supersede, delete, and redact
+- applied expiry/secret maintenance and FTS repair
+
+Recall, export, policy status/audit, adapter dry-runs, consolidation dry-runs,
+and report-only maintenance remain read-only. Protected allow and deny
+decisions are written to the policy audit trail without the plaintext token.
+
+Rotate the capability while the current token is in the environment, then
+replace it immediately with the newly printed capability:
+
+```bash
+tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
+export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+tree-ring --root .tree-ring policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+The old capability stops authorizing writes after rotation. Disabling also
+requires the current capability and returns the store to Open mode.
+
+For TUI workers, pass `--agent-profile <worker>` to
+`tree-ring --root .tree-ring tui` or set `TREE_RING_AGENT_PROFILE`.
+`/remember` then defaults to `scope=agent` for that worker. Without a profile,
+`/remember` keeps its Open-mode global default and an unprivileged
+Coordinated-mode write is denied. Promote/scar/seed, supersede, forget/redact,
+and persisted consolidation actions require `TREE_RING_COORDINATOR_TOKEN`.
+
+This is operational authorization in official Rust/CLI write paths. It is not
+a read ACL, an OS security boundary, or protection from an adversary who
+controls the local files or process environment.
 
 ### Runtime Boundary And Evidence
 
@@ -187,9 +249,26 @@ evidence-preserving coordinator when work spans hosts.
 process-level acceptance test. It launches eight real CLI writers against one
 root, exercises profile/workflow/session/scope recall filters, verifies exact
 retry and conflicting-key behavior, and checks memory-row/FTS parity through
-the JSON maintenance report. It is evidence for the same-host contract only;
-it is not a sustained-load, crash-recovery, fairness, or distributed-storage
-certification.
+the JSON maintenance report. Its policy phase races concurrent unauthorized
+shared writes, proves ordinary agent-partitioned creates still work, verifies a
+coordinator can publish and promote, rotates the capability, and checks allowed
+and denied audit records. It is evidence for the same-host contract only; it is
+not a sustained-load, crash-recovery, fairness, adversarial-local-user, or
+distributed-storage certification.
+
+### v0.13 Schema-v3 Upgrade
+
+Before any v0.13 process opens an existing root:
+
+1. Stop every Tree Ring CLI, TUI, plugin, and bundled worker using it.
+2. Checkpoint SQLite WAL state and make a verified backup of the store.
+3. Upgrade every CLI, plugin, and bundled worker.
+4. Reopen with v0.13 to migrate the root to schema v3.
+
+Schema v3 fences memory inserts, updates, and deletes from old writers. Do not
+use v0.12 on that root: all mixed-version operation is unsupported even if an
+older read or maintenance command appears to work. Roll back only by stopping
+all processes and restoring the complete pre-upgrade backup.
 
 ## Evidence-Driven Improvement
 
@@ -251,7 +330,9 @@ Revolve adapter rules:
 - Ignore outcome-free files as durable truth.
 
 Run `--dry-run` first, inspect the generated memories, then rerun without
-`--dry-run` only when the summaries are useful and source-linked.
+`--dry-run` only when the summaries are useful and source-linked. In
+Coordinated mode, that persisted rerun requires
+`TREE_RING_COORDINATOR_TOKEN`; the dry-run does not.
 
 ## Agent Harness Notes
 

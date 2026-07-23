@@ -33,6 +33,8 @@ pub enum TreeRingError {
     Validation(String),
     #[error("secret-like memory is blocked by policy")]
     SensitiveMemoryBlocked,
+    #[error("authorization denied: {0}")]
+    AuthorizationDenied(String),
     #[error("storage locked: {0}")]
     StorageLocked(String),
     #[error("storage error: {0}")]
@@ -248,9 +250,7 @@ fn validate_member(field: &str, value: &str, allowed: &[&str]) -> TreeRingResult
     if allowed.contains(&value) {
         return Ok(());
     }
-    Err(TreeRingError::Validation(format!(
-        "invalid {field}: {value}"
-    )))
+    Err(TreeRingError::Validation(format!("invalid {field}")))
 }
 
 fn validate_optional_context_metadata(field: &str, value: Option<&str>) -> TreeRingResult<()> {

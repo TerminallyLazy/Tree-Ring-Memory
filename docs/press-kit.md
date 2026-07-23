@@ -23,10 +23,10 @@ DOX/Revolve adapters, framework discovery, and a terminal TUI.
 - Category: AI agents, developer tools, local-first software, Rust CLI
 - License: MIT
 - Status: protocol-preview
-- Current version: 0.12.0
+- Current version: 0.13.0
 - Website: <https://terminallylazy.github.io/Tree-Ring-Memory/>
 - Repository: <https://github.com/TerminallyLazy/Tree-Ring-Memory>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.12.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Homebrew tap: <https://github.com/TerminallyLazy/homebrew-tree-ring>
 - Feedback: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -45,6 +45,8 @@ Agent memory should age, not pile up.
 - Deterministic consolidation without requiring an LLM.
 - Source-linked evaluated outcomes through `tree-ring evidence`.
 - Controlled workflow-proof artifacts with explicit model identity and exact structured-output checks.
+- Same-host multi-agent identity, scoped recall, and exact-retry idempotency.
+- Optional coordinator authorization for shared writes and lifecycle mutations.
 - DOX and Revolve sync adapters.
 - Terminal onboarding and Ratatui operator console.
 

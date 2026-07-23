@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 use tree_ring_memory_core::models::{MemoryEvent, TreeRingError, TreeRingResult};
+use tree_ring_memory_core::SensitivityGuard;
 
 use crate::search;
 use crate::sqlite_error_from_rusqlite;
@@ -107,6 +108,7 @@ pub(crate) fn supersede_in_transaction(
     old_id: &str,
     new_id: &str,
 ) -> TreeRingResult<bool> {
+    SensitivityGuard::default().check_or_raise(new_id)?;
     let Some(mut event) = transaction
         .query_row(
             "SELECT raw_json FROM memories WHERE id = ?",
@@ -157,7 +159,7 @@ pub(crate) fn prepare_memory_write(
     transaction: &Transaction<'_>,
     event: &MemoryEvent,
 ) -> TreeRingResult<()> {
-    event.validate()?;
+    validate_memory_for_storage(event)?;
     let tombstoned: bool = transaction
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM redaction_tombstones WHERE memory_id = ?)",
@@ -185,6 +187,11 @@ pub(crate) fn prepare_memory_write(
         preserve_replaced_operation_claim(transaction, &existing, event)?;
     }
     ensure_operation_claim_available(transaction, event)
+}
+
+pub(crate) fn validate_memory_for_storage(event: &MemoryEvent) -> TreeRingResult<()> {
+    SensitivityGuard::default().detect_memory_event_sensitivity(event)?;
+    event.validate()
 }
 
 pub(crate) fn is_redaction_tombstoned(

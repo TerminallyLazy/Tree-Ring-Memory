@@ -11,15 +11,18 @@ use tree_ring_memory_core::{
     audit_memories, consolidate_memories, decode_jsonl, encode_jsonl, normalize_import_events,
     normalize_legacy_private_scope_identity, plan_maintenance, AuditReport, ConsolidationReport,
     ConsolidationRequest, MaintenanceActionType, MaintenanceFtsReport, MaintenanceReport,
-    MaintenanceRequest,
+    MaintenanceRequest, SensitivityGuard,
 };
 
 mod lifecycle;
+mod policy;
 mod schema;
 mod search;
 mod write;
 
-const SQLITE_SCHEMA_VERSION: i64 = 2;
+pub use policy::{AuthorizationAuditEvent, PolicyGrant, PolicyMode, PolicyStatus, WriteContext};
+
+const SQLITE_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct RecallResult {
@@ -63,6 +66,7 @@ impl Default for RecallOptions<'_> {
 
 pub struct SQLiteMemoryStore {
     connection: Connection,
+    write_context: WriteContext,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,23 +101,37 @@ pub struct ImportReport {
 
 impl SQLiteMemoryStore {
     pub fn open(path: impl AsRef<Path>) -> TreeRingResult<Self> {
+        Self::open_with_context(path, WriteContext::anonymous())
+    }
+
+    pub fn open_with_context(
+        path: impl AsRef<Path>,
+        context: WriteContext,
+    ) -> TreeRingResult<Self> {
         let connection = schema::open_connection(path.as_ref())?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            write_context: context,
+        };
         store.migrate()?;
         Ok(store)
     }
 
     pub fn open_read_only(path: impl AsRef<Path>) -> TreeRingResult<Self> {
         let connection = schema::open_read_only_connection(path.as_ref())?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            write_context: WriteContext::anonymous(),
+        })
     }
 
-    pub fn connection(&self) -> &Connection {
+    #[cfg(test)]
+    pub fn connection_for_testing(&self) -> &Connection {
         &self.connection
     }
 
     pub fn migrate(&self) -> TreeRingResult<()> {
-        if schema::user_version(&self.connection)? >= SQLITE_SCHEMA_VERSION {
+        if schema::ensure_supported_schema_version(&self.connection)? == SQLITE_SCHEMA_VERSION {
             return Ok(());
         }
         write::retry_locked(|| {
@@ -122,7 +140,7 @@ impl SQLiteMemoryStore {
                 TransactionBehavior::Immediate,
             )
             .map_err(sqlite_error_from_rusqlite)?;
-            if schema::user_version(&transaction)? >= SQLITE_SCHEMA_VERSION {
+            if schema::ensure_supported_schema_version(&transaction)? == SQLITE_SCHEMA_VERSION {
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
                 return Ok(());
             }
@@ -184,6 +202,7 @@ impl SQLiteMemoryStore {
                 "#,
                 )
                 .map_err(sqlite_error_from_rusqlite)?;
+            policy::create_policy_schema(&transaction)?;
             for (column, definition) in [
                 ("workflow_id", "TEXT"),
                 ("session_id", "TEXT"),
@@ -199,9 +218,8 @@ impl SQLiteMemoryStore {
                 }
             }
             normalize_legacy_private_scope_rows(&transaction)?;
-            transaction
-                .execute_batch(
-                    r#"
+            let migration_sql = format!(
+                r#"
                 CREATE INDEX IF NOT EXISTS idx_memories_project
                   ON memories(project);
                 CREATE INDEX IF NOT EXISTS idx_memories_agent_profile
@@ -224,8 +242,38 @@ impl SQLiteMemoryStore {
                   SELECT id
                   FROM memories
                   WHERE summary = '[REDACTED]';
+                CREATE TRIGGER IF NOT EXISTS memories_writer_protocol_insert
+                BEFORE INSERT ON memories
+                WHEN tree_ring_writer_protocol() != {writer_protocol_version}
+                BEGIN
+                  SELECT RAISE(
+                    ABORT,
+                    'Tree Ring writer protocol {writer_protocol_version} required'
+                  );
+                END;
+                CREATE TRIGGER IF NOT EXISTS memories_writer_protocol_update
+                BEFORE UPDATE ON memories
+                WHEN tree_ring_writer_protocol() != {writer_protocol_version}
+                BEGIN
+                  SELECT RAISE(
+                    ABORT,
+                    'Tree Ring writer protocol {writer_protocol_version} required'
+                  );
+                END;
+                CREATE TRIGGER IF NOT EXISTS memories_writer_protocol_delete
+                BEFORE DELETE ON memories
+                WHEN tree_ring_writer_protocol() != {writer_protocol_version}
+                BEGIN
+                  SELECT RAISE(
+                    ABORT,
+                    'Tree Ring writer protocol {writer_protocol_version} required'
+                  );
+                END;
                 "#,
-                )
+                writer_protocol_version = schema::WRITER_PROTOCOL_VERSION,
+            );
+            transaction
+                .execute_batch(&migration_sql)
                 .map_err(sqlite_error_from_rusqlite)?;
             transaction
                 .pragma_update(None, "user_version", SQLITE_SCHEMA_VERSION)
@@ -235,12 +283,110 @@ impl SQLiteMemoryStore {
         })
     }
 
-    pub fn put(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
+    pub fn enable_coordinated_policy(
+        &mut self,
+        label: Option<&str>,
+    ) -> TreeRingResult<PolicyGrant> {
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
-                .transaction()
+                .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            match policy::enable_policy(&transaction, &write_context, label)? {
+                Ok(grant) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Ok(grant)
+                }
+                Err(error) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Err(error)
+                }
+            }
+        })
+    }
+
+    pub fn rotate_coordinator_capability(
+        &mut self,
+        label: Option<&str>,
+    ) -> TreeRingResult<PolicyGrant> {
+        let write_context = self.write_context.clone();
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            match policy::rotate_policy_capability(&transaction, &write_context, label)? {
+                Ok(grant) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Ok(grant)
+                }
+                Err(error) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Err(error)
+                }
+            }
+        })
+    }
+
+    pub fn disable_coordinated_policy(&mut self) -> TreeRingResult<PolicyStatus> {
+        let write_context = self.write_context.clone();
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            match policy::disable_policy(&transaction, &write_context)? {
+                Ok(status) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Ok(status)
+                }
+                Err(error) => {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    Err(error)
+                }
+            }
+        })
+    }
+
+    pub fn policy_status(&self) -> TreeRingResult<PolicyStatus> {
+        self.ensure_policy_schema_available()?;
+        policy::policy_status_on_connection(&self.connection)
+    }
+
+    pub fn policy_audit(&self, limit: usize) -> TreeRingResult<Vec<AuthorizationAuditEvent>> {
+        if !(1..=1000).contains(&limit) {
+            return Err(TreeRingError::Validation(
+                "policy audit limit must be between 1 and 1000".to_string(),
+            ));
+        }
+        self.ensure_policy_schema_available()?;
+        policy::policy_audit_on_connection(&self.connection, limit)
+    }
+
+    fn ensure_policy_schema_available(&self) -> TreeRingResult<()> {
+        let version = schema::ensure_supported_schema_version(&self.connection)?;
+        if version < SQLITE_SCHEMA_VERSION {
+            return Err(TreeRingError::Validation(format!(
+                "coordinated policy requires SQLite schema version {SQLITE_SCHEMA_VERSION}; found version {version}; complete the offline v0.13 upgrade first"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn put(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
+        let write_context = self.write_context.clone();
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_event_creates(&transaction, &write_context, "put", &[event])?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             write::put_in_transaction(&transaction, event)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
@@ -252,7 +398,8 @@ impl SQLiteMemoryStore {
             self.put(event)?;
             return Ok(PutOutcome::Created);
         };
-        event.validate()?;
+        write::validate_memory_for_storage(event)?;
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
@@ -264,6 +411,15 @@ impl SQLiteMemoryStore {
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
                 return Ok(PutOutcome::Existing(existing));
             }
+            if let policy::AuthorizationOutcome::Denied(error) = policy::authorize_event_creates(
+                &transaction,
+                &write_context,
+                "put_idempotent",
+                &[event],
+            )? {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             write::put_in_transaction(&transaction, event)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(PutOutcome::Created)
@@ -271,11 +427,22 @@ impl SQLiteMemoryStore {
     }
 
     pub fn put_many(&mut self, events: &[MemoryEvent]) -> TreeRingResult<()> {
+        let write_context = self.write_context.clone();
+        let event_refs = events.iter().collect::<Vec<_>>();
         write::retry_locked(|| {
             let transaction = self
                 .connection
-                .transaction()
+                .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            if let policy::AuthorizationOutcome::Denied(error) = policy::authorize_event_creates(
+                &transaction,
+                &write_context,
+                "put_many",
+                &event_refs,
+            )? {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             {
                 let mut insert_memory = transaction
                     .prepare(write::UPSERT_MEMORY_SQL)
@@ -524,11 +691,23 @@ impl SQLiteMemoryStore {
     }
 
     pub fn supersede(&mut self, old_id: &str, new_id: &str) -> TreeRingResult<()> {
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "supersede",
+                    Some(old_id),
+                )?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             write::supersede_in_transaction(&transaction, old_id, new_id)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
@@ -536,11 +715,23 @@ impl SQLiteMemoryStore {
     }
 
     pub fn delete(&mut self, memory_id: &str) -> TreeRingResult<()> {
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
-                .transaction()
+                .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "delete",
+                    Some(memory_id),
+                )?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             write::delete_in_transaction(&transaction, memory_id)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
@@ -548,11 +739,23 @@ impl SQLiteMemoryStore {
     }
 
     pub fn redact(&mut self, memory_id: &str) -> TreeRingResult<()> {
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "redact",
+                    Some(memory_id),
+                )?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             write::redact_in_transaction(&transaction, memory_id)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
@@ -565,6 +768,7 @@ impl SQLiteMemoryStore {
         ring: &str,
         event_type: &str,
     ) -> TreeRingResult<Option<MemoryEvent>> {
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
@@ -583,6 +787,17 @@ impl SQLiteMemoryStore {
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
                 return Ok(None);
             };
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "change_ring",
+                    Some(memory_id),
+                )?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             let tombstoned = write::is_redaction_tombstoned(&transaction, memory_id)?;
             event.ring = ring.to_string();
             if !tombstoned {
@@ -636,6 +851,7 @@ impl SQLiteMemoryStore {
             return Ok(report);
         }
 
+        let write_context = self.write_context.clone();
         let (inserted_count, replaced_count, skipped_duplicate_count) =
             write::retry_locked(|| {
                 let transaction = self
@@ -645,28 +861,49 @@ impl SQLiteMemoryStore {
                 let mut inserted_count = 0;
                 let mut replaced_count = 0;
                 let mut skipped_duplicate_count = 0;
-                let mut written_events = Vec::new();
+                let mut planned_writes = Vec::new();
+                let mut planned_memory_ids = HashSet::new();
                 for event in &events {
-                    let exists: bool = transaction
+                    let database_exists: bool = transaction
                         .query_row(
                             "SELECT EXISTS(SELECT 1 FROM memories WHERE id = ?)",
                             params![&event.id],
                             |row| row.get(0),
                         )
                         .map_err(sqlite_error_from_rusqlite)?;
+                    let exists = database_exists || planned_memory_ids.contains(&event.id);
                     if exists && !replace_existing {
                         skipped_duplicate_count += 1;
                         continue;
                     }
-                    write::put_in_transaction(&transaction, event)?;
-                    written_events.push(event);
                     if exists {
                         replaced_count += 1;
                     } else {
                         inserted_count += 1;
                     }
+                    planned_memory_ids.insert(event.id.clone());
+                    planned_writes.push(event);
                 }
-                for event in written_events {
+
+                let target_memory_id = planned_writes
+                    .first()
+                    .map(|event| event.id.as_str())
+                    .or_else(|| events.first().map(|event| event.id.as_str()));
+                let authorization = policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "import_jsonl",
+                    target_memory_id,
+                )?;
+                if let policy::AuthorizationOutcome::Denied(error) = authorization {
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    return Err(error);
+                }
+
+                for event in &planned_writes {
+                    write::put_in_transaction(&transaction, event)?;
+                }
+                for event in planned_writes {
                     for old_id in &event.supersedes {
                         write::supersede_in_transaction(&transaction, old_id, &event.id)?;
                     }
@@ -689,10 +926,22 @@ impl SQLiteMemoryStore {
         &mut self,
         request: &ConsolidationRequest,
     ) -> TreeRingResult<ConsolidationReport> {
+        SensitivityGuard::default().detect_text_sensitivity(
+            [
+                request.period_key.as_deref(),
+                request.project.as_deref(),
+                request.agent_profile.as_deref(),
+                request.workflow_id.as_deref(),
+                request.session_id.as_deref(),
+            ]
+            .into_iter()
+            .flatten(),
+        )?;
         if request.dry_run {
             let events = self.list_all(false)?;
             return consolidate_memories(&events, request);
         }
+        let write_context = self.write_context.clone();
         write::retry_locked(|| {
             let transaction = self
                 .connection
@@ -730,6 +979,17 @@ impl SQLiteMemoryStore {
                 .iter()
                 .map(|output| output.memory.clone())
                 .collect::<Vec<_>>();
+            if let policy::AuthorizationOutcome::Denied(error) =
+                policy::authorize_coordinator_action(
+                    &transaction,
+                    &write_context,
+                    "consolidate",
+                    output_events.first().map(|event| event.id.as_str()),
+                )?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Err(error);
+            }
             let supersession_pairs = if request.force {
                 let previous_outputs = previous_consolidation_outputs_on_connection(
                     &transaction,
@@ -760,6 +1020,7 @@ impl SQLiteMemoryStore {
         let apply_secret_redactions = !request.dry_run && request.apply_secret_redactions;
         let repair_fts = !request.dry_run && request.repair_fts;
         let needs_transaction = apply_expired || apply_secret_redactions || repair_fts;
+        let write_context = self.write_context.clone();
         let mut report = if needs_transaction {
             write::retry_locked(|| {
                 let transaction = self
@@ -769,6 +1030,30 @@ impl SQLiteMemoryStore {
                 let events = list_all_on_connection(&transaction, true)?;
                 let mut transaction_report = plan_maintenance(&events, request);
                 transaction_report.fts = fts_report_on_connection(&transaction, false)?;
+
+                let target_memory_id = transaction_report
+                    .actions
+                    .iter()
+                    .find(|action| {
+                        (action.action_type == MaintenanceActionType::RedactSecret
+                            && apply_secret_redactions)
+                            || (action.action_type == MaintenanceActionType::DeleteExpired
+                                && apply_expired)
+                    })
+                    .map(|action| action.memory_id.as_str());
+                if repair_fts || target_memory_id.is_some() {
+                    if let policy::AuthorizationOutcome::Denied(error) =
+                        policy::authorize_coordinator_action(
+                            &transaction,
+                            &write_context,
+                            "maintain",
+                            target_memory_id,
+                        )?
+                    {
+                        transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                        return Err(error);
+                    }
+                }
 
                 for action in &mut transaction_report.actions {
                     if action.action_type == MaintenanceActionType::RedactSecret
@@ -1419,11 +1704,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
         let journal_mode: String = store
-            .connection()
+            .connection_for_testing()
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .unwrap();
         let busy_timeout: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
             .unwrap();
 
@@ -1437,7 +1722,7 @@ mod tests {
         let db_path = dir.path().join("memory.sqlite");
         let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
         writer
-            .connection()
+            .connection_for_testing()
             .execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA wal_checkpoint(TRUNCATE);")
             .unwrap();
         let event = MemoryEvent::new("Visible from the live WAL.", "lesson").unwrap();
@@ -1449,12 +1734,12 @@ mod tests {
         let reader = SQLiteMemoryStore::open_read_only(&db_path).unwrap();
         assert_eq!(reader.get(&event.id).unwrap().unwrap().id, event.id);
         let query_only: i64 = reader
-            .connection()
+            .connection_for_testing()
             .query_row("PRAGMA query_only", [], |row| row.get(0))
             .unwrap();
         assert_eq!(query_only, 1);
         assert!(reader
-            .connection()
+            .connection_for_testing()
             .execute("CREATE TABLE forbidden_write (id INTEGER)", [])
             .is_err());
     }
@@ -1468,11 +1753,11 @@ mod tests {
         let store = SQLiteMemoryStore::open(&db_path).unwrap();
 
         for column in ["workflow_id", "session_id", "operation_id"] {
-            assert!(schema::memory_column_exists(store.connection(), column).unwrap());
+            assert!(schema::memory_column_exists(store.connection_for_testing(), column).unwrap());
         }
         let indexes: HashSet<String> = {
             let mut statement = store
-                .connection()
+                .connection_for_testing()
                 .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
                 .unwrap();
             statement
@@ -1509,7 +1794,7 @@ mod tests {
         assert!(workflow_id.starts_with("legacy-workflow-"));
         assert!(migrated.review.needs_review);
         let stored_workflow_id: String = store
-            .connection()
+            .connection_for_testing()
             .query_row(
                 "SELECT workflow_id FROM memories WHERE id = ?",
                 params![&legacy.id],
@@ -1586,7 +1871,9 @@ mod tests {
             .is_some_and(|identity| identity.starts_with("legacy-session-")));
         assert!(loaded.review.needs_review);
         assert!(store.export_jsonl(false, false).is_ok());
-        assert!(!schema::memory_column_exists(store.connection(), "session_id").unwrap());
+        assert!(
+            !schema::memory_column_exists(store.connection_for_testing(), "session_id").unwrap()
+        );
     }
 
     #[test]
@@ -1613,7 +1900,7 @@ mod tests {
 
         let store = SQLiteMemoryStore::open(&db_path).unwrap();
         for column in ["workflow_id", "session_id", "operation_id"] {
-            assert!(schema::memory_column_exists(store.connection(), column).unwrap());
+            assert!(schema::memory_column_exists(store.connection_for_testing(), column).unwrap());
         }
     }
 
@@ -1623,7 +1910,7 @@ mod tests {
         let db_path = dir.path().join("memory.sqlite");
         let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
         assert_eq!(
-            schema::user_version(writer.connection()).unwrap(),
+            schema::user_version(writer.connection_for_testing()).unwrap(),
             SQLITE_SCHEMA_VERSION
         );
         let transaction = writer
@@ -1633,7 +1920,7 @@ mod tests {
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let handle = thread::spawn(move || {
             let result = SQLiteMemoryStore::open(&db_path)
-                .and_then(|store| schema::user_version(store.connection()));
+                .and_then(|store| schema::user_version(store.connection_for_testing()));
             result_tx.send(result).unwrap();
         });
 
@@ -1644,6 +1931,681 @@ mod tests {
         assert_eq!(opened_version, SQLITE_SCHEMA_VERSION);
         transaction.commit().unwrap();
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn future_schema_is_rejected_before_writable_configuration_and_for_read_only_open() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("future.sqlite");
+        let future_version = SQLITE_SCHEMA_VERSION + 1;
+        let connection = Connection::open(&db_path).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA journal_mode=DELETE; CREATE TABLE sentinel (id INTEGER PRIMARY KEY);",
+            )
+            .unwrap();
+        connection
+            .pragma_update(None, "user_version", future_version)
+            .unwrap();
+        drop(connection);
+
+        let writable_error = SQLiteMemoryStore::open(&db_path)
+            .err()
+            .expect("future writable schema unexpectedly opened");
+        assert!(matches!(
+            writable_error,
+            TreeRingError::Storage(message)
+                if message.contains("unsupported SQLite schema version")
+                    && message.contains(&future_version.to_string())
+        ));
+
+        let verification = Connection::open(&db_path).unwrap();
+        let journal_mode: String = verification
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal_mode.to_ascii_lowercase(), "delete");
+        assert_eq!(schema::user_version(&verification).unwrap(), future_version);
+        drop(verification);
+
+        let read_only_error = SQLiteMemoryStore::open_read_only(&db_path)
+            .err()
+            .expect("future read-only schema unexpectedly opened");
+        assert!(matches!(
+            read_only_error,
+            TreeRingError::Storage(message)
+                if message.contains("unsupported SQLite schema version")
+                    && message.contains(&future_version.to_string())
+        ));
+    }
+
+    #[test]
+    fn v2_to_v3_migration_repeats_legacy_private_scope_normalization() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut legacy =
+            MemoryEvent::new("Legacy v2 agent identity requires repair.", "lesson").unwrap();
+        legacy.scope = "agent".to_string();
+        legacy.agent_profile = Some("legacy-agent-before-corruption".to_string());
+        store.put(&legacy).unwrap();
+
+        let mut corrupted = legacy.clone();
+        corrupted.agent_profile = Some(" \t ".to_string());
+        corrupted.review = Default::default();
+        store
+            .connection_for_testing()
+            .execute(
+                r#"
+                UPDATE memories
+                SET agent_profile = ?, review_json = ?, raw_json = ?
+                WHERE id = ?
+                "#,
+                params![
+                    corrupted.agent_profile.as_deref(),
+                    serde_json::to_string(&corrupted.review).unwrap(),
+                    serde_json::to_string(&corrupted).unwrap(),
+                    &corrupted.id,
+                ],
+            )
+            .unwrap();
+        store
+            .connection_for_testing()
+            .pragma_update(None, "user_version", 2_i64)
+            .unwrap();
+        drop(store);
+
+        let migrated = SQLiteMemoryStore::open(&db_path).unwrap();
+        let repaired = migrated.get(&legacy.id).unwrap().unwrap();
+        assert_eq!(
+            schema::user_version(migrated.connection_for_testing()).unwrap(),
+            SQLITE_SCHEMA_VERSION
+        );
+        assert!(repaired
+            .agent_profile
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("legacy-agent-")));
+        assert!(repaired.review.needs_review);
+        repaired.validate().unwrap();
+    }
+
+    #[test]
+    fn writer_protocol_triggers_reject_plain_connections_before_memory_mutation() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let protocol: i64 = store
+            .connection_for_testing()
+            .query_row("SELECT tree_ring_writer_protocol()", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(protocol, schema::WRITER_PROTOCOL_VERSION);
+        let event = MemoryEvent::new("Protected by writer protocol.", "lesson").unwrap();
+        store.put(&event).unwrap();
+        let original = store.get(&event.id).unwrap().unwrap();
+        drop(store);
+
+        let plain = Connection::open(&db_path).unwrap();
+        let insert_error = plain
+            .execute(
+                r#"
+                INSERT INTO memories
+                SELECT
+                  'mem_plain_writer_insert', created_at, updated_at, project,
+                  agent_profile, workflow_id, session_id, operation_id, scope,
+                  ring, event_type, summary, details, source_json, tags_json,
+                  salience, confidence, sensitivity, retention, expires_at,
+                  supersedes_json, superseded_by, links_json, review_json, raw_json
+                FROM memories
+                WHERE id = ?
+                "#,
+                params![&event.id],
+            )
+            .unwrap_err();
+        assert!(insert_error
+            .to_string()
+            .contains(schema::WRITER_PROTOCOL_FUNCTION));
+
+        let update_error = plain
+            .execute(
+                "UPDATE memories SET summary = 'plain writer update' WHERE id = ?",
+                params![&event.id],
+            )
+            .unwrap_err();
+        assert!(update_error
+            .to_string()
+            .contains(schema::WRITER_PROTOCOL_FUNCTION));
+
+        let delete_error = plain
+            .execute("DELETE FROM memories WHERE id = ?", params![&event.id])
+            .unwrap_err();
+        assert!(delete_error
+            .to_string()
+            .contains(schema::WRITER_PROTOCOL_FUNCTION));
+        drop(plain);
+
+        let verification = SQLiteMemoryStore::open(&db_path).unwrap();
+        assert_eq!(verification.get(&event.id).unwrap(), Some(original));
+        assert!(verification
+            .get("mem_plain_writer_insert")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            lifecycle::count_query(
+                verification.connection_for_testing(),
+                "SELECT count(*) FROM memories"
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            lifecycle::count_query(
+                verification.connection_for_testing(),
+                "SELECT count(*) FROM memory_fts"
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn coordinated_policy_persists_only_a_hash_and_returns_capability_once() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let initial = store.policy_status().unwrap();
+        assert_eq!(initial.mode, PolicyMode::Open);
+        assert!(initial.coordinator_label.is_none());
+        assert!(initial.enabled_at.is_none());
+
+        let grant = store
+            .enable_coordinated_policy(Some("release-coordinator"))
+            .unwrap();
+        assert_eq!(grant.status.mode, PolicyMode::Coordinated);
+        assert_eq!(
+            grant.status.coordinator_label.as_deref(),
+            Some("release-coordinator")
+        );
+        assert!(grant.status.enabled_at.is_some());
+        assert!(serde_json::to_string(&grant)
+            .unwrap()
+            .contains(&grant.capability));
+        assert!(!format!("{grant:?}").contains(&grant.capability));
+
+        let stored_hash: Vec<u8> = store
+            .connection_for_testing()
+            .query_row(
+                "SELECT capability_hash FROM store_policy WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_hash.len(), 32);
+        assert_ne!(stored_hash.as_slice(), grant.capability.as_bytes());
+        let audit = store.policy_audit(10).unwrap();
+        assert_eq!(audit.len(), 1);
+        assert_eq!(audit[0].action, "policy_enable");
+        assert_eq!(audit[0].decision, "allowed");
+        assert_eq!(audit[0].origin, "anonymous");
+        assert!(matches!(
+            store.policy_audit(0),
+            Err(TreeRingError::Validation(message))
+                if message.contains("between 1 and 1000")
+        ));
+        assert!(matches!(
+            store.policy_audit(usize::MAX),
+            Err(TreeRingError::Validation(message))
+                if message.contains("between 1 and 1000")
+        ));
+        drop(store);
+
+        for path in [
+            db_path.clone(),
+            db_path.with_extension("sqlite-wal"),
+            db_path.with_extension("sqlite-shm"),
+        ] {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            assert!(!bytes
+                .windows(grant.capability.len())
+                .any(|window| window == grant.capability.as_bytes()));
+        }
+
+        let reopened = SQLiteMemoryStore::open(&db_path).unwrap();
+        assert_eq!(reopened.policy_status().unwrap(), grant.status);
+    }
+
+    #[test]
+    fn live_capabilities_are_rejected_from_context_labels_and_never_persisted() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut initializer = SQLiteMemoryStore::open(&db_path).unwrap();
+        let grant = initializer
+            .enable_coordinated_policy(Some("safe-coordinator"))
+            .unwrap();
+        drop(initializer);
+        let wrapped_capability = format!("worker_{}_suffix", grant.capability);
+
+        for rejected_context in [
+            WriteContext::new(Some(grant.capability.clone()), None, "context-validation"),
+            WriteContext::new(Some(wrapped_capability.clone()), None, "context-validation"),
+            WriteContext::new(None, None, wrapped_capability.clone()),
+        ] {
+            let error = rejected_context.unwrap_err().to_string();
+            assert!(!error.contains(&grant.capability));
+            assert!(error.contains("secret-like"));
+        }
+
+        let coordinator_context =
+            WriteContext::new(None, Some(&grant.capability), "label-validation").unwrap();
+        let mut coordinator =
+            SQLiteMemoryStore::open_with_context(&db_path, coordinator_context).unwrap();
+        let error = coordinator
+            .rotate_coordinator_capability(Some(&wrapped_capability))
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains(&grant.capability));
+        assert!(error.contains("secret-like"));
+
+        let mut summary_event = MemoryEvent::new(&wrapped_capability, "lesson").unwrap();
+        summary_event.scope = "project".to_string();
+        summary_event.project = Some("core".to_string());
+        let error = coordinator.put(&summary_event).unwrap_err().to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert!(coordinator.get(&summary_event.id).unwrap().is_none());
+
+        let mut metadata_event = MemoryEvent::new("Safe summary.", "lesson").unwrap();
+        metadata_event.scope = "project".to_string();
+        metadata_event.project = Some("core".to_string());
+        metadata_event.source.ref_ = wrapped_capability.clone();
+        metadata_event.operation_id = Some("secret-metadata-attempt".to_string());
+        let error = coordinator
+            .put_idempotent(&metadata_event)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert!(coordinator.get(&metadata_event.id).unwrap().is_none());
+
+        let mut invalid_enum_event = MemoryEvent::new("Safe summary.", "lesson").unwrap();
+        invalid_enum_event.ring = wrapped_capability.clone();
+        invalid_enum_event.operation_id = Some("secret-enum-attempt".to_string());
+        let error = coordinator
+            .put_idempotent(&invalid_enum_event)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert!(coordinator.get(&invalid_enum_event.id).unwrap().is_none());
+
+        let mut batch_safe = MemoryEvent::new("Safe batch member.", "lesson").unwrap();
+        batch_safe.scope = "project".to_string();
+        batch_safe.project = Some("core".to_string());
+        let mut batch_secret = MemoryEvent::new("Secret batch member.", "lesson").unwrap();
+        batch_secret.scope = "project".to_string();
+        batch_secret.project = Some("core".to_string());
+        batch_secret.tags = vec![wrapped_capability.clone()];
+        let error = coordinator
+            .put_many(&[batch_safe.clone(), batch_secret.clone()])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert!(coordinator.get(&batch_safe.id).unwrap().is_none());
+        assert!(coordinator.get(&batch_secret.id).unwrap().is_none());
+
+        let mut baseline = MemoryEvent::new("Safe baseline.", "lesson").unwrap();
+        baseline.scope = "project".to_string();
+        baseline.project = Some("core".to_string());
+        coordinator.put(&baseline).unwrap();
+        let error = coordinator
+            .change_ring(&baseline.id, "outer", &wrapped_capability)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert_eq!(
+            coordinator.get(&baseline.id).unwrap().unwrap().event_type,
+            "lesson"
+        );
+        let error = coordinator
+            .supersede(&baseline.id, &wrapped_capability)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+        assert!(coordinator
+            .get(&baseline.id)
+            .unwrap()
+            .unwrap()
+            .superseded_by
+            .is_none());
+
+        let mut consolidation = ConsolidationRequest::new("manual").unwrap();
+        consolidation.period_key = Some(wrapped_capability.clone());
+        consolidation.project = Some("core".to_string());
+        let error = coordinator
+            .consolidate(&consolidation)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("secret-like"));
+        assert!(!error.contains(&grant.capability));
+
+        coordinator.delete(&wrapped_capability).unwrap();
+        let status_json = serde_json::to_string(&coordinator.policy_status().unwrap()).unwrap();
+        let audit_json = serde_json::to_string(&coordinator.policy_audit(100).unwrap()).unwrap();
+        assert!(!status_json.contains(&grant.capability));
+        assert!(!audit_json.contains(&grant.capability));
+        assert!(status_json.contains("safe-coordinator"));
+        drop(coordinator);
+
+        for path in [
+            db_path.clone(),
+            db_path.with_extension("sqlite-wal"),
+            db_path.with_extension("sqlite-shm"),
+        ] {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            assert!(!bytes
+                .windows(grant.capability.len())
+                .any(|window| window == grant.capability.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn coordinator_rotation_revokes_the_old_capability_and_disable_requires_the_new_one() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut initializer = SQLiteMemoryStore::open(&db_path).unwrap();
+        assert_authorization_denied(initializer.rotate_coordinator_capability(None));
+        assert!(initializer.policy_audit(10).unwrap().iter().any(|event| {
+            event.action == "policy_rotate"
+                && event.decision == "denied"
+                && event.reason == "coordinated_policy_not_enabled"
+        }));
+        let initial_grant = initializer
+            .enable_coordinated_policy(Some("coordinator-a"))
+            .unwrap();
+        drop(initializer);
+
+        let old_context =
+            WriteContext::new(None, Some(&initial_grant.capability), "policy-rotation").unwrap();
+        let mut old_coordinator =
+            SQLiteMemoryStore::open_with_context(&db_path, old_context).unwrap();
+        let rotated = old_coordinator
+            .rotate_coordinator_capability(Some("coordinator-b"))
+            .unwrap();
+        assert_ne!(rotated.capability, initial_grant.capability);
+        assert_eq!(
+            rotated.status.coordinator_label.as_deref(),
+            Some("coordinator-b")
+        );
+
+        assert_authorization_denied(old_coordinator.disable_coordinated_policy());
+        let audit = old_coordinator.policy_audit(10).unwrap();
+        assert!(audit.iter().any(|event| {
+            event.action == "policy_disable"
+                && event.decision == "denied"
+                && event.reason == "invalid_coordinator_capability"
+        }));
+        drop(old_coordinator);
+
+        let new_context =
+            WriteContext::new(None, Some(&rotated.capability), "policy-disable").unwrap();
+        let mut new_coordinator =
+            SQLiteMemoryStore::open_with_context(&db_path, new_context).unwrap();
+        let disabled = new_coordinator.disable_coordinated_policy().unwrap();
+        assert_eq!(disabled.mode, PolicyMode::Open);
+        assert!(disabled.coordinator_label.is_none());
+        assert!(disabled.enabled_at.is_none());
+        let stored_hash: Option<Vec<u8>> = new_coordinator
+            .connection_for_testing()
+            .query_row(
+                "SELECT capability_hash FROM store_policy WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored_hash.is_none());
+    }
+
+    #[test]
+    fn coordinated_mode_allows_only_new_matching_non_heartwood_agent_events_without_capability() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut initializer = SQLiteMemoryStore::open(&db_path).unwrap();
+        let grant = initializer
+            .enable_coordinated_policy(Some("coordinator"))
+            .unwrap();
+        drop(initializer);
+
+        let actor_context =
+            WriteContext::new(Some("agent-a".to_string()), None, "agent-worker").unwrap();
+        let mut actor_store =
+            SQLiteMemoryStore::open_with_context(&db_path, actor_context).unwrap();
+        let mut allowed = MemoryEvent::new("Agent-local observation.", "lesson").unwrap();
+        allowed.scope = "agent".to_string();
+        allowed.agent_profile = Some("agent-a".to_string());
+        allowed.ring = "outer".to_string();
+        allowed.operation_id = Some("agent-create-1".to_string());
+        actor_store.put_idempotent(&allowed).unwrap();
+        assert!(matches!(
+            actor_store.put_idempotent(&allowed).unwrap(),
+            PutOutcome::Existing(_)
+        ));
+
+        let mut replacement = allowed.clone();
+        replacement.summary = "Attempted replacement.".to_string();
+        assert_authorization_denied(actor_store.put(&replacement));
+        assert_eq!(
+            actor_store.get(&allowed.id).unwrap().unwrap().summary,
+            allowed.summary
+        );
+
+        let mut heartwood = allowed.clone();
+        heartwood.id = "mem_agent_heartwood_denied".to_string();
+        heartwood.operation_id = Some("agent-heartwood-1".to_string());
+        heartwood.ring = "heartwood".to_string();
+        assert_authorization_denied(actor_store.put(&heartwood));
+
+        let mut other_agent = allowed.clone();
+        other_agent.id = "mem_other_agent_denied".to_string();
+        other_agent.operation_id = Some("other-agent-1".to_string());
+        other_agent.agent_profile = Some("agent-b".to_string());
+        assert_authorization_denied(actor_store.put(&other_agent));
+
+        let mut shared = allowed.clone();
+        shared.id = "mem_shared_scope_denied".to_string();
+        shared.operation_id = Some("shared-scope-1".to_string());
+        shared.scope = "project".to_string();
+        assert_authorization_denied(actor_store.put(&shared));
+
+        let mut batch_allowed = allowed.clone();
+        batch_allowed.id = "mem_batch_allowed_candidate".to_string();
+        batch_allowed.operation_id = Some("batch-agent-1".to_string());
+        let mut batch_denied = shared.clone();
+        batch_denied.id = "mem_batch_denied_candidate".to_string();
+        batch_denied.operation_id = Some("batch-shared-1".to_string());
+        assert_authorization_denied(
+            actor_store.put_many(&[batch_allowed.clone(), batch_denied.clone()]),
+        );
+        assert!(actor_store.get(&batch_allowed.id).unwrap().is_none());
+        assert!(actor_store.get(&batch_denied.id).unwrap().is_none());
+
+        let mut duplicate_first = allowed.clone();
+        duplicate_first.id = "mem_duplicate_agent_batch".to_string();
+        duplicate_first.operation_id = Some("duplicate-agent-1".to_string());
+        let mut duplicate_second = duplicate_first.clone();
+        duplicate_second.summary = "Second write to the same id.".to_string();
+        duplicate_second.operation_id = Some("duplicate-agent-2".to_string());
+        assert_authorization_denied(
+            actor_store.put_many(&[duplicate_first.clone(), duplicate_second]),
+        );
+        assert!(actor_store.get(&duplicate_first.id).unwrap().is_none());
+
+        let mut import_candidate = allowed.clone();
+        import_candidate.id = "mem_agent_import_denied".to_string();
+        import_candidate.operation_id = Some("agent-import-1".to_string());
+        let import_jsonl = encode_jsonl(&[import_candidate.clone()], false).unwrap();
+        assert_authorization_denied(actor_store.import_jsonl(&import_jsonl, false, false));
+        assert!(actor_store.get(&import_candidate.id).unwrap().is_none());
+        drop(actor_store);
+
+        let coordinator_context =
+            WriteContext::new(None, Some(&grant.capability), "coordinator-worker").unwrap();
+        let mut coordinator =
+            SQLiteMemoryStore::open_with_context(&db_path, coordinator_context).unwrap();
+        coordinator.put(&heartwood).unwrap();
+        assert_eq!(
+            coordinator.get(&heartwood.id).unwrap().unwrap().ring,
+            "heartwood"
+        );
+        assert!(coordinator.policy_audit(20).unwrap().iter().any(|event| {
+            event.action == "put"
+                && event.decision == "allowed"
+                && event.reason == "valid_coordinator_capability"
+                && event.target_memory_id.as_deref() == Some(heartwood.id.as_str())
+        }));
+    }
+
+    #[test]
+    fn coordinated_denials_hash_unsafe_or_secret_audit_targets() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        setup
+            .enable_coordinated_policy(Some("coordinator"))
+            .unwrap();
+        drop(setup);
+
+        let context = WriteContext::new(Some("agent-a".to_string()), None, "audit-safety").unwrap();
+        let mut store = SQLiteMemoryStore::open_with_context(&db_path, context).unwrap();
+        let malicious_target = "bad\nid\u{1b}[31m";
+        let capability_target = format!("trcap_v1_{}", "a".repeat(64));
+        assert_authorization_denied(store.delete(malicious_target));
+        assert_authorization_denied(store.delete(&capability_target));
+
+        let audit = store.policy_audit(2).unwrap();
+        assert_eq!(audit.len(), 2);
+        for event in audit {
+            let target = event.target_memory_id.unwrap();
+            assert!(target.starts_with("sha256:"));
+            assert_eq!(target.len(), 71);
+            assert!(!target.chars().any(char::is_control));
+            assert!(!target.contains(malicious_target));
+            assert!(!target.contains(&capability_target));
+        }
+    }
+
+    #[test]
+    fn coordinated_denials_cover_every_mutating_api_and_change_only_the_audit_log() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut baseline = MemoryEvent::new("Protected project decision.", "decision").unwrap();
+        baseline.project = Some("core".to_string());
+        baseline.scope = "project".to_string();
+        setup.put(&baseline).unwrap();
+        let mut replacement_target =
+            MemoryEvent::new("Second protected decision.", "decision").unwrap();
+        replacement_target.project = Some("core".to_string());
+        replacement_target.scope = "project".to_string();
+        setup.put(&replacement_target).unwrap();
+        let mut expired =
+            expired_maintenance_memory("Expired protected cache.", "ephemeral", "outer");
+        expired.project = Some("core".to_string());
+        expired.scope = "project".to_string();
+        setup.put(&expired).unwrap();
+        setup
+            .enable_coordinated_policy(Some("coordinator"))
+            .unwrap();
+        let before = storage_snapshot(setup.connection_for_testing());
+        drop(setup);
+
+        let actor_context =
+            WriteContext::new(Some("agent-a".to_string()), None, "denial-matrix").unwrap();
+        let mut store = SQLiteMemoryStore::open_with_context(&db_path, actor_context).unwrap();
+
+        let mut replacement = baseline.clone();
+        replacement.summary = "Unauthorized replacement.".to_string();
+        assert_authorization_denied(store.put(&replacement));
+
+        let mut idempotent = MemoryEvent::new("Unauthorized idempotent create.", "lesson").unwrap();
+        idempotent.scope = "project".to_string();
+        idempotent.project = Some("core".to_string());
+        idempotent.operation_id = Some("unauthorized-idempotent".to_string());
+        assert_authorization_denied(store.put_idempotent(&idempotent));
+
+        let mut allowed_batch_member =
+            MemoryEvent::new("Allowed batch candidate.", "lesson").unwrap();
+        allowed_batch_member.scope = "agent".to_string();
+        allowed_batch_member.agent_profile = Some("agent-a".to_string());
+        let mut denied_batch_member =
+            MemoryEvent::new("Denied batch candidate.", "lesson").unwrap();
+        denied_batch_member.scope = "project".to_string();
+        denied_batch_member.project = Some("core".to_string());
+        assert_authorization_denied(
+            store.put_many(&[allowed_batch_member.clone(), denied_batch_member.clone()]),
+        );
+
+        let replacement_jsonl = encode_jsonl(&[replacement.clone()], false).unwrap();
+        assert_authorization_denied(store.import_jsonl(&replacement_jsonl, false, true));
+
+        let mut import_supersession =
+            MemoryEvent::new("Agent import with protected supersession.", "lesson").unwrap();
+        import_supersession.scope = "agent".to_string();
+        import_supersession.agent_profile = Some("agent-a".to_string());
+        import_supersession.supersedes = vec![baseline.id.clone()];
+        let supersession_jsonl = encode_jsonl(&[import_supersession.clone()], false).unwrap();
+        assert_authorization_denied(store.import_jsonl(&supersession_jsonl, false, false));
+
+        let mut consolidation = ConsolidationRequest::new("manual").unwrap();
+        consolidation.period_key = Some("coordinated-denial".to_string());
+        consolidation.project = Some("core".to_string());
+        assert_authorization_denied(store.consolidate(&consolidation));
+        assert_authorization_denied(store.change_ring(&baseline.id, "heartwood", "decision"));
+        assert_authorization_denied(store.supersede(&baseline.id, &replacement_target.id));
+        assert_authorization_denied(store.delete(&baseline.id));
+        assert_authorization_denied(store.redact(&baseline.id));
+        assert_authorization_denied(store.maintain(&MaintenanceRequest {
+            dry_run: false,
+            apply_expired: true,
+            project: Some("core".to_string()),
+            ..MaintenanceRequest::default()
+        }));
+
+        let import_dry_run = store.import_jsonl(&replacement_jsonl, true, true).unwrap();
+        assert!(import_dry_run.dry_run);
+        consolidation.dry_run = true;
+        assert_eq!(store.consolidate(&consolidation).unwrap().status, "dry_run");
+        assert!(store.maintain(&MaintenanceRequest::default()).is_ok());
+
+        let after = storage_snapshot(store.connection_for_testing());
+        assert_eq!(after, before);
+        let audit = store.policy_audit(100).unwrap();
+        for action in [
+            "put",
+            "put_idempotent",
+            "put_many",
+            "import_jsonl",
+            "consolidate",
+            "change_ring",
+            "supersede",
+            "delete",
+            "redact",
+            "maintain",
+        ] {
+            assert!(
+                audit
+                    .iter()
+                    .any(|event| event.action == action && event.decision == "denied"),
+                "missing denial audit for {action}"
+            );
+        }
+        assert!(store.get(&allowed_batch_member.id).unwrap().is_none());
+        assert!(store.get(&denied_batch_member.id).unwrap().is_none());
+        assert!(store.get(&import_supersession.id).unwrap().is_none());
     }
 
     #[test]
@@ -1674,11 +2636,11 @@ mod tests {
         store.put_many(&events).unwrap();
 
         let memory_count: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         let fts_count: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memory_fts", [], |row| row.get(0))
             .unwrap();
         assert_eq!(memory_count, 5);
@@ -1760,7 +2722,7 @@ mod tests {
         );
         let store = SQLiteMemoryStore::open(&db_path).unwrap();
         let rows: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         assert_eq!(rows, 1);
@@ -2020,7 +2982,7 @@ mod tests {
         let mut event = MemoryEvent::new("Legacy memory with secret metadata.", "lesson").unwrap();
         event.source.ref_ = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890".to_string();
         event.sensitivity = "secret".to_string();
-        store.put(&event).unwrap();
+        put_legacy_event_unchecked_for_testing(&mut store, &event);
 
         store.redact(&event.id).unwrap();
 
@@ -2060,7 +3022,7 @@ mod tests {
         assert!(store.get(&retry.id).unwrap().is_none());
         assert!(store.put(&retry).is_err());
         let scrubbed_columns: [Option<String>; 5] = store
-            .connection()
+            .connection_for_testing()
             .query_row(
                 r#"
                 SELECT project, agent_profile, workflow_id, session_id, operation_id
@@ -2081,7 +3043,7 @@ mod tests {
             .unwrap();
         assert_eq!(scrubbed_columns, [None, None, None, None, None]);
         let (claim_hash, claim_memory_id): (Vec<u8>, String) = store
-            .connection()
+            .connection_for_testing()
             .query_row(
                 "SELECT namespace_hash, memory_id FROM operation_claims",
                 [],
@@ -2094,7 +3056,7 @@ mod tests {
             .windows("operation-1".len())
             .any(|window| window == b"operation-1"));
         let rows: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         assert_eq!(rows, 1);
@@ -2123,7 +3085,7 @@ mod tests {
         assert_eq!(retained.summary, "[REDACTED]");
         assert_eq!(retained.event_type, "redacted");
         let tombstones: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row(
                 "SELECT count(*) FROM redaction_tombstones WHERE memory_id = ?",
                 params![&original.id],
@@ -2178,14 +3140,14 @@ mod tests {
         store.delete(&event.id).unwrap();
 
         let claims: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM operation_claims", [], |row| {
                 row.get(0)
             })
             .unwrap();
         assert_eq!(claims, 0);
         let tombstones: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM redaction_tombstones", [], |row| {
                 row.get(0)
             })
@@ -2585,11 +3547,11 @@ mod tests {
 
         let report = store.consolidate(&request).unwrap();
         let rows: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         let records: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
 
@@ -2616,11 +3578,11 @@ mod tests {
 
         let report = store.consolidate(&request).unwrap();
         let rows: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         let records: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
 
@@ -2651,7 +3613,7 @@ mod tests {
         let first = store.consolidate(&request).unwrap();
         let second = store.consolidate(&request).unwrap();
         let records: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
 
@@ -2713,11 +3675,11 @@ mod tests {
         assert_eq!(reports[0].output_memory_ids, reports[1].output_memory_ids);
         let store = SQLiteMemoryStore::open(&db_path).unwrap();
         let records: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
         let rows: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         assert_eq!(records, 1);
@@ -2790,7 +3752,7 @@ mod tests {
         let second = store.consolidate(&request).unwrap();
         let old = store.get(&first.output_memory_ids[0]).unwrap().unwrap();
         let records: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
 
@@ -3002,7 +3964,7 @@ mod tests {
         let mut secret = MemoryEvent::new("Secret-like memory", "lesson").unwrap();
         secret.details = "Use sk-proj-abcdefghijklmnopqrstuvwxyz1234567890".to_string();
         store.put(&expired).unwrap();
-        store.put(&secret).unwrap();
+        put_legacy_event_unchecked_for_testing(&mut store, &secret);
 
         let report = store.maintain(&MaintenanceRequest::default()).unwrap();
 
@@ -3092,7 +4054,7 @@ mod tests {
         let raw_secret = "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890";
         let mut event = MemoryEvent::new("Secret-like memory", "lesson").unwrap();
         event.details = format!("Use {raw_secret}");
-        store.put(&event).unwrap();
+        put_legacy_event_unchecked_for_testing(&mut store, &event);
 
         let report = store
             .maintain(&MaintenanceRequest {
@@ -3119,11 +4081,11 @@ mod tests {
         let event = MemoryEvent::new("Repair missing FTS row.", "lesson").unwrap();
         store.put(&event).unwrap();
         store
-            .connection()
+            .connection_for_testing()
             .execute("DELETE FROM memory_fts WHERE id = ?", params![&event.id])
             .unwrap();
         store
-            .connection()
+            .connection_for_testing()
             .execute(
                 "INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)",
                 params!["mem_orphan", "orphan", "", "", ""],
@@ -3190,7 +4152,7 @@ mod tests {
         store.delete(&new.id).unwrap();
 
         let mismatch_count: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row(
                 r#"
                 SELECT
@@ -3236,16 +4198,130 @@ mod tests {
 
         let store = SQLiteMemoryStore::open(&db_path).unwrap();
         let memory_count: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
         let fts_count: i64 = store
-            .connection()
+            .connection_for_testing()
             .query_row("SELECT count(*) FROM memory_fts", [], |row| row.get(0))
             .unwrap();
 
         assert_eq!(memory_count, 80);
         assert_eq!(fts_count, 80);
+    }
+
+    fn assert_authorization_denied<T>(result: TreeRingResult<T>) {
+        assert!(matches!(result, Err(TreeRingError::AuthorizationDenied(_))));
+    }
+
+    type ConsolidationSnapshotRow = (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    );
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct StorageSnapshot {
+        memories: Vec<(String, String)>,
+        fts: Vec<(String, String, String, String, String)>,
+        operation_claims: Vec<(Vec<u8>, String)>,
+        redaction_tombstones: Vec<String>,
+        consolidations: Vec<ConsolidationSnapshotRow>,
+    }
+
+    fn storage_snapshot(connection: &Connection) -> StorageSnapshot {
+        let memories = {
+            let mut statement = connection
+                .prepare("SELECT id, raw_json FROM memories ORDER BY id")
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let fts = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, summary, details, tags, source_ref FROM memory_fts ORDER BY id",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let operation_claims = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT namespace_hash, memory_id FROM operation_claims ORDER BY memory_id",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let redaction_tombstones = {
+            let mut statement = connection
+                .prepare("SELECT memory_id FROM redaction_tombstones ORDER BY memory_id")
+                .unwrap();
+            statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let consolidations = {
+            let mut statement = connection
+                .prepare(
+                    r#"
+                    SELECT id, created_at, period_type, period_key,
+                           source_memory_ids_json, output_memory_ids_json, status, notes
+                    FROM consolidations
+                    ORDER BY id
+                    "#,
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                    ))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        StorageSnapshot {
+            memories,
+            fts,
+            operation_claims,
+            redaction_tombstones,
+            consolidations,
+        }
     }
 
     fn expired_maintenance_memory(summary: &str, retention: &str, ring: &str) -> MemoryEvent {
@@ -3254,6 +4330,27 @@ mod tests {
         event.ring = ring.to_string();
         event.expires_at = Some("2000-01-01T00:00:00Z".to_string());
         event
+    }
+
+    fn put_legacy_event_unchecked_for_testing(store: &mut SQLiteMemoryStore, event: &MemoryEvent) {
+        let transaction = store
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        {
+            let mut insert_memory = transaction.prepare(write::UPSERT_MEMORY_SQL).unwrap();
+            let mut delete_fts = transaction
+                .prepare("DELETE FROM memory_fts WHERE id = ?")
+                .unwrap();
+            let mut insert_fts = transaction
+                .prepare(
+                    "INSERT INTO memory_fts (id, summary, details, tags, source_ref) VALUES (?, ?, ?, ?, ?)",
+                )
+                .unwrap();
+            write::put_with_statements(event, &mut insert_memory, &mut delete_fts, &mut insert_fts)
+                .unwrap();
+        }
+        transaction.commit().unwrap();
     }
 
     fn create_legacy_database(path: &Path) {

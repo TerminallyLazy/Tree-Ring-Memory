@@ -153,6 +153,10 @@ impl SensitivityGuard {
 static SECRET_PATTERNS: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
     vec![
         ("openai_key", Regex::new(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b").unwrap()),
+        (
+            "tree_ring_coordinator_capability",
+            Regex::new(r"trcap_v1_[A-Fa-f0-9]{64}").unwrap(),
+        ),
         ("github_token", Regex::new(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b").unwrap()),
         ("github_fine_grained_token", Regex::new(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b").unwrap()),
         ("aws_access_key", Regex::new(r"\bAKIA[0-9A-Z]{16}\b").unwrap()),
@@ -218,6 +222,23 @@ mod tests {
             .to_string();
 
         assert!(err.contains("blocked"));
+    }
+
+    #[test]
+    fn blocks_tree_ring_coordinator_capabilities_by_default() {
+        let guard = SensitivityGuard::default();
+        let capability = format!("trcap_v1_{}", "a".repeat(64));
+
+        for candidate in [
+            capability.clone(),
+            format!("worker_{capability}_suffix"),
+            format!("prefix{capability}suffix"),
+        ] {
+            let err = guard.check_or_raise(&candidate).unwrap_err().to_string();
+
+            assert!(err.contains("blocked"));
+            assert!(!err.contains(&capability));
+        }
     }
 
     #[test]
