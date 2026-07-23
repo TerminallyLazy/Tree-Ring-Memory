@@ -1,7 +1,7 @@
 ---
 name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
-version: 0.12.0
+version: 0.13.0
 tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "revolve", "skills", "cli"]
 triggers:
   - "remember this"
@@ -75,6 +75,8 @@ tree-ring integrations scan --source-root .
 Run adapter commands with `--dry-run` first. Sync only concise, source-linked
 summaries; never treat imported memory as more authoritative than the source
 `AGENTS.md`, Revolve record, evaluation, PR, issue, or test artifact.
+In a Coordinated store, persisting an adapter result requires the coordinator
+capability; dry-run discovery does not.
 
 Use the exact CLI commands exposed by the local install:
 
@@ -239,9 +241,74 @@ recall every worker.
 
 This shared-root pattern is for concurrent processes on one host using a local
 filesystem. It is not a distributed lock service and does not claim safe
-cross-host or NFS operation. Scope and identity fields are routing metadata, not
-an ACL; a same-user coordinator can recall across profiles. Use per-host stores
-plus an explicit, evidence-preserving fan-in process when work spans hosts.
+cross-host or NFS operation. Scope and identity fields remain routing metadata,
+not a read ACL; a same-user coordinator can recall across profiles. Use
+per-host stores plus an explicit, evidence-preserving fan-in process when work
+spans hosts.
+
+## Coordinated Write Policy
+
+Stores default to backward-compatible Open mode. For a shared root where only a
+designated coordinator should publish or mutate shared memory, enable the
+optional Coordinated policy:
+
+```bash
+tree-ring --root .tree-ring policy enable --coordinator release-coordinator
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring --root .tree-ring policy status
+tree-ring --root .tree-ring policy audit --limit 100
+```
+
+Enable prints the capability once. Put it only in
+`TREE_RING_COORDINATOR_TOKEN`; never pass it as a CLI flag or place it in a
+memory, log, source ref, transcript, or committed file. Tree Ring stores only a
+hash. `policy status` and `policy audit` are read-only and do not reveal the
+capability. Inject it only into coordinator processes, and launch every ordinary
+worker with `TREE_RING_COORDINATOR_TOKEN` unset so fan-out does not inherit
+coordinator authority.
+
+In Coordinated mode, an ordinary worker may only create non-heartwood
+`scope=agent` memory whose `agent_profile` matches its write context. Supply the
+same identity with `--agent-profile <worker>` or
+`TREE_RING_AGENT_PROFILE=<worker>`. A coordinator capability is required for:
+
+- project, global, workflow, session, or other shared/non-agent writes
+- heartwood creation or promotion
+- JSONL import and persisted DOX/Revolve sync
+- persisted consolidation
+- ring changes and supersede/delete/redact lifecycle operations
+- maintenance with apply or repair flags
+
+Recall, export, policy status/audit, adapter dry-runs, consolidation dry-runs,
+and report-only maintenance remain read-only. In the TUI, start with
+`--agent-profile <worker>` (or `TREE_RING_AGENT_PROFILE`) so `/remember`
+defaults to agent scope. TUI promote/scar/seed, supersede, forget/redact, and
+persisted consolidation actions require `TREE_RING_COORDINATOR_TOKEN`.
+
+Rotate the capability while the current one is exported, then immediately
+replace the environment value with the newly printed capability:
+
+```bash
+tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
+export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+tree-ring --root .tree-ring policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+Rotation invalidates the old capability. Disabling returns the store to Open
+mode and also requires the current capability.
+
+This is operational write authorization enforced by official Rust/CLI store
+paths. It is not a read ACL, an operating-system security boundary, or
+protection from an adversary who controls the local database files or process
+environment.
+
+Before opening an existing store with v0.13/schema v3, stop every Tree Ring
+process, checkpoint and back up the database, and upgrade every CLI, plugin, and
+bundled worker. Do not reopen the upgraded root with v0.12: schema v3 fences
+memory inserts, updates, and deletes from old writers, and all mixed-version
+operation is unsupported. Roll back only by stopping all processes and
+restoring the pre-upgrade backup.
 
 ## Agent-Mediated Updates
 
@@ -267,6 +334,8 @@ If memory is wrong, private, stale, or superseded:
 - delete it when it should not be retained
 - supersede it when a newer decision replaces it
 - prefer explicit reasons for every forget operation
+
+In Coordinated mode these lifecycle writes require the coordinator capability.
 
 Treat redaction as monotonic. Do not try to restore a redacted ID through
 replacement import; create a new reviewed memory only if the user deliberately

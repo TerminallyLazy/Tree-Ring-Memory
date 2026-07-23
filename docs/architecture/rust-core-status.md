@@ -8,7 +8,9 @@ Python-runtime removal, v0.9 removal of tracked Python source and optional
 CPython bindings from the canonical repo, v0.10 installer/onboarding work, and
 v0.11 Rust-native source adapters plus framework discovery. The v0.12 line now
 also carries explicit same-host multi-agent correlation, partitioning, and
-idempotent-write semantics.
+idempotent-write semantics. The v0.13 line adds an opt-in coordinated write
+policy, protected-write audit, schema-v3 old-memory-mutation fence, and
+forward-schema rejection.
 
 ## Current Status
 
@@ -18,20 +20,38 @@ idempotent-write semantics.
 - The portable event model includes optional `workflow_id`, `session_id`, and
   `operation_id` alongside `agent_profile`. Agent, workflow, and session scopes
   require their matching partition identifier. Scope is routing metadata, not
-  an authorization boundary.
-- Rust SQLite crate owns schema-compatible SQLite/FTS storage.
+  a read-authorization boundary.
+- Rust SQLite crate owns schema-compatible SQLite/FTS storage plus `Open` and
+  opt-in `Coordinated` store-policy modes.
+- In Coordinated mode, ordinary contexts may only create non-heartwood
+  agent-scoped events that exactly match their `WriteContext` actor.
+  Shared/non-agent writes, heartwood, imports, persisted DOX/Revolve sync,
+  consolidation, ring/lifecycle mutations, and applied maintenance require a
+  coordinator capability supplied through `TREE_RING_COORDINATOR_TOKEN`.
+- Coordinator capabilities are printed once on enable/rotation, stored only as
+  hashes, never accepted as CLI flags, and never included in policy status or
+  audit output. They must be excluded from ordinary worker environments.
+  Protected allowed/denied decisions are recorded transactionally.
+- Schema v3 registers a writer-protocol function on official connections and
+  fences inserts, updates, and deletes from old v0.12 writers. Writable and
+  read-only opens reject schema versions newer than the current binary.
 - SQLite migration and read boundaries normalize identity-less pre-0.12 private
   scopes into deterministic per-record legacy partitions marked for review.
   Redaction retains a memory-ID tombstone, and replaced operation namespaces
   remain claimed until explicit hard deletion.
 - Rust CLI owns the full local command surface: init, remember, evidence,
   recall, forget, import/export, audit, consolidate, maintain, DOX sync,
-  Revolve sync, framework discovery, welcome onboarding, and TUI operation.
+  Revolve sync, coordinated policy management, framework discovery, welcome
+  onboarding, and TUI operation.
 - Rust CLI has JSON output for machine-readable adapter use.
 - Remember, evidence, recall, and consolidation expose agent/workflow/session
   context through CLI flags; agent profile, workflow ID, and session ID also
   have `TREE_RING_*` environment defaults. Exact operation retries are stable,
   while conflicting operation-key reuse fails closed.
+- `tree-ring policy enable --coordinator <label>`, `status`, `rotate`,
+  `disable`, and `audit` expose the store policy without putting the capability
+  on the command line. Status and audit are read-only; rotation and disable
+  require the current environment capability.
 - CLI and TUI durable operations now share action request/report contracts for
   behavior-preserving command execution. This keeps CLI output ownership, TUI
   state/render ownership, and storage ownership separate while preparing the
@@ -66,6 +86,9 @@ idempotent-write semantics.
   real time. The ambient HUD stays portable while richer terminal image protocols
   can be added for welcome or expanded views without replacing the live HUD
   renderer.
+- TUI `--agent-profile` and `TREE_RING_AGENT_PROFILE` bind `/remember` to
+  agent scope. In Coordinated mode, lifecycle actions require the coordinator
+  capability inherited through `TREE_RING_COORDINATOR_TOKEN`.
 - The repository includes `install.sh` for one-line global or project-local
   installs, plus `tree-ring welcome` for first-run terminal onboarding.
 - The Rust CLI includes `tree-ring dox sync` and `tree-ring revolve sync` as
@@ -114,11 +137,38 @@ public binary as a coordinator would:
 - An exact operation retry returns the original memory ID, conflicting reuse
   exits nonzero, and the JSON maintenance report proves exact memory-row/FTS
   parity with no missing or orphan rows.
+- Concurrent unprivileged workers are denied when they attempt shared
+  publication or promotion, while matching non-heartwood agent-scoped creates
+  continue to succeed.
+- A coordinator capability permits the protected publication/promotion, its
+  rotation invalidates the old capability, and policy audit reports both
+  allowed and denied decisions without exposing either token.
 
 This is bounded evidence for concurrent processes sharing a local SQLite store
 on one host. It is not evidence for sustained load, fairness, abrupt-process
-crash recovery, cross-host coordination, NFS/network-filesystem safety, or a
-distributed lock service.
+crash recovery, adversarial local-file access, cross-host coordination,
+NFS/network-filesystem safety, or a distributed lock service.
+
+## v0.13 Schema-v3 Upgrade Boundary
+
+Before first opening an existing root with v0.13:
+
+1. Stop every Tree Ring CLI, TUI, plugin, and bundled worker that uses it.
+2. Checkpoint SQLite WAL state and create a verified store backup.
+3. Upgrade every CLI, plugin, and bundled worker.
+4. Reopen the root with v0.13 to apply schema v3.
+
+Do not use v0.12 on an upgraded root. The schema-v3 trigger fence rejects memory
+inserts, updates, and deletes from old writers; all mixed-version operation is
+unsupported even if an older process appears able to read or run maintenance.
+Roll back only by stopping every process and restoring the complete pre-upgrade
+backup.
+
+Coordinated mode is an optional operational authorization boundary in official
+Rust/CLI write paths. Open remains the backward-compatible default. Neither
+mode is a read ACL or protection from an adversary who controls the SQLite
+files or process environment, and neither broadens the same-host/local-filesystem
+contract.
 
 ## Build Commands
 
@@ -133,6 +183,7 @@ cargo run -p tree-ring-memory-cli -- import --help
 cargo run -p tree-ring-memory-cli -- audit --help
 cargo run -p tree-ring-memory-cli -- consolidate --help
 cargo run -p tree-ring-memory-cli -- maintain --help
+cargo run -p tree-ring-memory-cli -- policy --help
 cargo run -p tree-ring-memory-cli -- dox sync --help
 cargo run -p tree-ring-memory-cli -- revolve sync --help
 cargo run -p tree-ring-memory-cli -- integrations scan --help
@@ -146,14 +197,17 @@ sh scripts/certify-tree-ring.sh
   SQLite/FTS storage, transactional row/FTS consistency, redaction, JSONL
   import/export filtering and duplicate handling, deterministic audit checks,
   deterministic consolidation planning, maintenance planning/application, FTS
-  repair, deterministic operation idempotency, and concurrent writes.
+  repair, deterministic operation idempotency, concurrent writes,
+  coordinated-policy authorization/audit, schema-version rejection, and the
+  old-memory-mutation fence.
 - Rust CLI tests cover the scriptable init/remember/recall/forget commands and
   JSONL import/export/audit/consolidate commands plus the Ratatui TUI model,
   stream reader, slash-command parser, store-watch refresh, confirmation-gated
   actions, DOX/Revolve sync commands, framework discovery, CLI parsing, and
   render-buffer smoke. The process-level multi-agent acceptance test adds
   deterministic write-lock contention, routing-filter isolation, idempotency
-  conflict handling, and row/FTS parity through the public CLI.
+  conflict handling, concurrent authorization denials, coordinator
+  allow/rotation/audit behavior, and row/FTS parity through the public CLI.
 - `crates/tree-ring-memory-sqlite/examples/performance_smoke.rs` provides an
   operator-run local insert and recall timing check. It fails if expected
   recalls are empty, emits a stable `METRICS_JSON=` line, and enforces

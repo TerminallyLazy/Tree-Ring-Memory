@@ -10,10 +10,16 @@ const CLI_HEADER: &str = "# Tree Ring Memory CLI Quick Reference";
 const SKILL_FRONT_MATTER_MARKER: &str = "name: tree-ring-memory";
 const AGENT_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
 const AGENT_QUALITY_GATES_ANCHOR: &str = "## DOX Integration";
+const AGENT_POLICY_HEADING: &str = "## Coordinated Write Policy";
+const AGENT_POLICY_ANCHOR: &str = "## Memory Quality Gates";
 const CLI_QUALITY_GATES_HEADING: &str = "Memory quality gates:";
 const CLI_QUALITY_GATES_ANCHOR: &str = "Safety rules:";
+const CLI_POLICY_HEADING: &str = "Coordinated write policy:";
+const CLI_POLICY_ANCHOR: &str = "Memory quality gates:";
 const SKILL_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
 const SKILL_QUALITY_GATES_ANCHOR: &str = "## Ring Selection";
+const SKILL_POLICY_HEADING: &str = "## Coordinated Write Policy";
+const SKILL_POLICY_ANCHOR: &str = "## Agent-Mediated Updates";
 const CLI_REFERENCE: &str = r#"# Tree Ring Memory CLI Quick Reference
 
 Tree Ring Memory is a local-first memory lifecycle layer for AI agents.
@@ -43,6 +49,7 @@ tree-ring maintain
 tree-ring dox sync --source-root . --dry-run
 tree-ring revolve sync --source-root revolve --dry-run
 tree-ring integrations scan --source-root .
+tree-ring policy status
 tree-ring tui
 ```
 
@@ -67,6 +74,16 @@ Multi-agent coordination:
 - Give every logical write a stable `--operation-id` and a durable `--source-ref`; exact retries return the original memory, while conflicting reuse fails closed.
 - At fan-in, recall with the shared workflow/session and an explicit scope. Scope and identity fields partition and route local memory; they are not access-control boundaries.
 - A shared SQLite root supports concurrent processes on one host and a local filesystem. Use per-host stores plus an explicit source-preserving fan-in for cross-host or network-filesystem workflows.
+
+Coordinated write policy:
+
+- Stores remain in backward-compatible Open mode until a coordinator explicitly runs `tree-ring policy enable --coordinator <label>`.
+- Enable and rotate print a one-time capability. Put it only in `TREE_RING_COORDINATOR_TOKEN`; there is no token CLI flag, and Tree Ring never stores the plaintext capability. Inject it only into coordinator processes and keep it unset for ordinary workers.
+- In Coordinated mode, an ordinary worker may create only non-heartwood `scope=agent` memory whose `agent_profile` matches its `--agent-profile` or `TREE_RING_AGENT_PROFILE`.
+- Shared or non-agent writes, heartwood, imports, DOX/Revolve persistence, consolidation, ring changes, supersede/delete/redact, and applied maintenance require the coordinator capability.
+- `tree-ring policy status` and `tree-ring policy audit --limit 100` are read-only. Rotate with `tree-ring policy rotate --coordinator <label>` and return to Open mode with `tree-ring policy disable`; both require the current capability.
+- This is operational write authorization in official Rust/CLI paths, not a read ACL or protection against an adversary who controls the local files or process environment.
+- Before opening a pre-v0.13 store with a v0.13/schema-v3 binary, stop every Tree Ring process, checkpoint and back up the store, and upgrade every CLI, plugin, and bundled worker. Schema v3 fences memory inserts, updates, and deletes from old v0.12 writers; all mixed-version operation is unsupported. Roll back only by restoring the backup.
 
 Memory quality gates:
 
@@ -141,6 +158,27 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
             CLI_QUALITY_GATES_HEADING,
             CLI_QUALITY_GATES_ANCHOR,
         ),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("AGENTS.md"),
+        is_generated_agents_file,
+        AGENT_POLICY_HEADING,
+        AGENT_POLICY_ANCHOR,
+        extract_section(&agent_contract, AGENT_POLICY_HEADING, AGENT_POLICY_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("SKILL.md"),
+        is_generated_skill_file,
+        SKILL_POLICY_HEADING,
+        SKILL_POLICY_ANCHOR,
+        extract_section(SKILL_TEMPLATE, SKILL_POLICY_HEADING, SKILL_POLICY_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("CLI.md"),
+        is_generated_cli_file,
+        CLI_POLICY_HEADING,
+        CLI_POLICY_ANCHOR,
+        extract_section(CLI_REFERENCE, CLI_POLICY_HEADING, CLI_POLICY_ANCHOR),
     )?;
 
     Ok(report)
@@ -306,9 +344,56 @@ recall with the workflow, session, and intended scope before creating a
 source-linked shared summary.
 
 Scope and identity fields partition and route local memory; they are not
-authorization boundaries. A shared SQLite root is for concurrent processes on
-one host using a local filesystem. Cross-host or network-filesystem workflows
+read access-control boundaries. A shared SQLite root is for concurrent processes
+on one host using a local filesystem. Cross-host or network-filesystem workflows
 should use per-host stores and an explicit evidence-preserving fan-in.
+
+## Coordinated Write Policy
+
+Stores default to backward-compatible Open mode. A coordinator may opt a store
+into Coordinated mode:
+
+```bash
+tree-ring --root {root} policy enable --coordinator release-coordinator
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring --root {root} policy status
+tree-ring --root {root} policy audit --limit 100
+tree-ring --root {root} policy rotate --coordinator release-coordinator-next
+tree-ring --root {root} policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+Replace the environment value with the new one-time capability immediately
+after rotation. Never pass the capability as a CLI flag or retain it in memory
+events, logs, source refs, or committed files. Tree Ring stores only its hash.
+Inject the variable only into coordinator processes, and keep it unset in every
+ordinary worker environment.
+
+In Coordinated mode, an ordinary worker may create only non-heartwood
+`scope=agent` memory whose `agent_profile` matches the write context supplied by
+`--agent-profile` or `TREE_RING_AGENT_PROFILE`. Shared or non-agent writes,
+heartwood, imports, DOX/Revolve persistence, consolidation, ring changes,
+supersede/delete/redact, and applied maintenance require the coordinator
+capability. Status, audit, recall, export, adapter dry-runs, consolidation
+dry-runs, and report-only maintenance remain read-only.
+
+For TUI worker writes, pass `--agent-profile <worker>` to
+`tree-ring --root {root} tui` (or set `TREE_RING_AGENT_PROFILE`); `/remember`
+then creates agent scope. Lifecycle actions such as promote, scar, seed,
+supersede, forget, redact, and persisted consolidation require
+`TREE_RING_COORDINATOR_TOKEN`.
+
+This policy is operational authorization in official Rust/CLI write paths. It
+is not a read ACL, an OS security boundary, or protection against an adversary
+who controls the database files or process environment. The supported shared
+root remains one host and a local filesystem.
+
+Before a v0.13 binary first upgrades a store to schema v3, stop every Tree Ring
+process, checkpoint and back up the database, and upgrade every CLI, plugin,
+and bundled worker before reopening it. Schema v3 rejects memory inserts,
+updates, and deletes from old v0.12 writers; all mixed-version operation is
+unsupported. Roll back only by stopping all processes and restoring the
+pre-upgrade backup.
 
 ## Memory Quality Gates
 
@@ -440,7 +525,12 @@ mod tests {
         assert!(agents.contains("Tree Ring Memory Project Contract"));
         assert!(agents.contains("Multi-Agent Coordination"));
         assert!(agents.contains("--operation-id"));
-        assert!(agents.contains("not authorization boundaries"));
+        assert!(agents.contains("Coordinated Write Policy"));
+        assert!(agents.contains("policy enable --coordinator"));
+        assert!(agents.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(agents.contains("ordinary worker may create only non-heartwood"));
+        assert!(agents.contains("schema v3"));
+        assert!(agents.contains("not a read ACL"));
     }
 
     #[test]
@@ -470,6 +560,10 @@ mod tests {
         assert!(cli.contains("Multi-agent coordination"));
         assert!(cli.contains("--workflow-id"));
         assert!(cli.contains("not access-control boundaries"));
+        assert!(cli.contains("Coordinated write policy"));
+        assert!(cli.contains("policy enable --coordinator"));
+        assert!(cli.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(cli.contains("memory inserts, updates, and deletes from old v0.12 writers"));
         assert!(cli.contains("Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds."));
         assert!(cli
             .contains("Before risky changes, recall warnings and evidence-linked prior failures."));
@@ -544,6 +638,45 @@ mod tests {
         assert!(agents.contains(agent_section.trim()));
         assert!(cli.contains(cli_section.trim()));
         assert!(skill.contains(skill_section.trim()));
+    }
+
+    #[test]
+    fn generated_backfills_coordinated_policy_into_recognized_stale_generated_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+
+        fs::write(
+            root.join("AGENTS.md"),
+            remove_managed_section(&canonical_agents, AGENT_POLICY_HEADING, AGENT_POLICY_ANCHOR)
+                .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            remove_managed_section(CLI_REFERENCE, CLI_POLICY_HEADING, CLI_POLICY_ANCHOR).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            remove_managed_section(SKILL_TEMPLATE, SKILL_POLICY_HEADING, SKILL_POLICY_ANCHOR)
+                .unwrap(),
+        )
+        .unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+
+        assert_eq!(agents.matches(AGENT_POLICY_HEADING).count(), 1);
+        assert_eq!(cli.matches(CLI_POLICY_HEADING).count(), 1);
+        assert_eq!(skill.matches(SKILL_POLICY_HEADING).count(), 1);
+        assert!(agents.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(cli.contains("ordinary worker may create only non-heartwood"));
+        assert!(skill.contains("policy enable --coordinator"));
     }
 
     #[test]
@@ -760,6 +893,9 @@ mod tests {
         assert_eq!(second_agents.matches("## Memory Quality Gates").count(), 1);
         assert_eq!(second_cli.matches("Memory quality gates:").count(), 1);
         assert_eq!(second_skill.matches("## Memory Quality Gates").count(), 1);
+        assert_eq!(second_agents.matches(AGENT_POLICY_HEADING).count(), 1);
+        assert_eq!(second_cli.matches(CLI_POLICY_HEADING).count(), 1);
+        assert_eq!(second_skill.matches(SKILL_POLICY_HEADING).count(), 1);
     }
 
     #[test]

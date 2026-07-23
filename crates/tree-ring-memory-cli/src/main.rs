@@ -1,12 +1,14 @@
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
     AuditReport, ConsolidationReport, DoxSyncReport, MaintenanceReport, RevolveSyncReport,
 };
 use tree_ring_memory_core::{MemoryEvent, MemoryLink};
-use tree_ring_memory_sqlite::SQLiteMemoryStore;
+use tree_ring_memory_sqlite::{
+    AuthorizationAuditEvent, PolicyGrant, PolicyStatus, SQLiteMemoryStore, WriteContext,
+};
 
 use actions::adapters::{sync_dox, sync_revolve, DoxSyncActionRequest, RevolveSyncActionRequest};
 use actions::audit::{audit_store, AuditActionRequest};
@@ -264,10 +266,21 @@ enum Command {
         #[arg(long, help = "rebuild the SQLite FTS index")]
         repair_fts: bool,
     },
+    #[command(about = "manage coordinated multi-agent write authorization")]
+    Policy {
+        #[command(subcommand)]
+        command: PolicyCommand,
+    },
     #[command(about = "open the Rust-native Tree Ring Memory terminal console")]
     Tui {
         #[arg(long, help = "optional JSONL event stream to light rings in real time")]
         event_stream: Option<PathBuf>,
+        #[arg(
+            long,
+            env = "TREE_RING_AGENT_PROFILE",
+            help = "agent role or worker identity for TUI writes"
+        )]
+        agent_profile: Option<String>,
         #[arg(
             long,
             default_value_t = 250,
@@ -363,6 +376,29 @@ enum IntegrationCommand {
             help = "evidence output directory; defaults to <source-root>/target/tree-ring-certification"
         )]
         out_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PolicyCommand {
+    #[command(about = "enable coordinated mode and print a one-time coordinator capability")]
+    Enable {
+        #[arg(long, help = "human-readable coordinator label")]
+        coordinator: Option<String>,
+    },
+    #[command(about = "show the current store policy")]
+    Status,
+    #[command(about = "rotate and print a one-time coordinator capability")]
+    Rotate {
+        #[arg(long, help = "human-readable coordinator label")]
+        coordinator: Option<String>,
+    },
+    #[command(about = "return the store to open mode")]
+    Disable,
+    #[command(about = "show recent protected-write authorization decisions")]
+    Audit {
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
     },
 }
 
@@ -473,13 +509,38 @@ fn run(cli: Cli) -> Result<(), String> {
 
     if let Command::Tui {
         event_stream,
+        agent_profile,
         tick_ms,
     } = cli.command
     {
         if cli.json {
             return Err("--json is not supported with the interactive TUI".to_string());
         }
-        return tui::run(cli.root, event_stream, tick_ms);
+        let context = write_context(agent_profile.clone(), "tui")?;
+        return tui::run(cli.root, event_stream, tick_ms, context, agent_profile);
+    }
+
+    if let Command::Policy { command } = &cli.command {
+        match command {
+            PolicyCommand::Status => {
+                let store = open_policy_read_only(&db_path)?;
+                let status = store.policy_status().map_err(|err| err.to_string())?;
+                print_policy_status(&status, cli.json)?;
+                return Ok(());
+            }
+            PolicyCommand::Audit { limit } => {
+                if !(1..=1000).contains(limit) {
+                    return Err("policy audit limit must be between 1 and 1000".to_string());
+                }
+                let store = open_policy_read_only(&db_path)?;
+                let events = store.policy_audit(*limit).map_err(|err| err.to_string())?;
+                print_policy_audit(&events, cli.json)?;
+                return Ok(());
+            }
+            PolicyCommand::Enable { .. }
+            | PolicyCommand::Rotate { .. }
+            | PolicyCommand::Disable => {}
+        }
     }
 
     if let Command::Import {
@@ -603,7 +664,12 @@ fn run(cli: Cli) -> Result<(), String> {
         return Ok(());
     }
 
-    let mut store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
+    let context = write_context(
+        command_actor_profile(&cli.command),
+        command_origin(&cli.command),
+    )?;
+    let mut store =
+        SQLiteMemoryStore::open_with_context(&db_path, context).map_err(|err| err.to_string())?;
 
     match cli.command {
         Command::Init => {
@@ -824,6 +890,30 @@ fn run(cli: Cli) -> Result<(), String> {
             )?;
             print_maintenance_report(&report, cli.json)?;
         }
+        Command::Policy { command } => match command {
+            PolicyCommand::Enable { coordinator } => {
+                let grant = store
+                    .enable_coordinated_policy(coordinator.as_deref())
+                    .map_err(|err| err.to_string())?;
+                print_policy_grant(&grant, cli.json)?;
+            }
+            PolicyCommand::Status => unreachable!("policy status returns through read-only open"),
+            PolicyCommand::Rotate { coordinator } => {
+                let grant = store
+                    .rotate_coordinator_capability(coordinator.as_deref())
+                    .map_err(|err| err.to_string())?;
+                print_policy_grant(&grant, cli.json)?;
+            }
+            PolicyCommand::Disable => {
+                let status = store
+                    .disable_coordinated_policy()
+                    .map_err(|err| err.to_string())?;
+                print_policy_status(&status, cli.json)?;
+            }
+            PolicyCommand::Audit { .. } => {
+                unreachable!("policy audit returns through read-only open")
+            }
+        },
         Command::Tui { .. } => unreachable!("tui returns before opening the scriptable store"),
         Command::Welcome { .. } => {
             unreachable!("welcome returns before opening the scriptable store")
@@ -872,6 +962,73 @@ fn run(cli: Cli) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+const COORDINATOR_TOKEN_ENV: &str = "TREE_RING_COORDINATOR_TOKEN";
+
+fn open_policy_read_only(db_path: &Path) -> Result<SQLiteMemoryStore, String> {
+    if !db_path.is_file() {
+        return Err(format!(
+            "Tree Ring Memory store is not initialized at {}; policy status and audit never create or migrate a store",
+            db_path.display()
+        ));
+    }
+    SQLiteMemoryStore::open_read_only(db_path).map_err(|err| err.to_string())
+}
+
+fn write_context(
+    actor_profile: Option<String>,
+    origin: impl Into<String>,
+) -> Result<WriteContext, String> {
+    let capability = match std::env::var(COORDINATOR_TOKEN_ENV) {
+        Ok(value) if value.trim().is_empty() => {
+            return Err(format!("{COORDINATOR_TOKEN_ENV} cannot be blank"));
+        }
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!("{COORDINATOR_TOKEN_ENV} must be valid UTF-8"));
+        }
+    };
+    WriteContext::new(actor_profile, capability.as_deref(), origin).map_err(|err| err.to_string())
+}
+
+fn command_actor_profile(command: &Command) -> Option<String> {
+    match command {
+        Command::Remember { agent_profile, .. }
+        | Command::Evidence { agent_profile, .. }
+        | Command::Recall { agent_profile, .. }
+        | Command::Consolidate { agent_profile, .. } => agent_profile.clone(),
+        _ => None,
+    }
+}
+
+fn command_origin(command: &Command) -> &'static str {
+    match command {
+        Command::Init => "cli:init",
+        Command::Remember { .. } => "cli:remember",
+        Command::Evidence { .. } => "cli:evidence",
+        Command::Recall { .. } => "cli:recall",
+        Command::Forget { .. } => "cli:forget",
+        Command::Export { .. } => "cli:export",
+        Command::Import { .. } => "cli:import",
+        Command::Audit { .. } => "cli:audit",
+        Command::Consolidate { .. } => "cli:consolidate",
+        Command::Maintain { .. } => "cli:maintain",
+        Command::Policy { command } => match command {
+            PolicyCommand::Enable { .. } => "cli:policy-enable",
+            PolicyCommand::Status => "cli:policy-status",
+            PolicyCommand::Rotate { .. } => "cli:policy-rotate",
+            PolicyCommand::Disable => "cli:policy-disable",
+            PolicyCommand::Audit { .. } => "cli:policy-audit",
+        },
+        Command::Tui { .. } => "tui",
+        Command::Welcome { .. } => "cli:welcome",
+        Command::RecallQuality { .. } => "cli:recall-quality",
+        Command::Dox { .. } => "cli:dox",
+        Command::Revolve { .. } => "cli:revolve",
+        Command::Integrations { .. } => "cli:integrations",
+    }
 }
 
 struct EvidenceEventRequest {
@@ -1109,6 +1266,75 @@ fn print_maintenance_report(report: &MaintenanceReport, json_output: bool) -> Re
         }
     }
     Ok(())
+}
+
+fn print_policy_grant(grant: &PolicyGrant, json_output: bool) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(grant).map_err(|err| err.to_string())?
+        );
+    } else {
+        println!(
+            "Tree Ring Memory policy: mode={:?} coordinator={}",
+            grant.status.mode,
+            escape_terminal_field(grant.status.coordinator_label.as_deref().unwrap_or("-"))
+        );
+        println!("{COORDINATOR_TOKEN_ENV}={}", grant.capability);
+        println!("Store this capability securely; Tree Ring will not show it again.");
+    }
+    Ok(())
+}
+
+fn print_policy_status(status: &PolicyStatus, json_output: bool) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(status).map_err(|err| err.to_string())?
+        );
+    } else {
+        println!(
+            "Tree Ring Memory policy: mode={:?} coordinator={} enabled_at={} updated_at={}",
+            status.mode,
+            escape_terminal_field(status.coordinator_label.as_deref().unwrap_or("-")),
+            escape_terminal_field(status.enabled_at.as_deref().unwrap_or("-")),
+            escape_terminal_field(&status.updated_at)
+        );
+    }
+    Ok(())
+}
+
+fn print_policy_audit(events: &[AuthorizationAuditEvent], json_output: bool) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(events).map_err(|err| err.to_string())?
+        );
+    } else if events.is_empty() {
+        println!("Tree Ring Memory policy audit: no protected-write decisions recorded");
+    } else {
+        for event in events {
+            println!("{}", format_policy_audit_event(event));
+        }
+    }
+    Ok(())
+}
+
+fn format_policy_audit_event(event: &AuthorizationAuditEvent) -> String {
+    format!(
+        "{} {} action={} actor={} origin={} target={} reason={}",
+        escape_terminal_field(&event.created_at),
+        escape_terminal_field(&event.decision),
+        escape_terminal_field(&event.action),
+        escape_terminal_field(event.actor_profile.as_deref().unwrap_or("-")),
+        escape_terminal_field(&event.origin),
+        escape_terminal_field(event.target_memory_id.as_deref().unwrap_or("-")),
+        escape_terminal_field(&event.reason),
+    )
+}
+
+fn escape_terminal_field(value: &str) -> String {
+    value.chars().flat_map(char::escape_default).collect()
 }
 
 fn print_dox_report(
@@ -2182,12 +2408,11 @@ mod tests {
             command: Command::Init,
         })
         .unwrap();
-        let store = SQLiteMemoryStore::open(&db_path).unwrap();
-        store
-            .connection()
+        let connection = rusqlite::Connection::open(&db_path).unwrap();
+        connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
             .unwrap();
-        drop(store);
+        drop(connection);
         let _ = fs::remove_file(&wal_path);
         let _ = fs::remove_file(&shm_path);
         assert!(db_path.exists());
@@ -2251,13 +2476,11 @@ mod tests {
             },
         })
         .unwrap();
-        let store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
-        let memories: i64 = store
-            .connection()
+        let connection = rusqlite::Connection::open(root.join("memory.sqlite")).unwrap();
+        let memories: i64 = connection
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
             .unwrap();
-        let records: i64 = store
-            .connection()
+        let records: i64 = connection
             .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
             .unwrap();
 
@@ -2343,6 +2566,115 @@ mod tests {
     }
 
     #[test]
+    fn policy_status_and_audit_missing_root_do_not_create_a_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        let status_error = run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Policy {
+                command: PolicyCommand::Status,
+            },
+        })
+        .unwrap_err();
+        assert!(status_error.contains("not initialized"));
+        assert!(!root.exists());
+
+        let audit_error = run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Policy {
+                command: PolicyCommand::Audit { limit: 10 },
+            },
+        })
+        .unwrap_err();
+        assert!(audit_error.contains("not initialized"));
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn policy_status_and_audit_do_not_migrate_or_modify_a_v2_store() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let db_path = root.join("memory.sqlite");
+        let connection = rusqlite::Connection::open(&db_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE sentinel (value TEXT NOT NULL);
+                 INSERT INTO sentinel (value) VALUES ('unchanged');
+                 PRAGMA user_version=2;",
+            )
+            .unwrap();
+        drop(connection);
+        let original_bytes = fs::read(&db_path).unwrap();
+
+        let status_error = run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Policy {
+                command: PolicyCommand::Status,
+            },
+        })
+        .unwrap_err();
+        assert!(status_error.contains("requires SQLite schema version 3"));
+        assert!(status_error.contains("found version 2"));
+        assert_eq!(fs::read(&db_path).unwrap(), original_bytes);
+
+        let audit_error = run(Cli {
+            root: root.clone(),
+            json: true,
+            command: Command::Policy {
+                command: PolicyCommand::Audit { limit: 10 },
+            },
+        })
+        .unwrap_err();
+        assert!(audit_error.contains("requires SQLite schema version 3"));
+        assert!(audit_error.contains("found version 2"));
+        assert_eq!(fs::read(&db_path).unwrap(), original_bytes);
+
+        let verification = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let version: i64 = verification
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let sentinel: String = verification
+            .query_row("SELECT value FROM sentinel", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(sentinel, "unchanged");
+        assert!(!db_path.with_extension("sqlite-wal").exists());
+        assert!(!db_path.with_extension("sqlite-shm").exists());
+    }
+
+    #[test]
+    fn policy_audit_human_output_escapes_terminal_controls() {
+        let event = AuthorizationAuditEvent {
+            id: 1,
+            created_at: "2026-07-23\nspoofed".to_string(),
+            action: "delete\u{1b}[31m".to_string(),
+            decision: "denied".to_string(),
+            reason: "missing\ncapability".to_string(),
+            actor_profile: Some("worker\u{202e}spoof".to_string()),
+            origin: "cli:forget".to_string(),
+            target_memory_id: Some("bad\nid\u{1b}[31m".to_string()),
+        };
+
+        let rendered = format_policy_audit_event(&event);
+
+        assert!(!rendered.contains('\n'));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\u{202e}'));
+        assert!(rendered.contains("\\n"));
+        assert!(rendered.contains("\\u{1b}"));
+        assert!(rendered.contains("\\u{202e}"));
+    }
+
+    #[test]
     fn maintain_apply_expired_deletes_temporary_memory() {
         let dir = tempdir().unwrap();
         let root = dir.path().join(".tree-ring");
@@ -2380,6 +2712,8 @@ mod tests {
             "tui",
             "--event-stream",
             "events.jsonl",
+            "--agent-profile",
+            "reviewer",
             "--tick-ms",
             "125",
         ])
@@ -2388,9 +2722,11 @@ mod tests {
         match cli.command {
             Command::Tui {
                 event_stream,
+                agent_profile,
                 tick_ms,
             } => {
                 assert_eq!(event_stream.unwrap(), PathBuf::from("events.jsonl"));
+                assert_eq!(agent_profile.as_deref(), Some("reviewer"));
                 assert_eq!(tick_ms, 125);
             }
             _ => panic!("expected tui command"),
@@ -2460,6 +2796,7 @@ mod tests {
             json: true,
             command: Command::Tui {
                 event_stream: None,
+                agent_profile: None,
                 tick_ms: 250,
             },
         })

@@ -1,16 +1,24 @@
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{
+    functions::{Context, FunctionFlags},
+    Connection, OpenFlags,
+};
 use std::path::Path;
 
 use tree_ring_memory_core::models::{sqlite_error, TreeRingResult};
 
-use crate::sqlite_error_from_rusqlite;
+use crate::{sqlite_error_from_rusqlite, write, SQLITE_SCHEMA_VERSION};
+
+pub(crate) const WRITER_PROTOCOL_VERSION: i64 = 3;
+pub(crate) const WRITER_PROTOCOL_FUNCTION: &str = "tree_ring_writer_protocol";
 
 pub(crate) fn open_connection(path: &Path) -> TreeRingResult<Connection> {
     if let Some(parent) = parent_dir_to_create(path) {
         std::fs::create_dir_all(parent).map_err(|err| sqlite_error(err.to_string()))?;
     }
     let connection = Connection::open(path).map_err(sqlite_error_from_rusqlite)?;
-    configure_writable_connection(&connection)?;
+    register_writer_protocol(&connection)?;
+    ensure_supported_schema_version(&connection)?;
+    write::retry_locked(|| configure_writable_connection(&connection))?;
     Ok(connection)
 }
 
@@ -25,6 +33,8 @@ pub(crate) fn open_read_only_connection(path: &Path) -> TreeRingResult<Connectio
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(sqlite_error_from_rusqlite)?;
+    register_writer_protocol(&connection)?;
+    ensure_supported_schema_version(&connection)?;
     configure_read_only_connection(&connection)?;
     Ok(connection)
 }
@@ -49,6 +59,27 @@ fn configure_read_only_connection(connection: &Connection) -> TreeRingResult<()>
         .execute_batch("PRAGMA query_only=ON; PRAGMA busy_timeout=30000;")
         .map_err(sqlite_error_from_rusqlite)?;
     Ok(())
+}
+
+fn register_writer_protocol(connection: &Connection) -> TreeRingResult<()> {
+    connection
+        .create_scalar_function(
+            WRITER_PROTOCOL_FUNCTION,
+            0,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |_context: &Context<'_>| Ok(WRITER_PROTOCOL_VERSION),
+        )
+        .map_err(sqlite_error_from_rusqlite)
+}
+
+pub(crate) fn ensure_supported_schema_version(connection: &Connection) -> TreeRingResult<i64> {
+    let version = user_version(connection)?;
+    if version > SQLITE_SCHEMA_VERSION {
+        return Err(sqlite_error(format!(
+            "unsupported SQLite schema version {version}; this build supports up to version {SQLITE_SCHEMA_VERSION}"
+        )));
+    }
+    Ok(version)
 }
 
 pub(crate) fn parent_dir_to_create(path: &Path) -> Option<&Path> {

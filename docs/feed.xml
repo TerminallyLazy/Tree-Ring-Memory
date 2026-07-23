@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-15T22:09:47Z</updated>
+  <updated>2026-07-23T20:26:15Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory v0.13.0 adds same-host multi-agent guardrails</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0"/>
+    <updated>2026-07-23T20:26:15Z</updated>
+    <summary>Tree Ring Memory v0.13.0 adds same-host agent, workflow, session, and operation correlation; exact-retry idempotency; and opt-in coordinator authorization for shared writes and lifecycle mutations. Schema v3 fences memory inserts, updates, and deletes from old writers; all mixed-version operation is unsupported. These guarantees cover cooperative processes sharing local SQLite on one host, not distributed storage or a read ACL.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory v0.12.0 workflow-proof preview is live</title>

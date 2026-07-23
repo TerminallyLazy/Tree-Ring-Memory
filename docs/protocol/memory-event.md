@@ -35,8 +35,64 @@ Scope establishes a partition invariant:
 | `global` | None | Deliberate cross-project memory |
 
 Other supported scopes retain their existing meanings. Scope and identity are
-routing metadata, not an ACL or authentication boundary. Any process with
+routing metadata, not a read ACL or authentication boundary. Any process with
 filesystem access to the local store can issue unfiltered recall.
+
+## Store Write Policy
+
+Write authorization is store-local rather than part of the portable
+`MemoryEvent` JSON. Stores default to `Open`, preserving the existing single
+agent and trusted-process behavior. A coordinator can explicitly enable
+`Coordinated` mode:
+
+```bash
+tree-ring policy enable --coordinator <label>
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring policy status
+tree-ring policy audit --limit 100
+```
+
+The capability is accepted only through `TREE_RING_COORDINATOR_TOKEN`; it is
+never a CLI flag or event field. The store persists only a hash. Enable and
+rotate return the plaintext capability once, while status and audit never
+return it. Coordinators must keep the variable out of ordinary worker
+environments; a fan-out child that inherits the valid token inherits
+coordinator write authority.
+
+Official Rust writers open the store with a `WriteContext` containing an
+optional actor profile, an optional coordinator capability, and a bounded audit
+origin. In Coordinated mode, an unauthenticated context may only create a
+non-heartwood event when:
+
+- the event has `scope=agent`
+- the event has a nonblank `agent_profile`
+- that profile exactly matches the `WriteContext` actor
+
+A valid coordinator capability is required for non-agent/shared creates,
+heartwood, import, persisted DOX/Revolve adapter writes, persisted
+consolidation, ring changes, supersession, deletion, redaction, and applied
+maintenance/FTS repair. Authorization is checked inside the same immediate
+transaction as the protected mutation. Denied mutations leave memory, FTS, and
+operation/tombstone state unchanged; allowed and denied protected decisions are
+recorded in the store-local authorization audit without the plaintext token.
+
+Rotate and disable require the current capability:
+
+```bash
+tree-ring policy rotate --coordinator <label>
+export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+tree-ring policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+Rotation invalidates the old capability. Disabling returns the store to Open
+mode. Recall, export, policy status/audit, adapter and consolidation dry-runs,
+and report-only maintenance remain read-only.
+
+This policy is operational authorization in official Rust/CLI write paths. It
+does not create a read ACL, distributed authority, an OS security boundary, or
+protection from an adversary who controls the database files or process
+environment.
 
 ## Idempotent Writes
 
@@ -104,3 +160,19 @@ filesystem. SQLite WAL, a busy timeout, and bounded lock retries handle this
 local contention. The protocol does not claim distributed locking, multi-host
 database coordination, or safe SQLite sharing over NFS or other network
 filesystems.
+
+Schema v3 adds coordinated-policy state, a protected-write audit, and a
+connection-level old-memory-mutation fence. Before a v0.13 process first opens
+an existing store, stop every Tree Ring process, checkpoint and back up the
+database, and upgrade every CLI, plugin, and bundled worker. A v0.12 connection
+does not register the schema-v3 writer protocol, so its memory inserts, updates,
+and deletes are rejected after migration. All mixed-version operation remains
+unsupported, including older reads and maintenance. Roll back only by stopping
+all processes and restoring the complete pre-upgrade backup.
+
+The bounded real-process acceptance test covers concurrent unauthorized worker
+denials, permitted agent-partitioned creates, coordinator-authorized shared
+publication and promotion, capability rotation, audit evidence, and exact
+memory-row/FTS parity. That evidence remains limited to cooperative official
+processes on one host; it is not adversarial filesystem or distributed-system
+certification.

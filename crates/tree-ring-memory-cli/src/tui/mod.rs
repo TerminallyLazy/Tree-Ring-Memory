@@ -15,12 +15,19 @@ use std::time::Duration;
 use ratatui::backend::Backend;
 use ratatui::crossterm::event as terminal_event;
 use ratatui::Terminal;
+use tree_ring_memory_sqlite::WriteContext;
 
 use app::{App, AppMode};
 
-pub fn run(root: PathBuf, event_stream: Option<PathBuf>, tick_ms: u64) -> Result<(), String> {
+pub fn run(
+    root: PathBuf,
+    event_stream: Option<PathBuf>,
+    tick_ms: u64,
+    context: WriteContext,
+    agent_profile: Option<String>,
+) -> Result<(), String> {
     let tick_rate = Duration::from_millis(tick_ms.clamp(50, 5_000));
-    let mut app = App::new(root, event_stream)?;
+    let mut app = App::new_with_context(root, event_stream, context, agent_profile)?;
     let mut terminal = ratatui::init();
     let result = run_loop(&mut terminal, &mut app, tick_rate);
     ratatui::restore();

@@ -96,13 +96,63 @@ the same operation and payload returns the original memory; conflicting reuse
 of the operation key must fail. Replaced operation namespaces and redacted
 memory IDs stay claimed until explicit hard deletion.
 
-Scope and identity fields are routing partitions, not authorization boundaries.
-A same-user coordinator with filesystem access can recall across worker
-profiles.
+Scope and identity fields are routing partitions, not read authorization
+boundaries. A same-user coordinator with filesystem access can recall across
+worker profiles.
 
 This shared-root contract covers concurrent processes on one host and a local
 filesystem. It is not a distributed lock service and does not claim safe
 cross-host or NFS database sharing.
+
+## Coordinated Store Policy
+
+Stores default to backward-compatible Open mode. When only a designated
+coordinator should publish or mutate shared memory, enable the optional
+Coordinated policy:
+
+```bash
+tree-ring --root .tree-ring policy enable --coordinator release-coordinator
+export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+tree-ring --root .tree-ring policy status
+tree-ring --root .tree-ring policy audit --limit 100
+```
+
+Never pass the capability as a CLI flag or store it in memory, logs, source
+refs, or committed files. Tree Ring prints it once and stores only its hash.
+Inject it only into coordinator processes; launch ordinary workers with
+`TREE_RING_COORDINATOR_TOKEN` unset.
+
+In Coordinated mode, an ordinary worker may create only non-heartwood
+`scope=agent` memory whose `agent_profile` matches `--agent-profile` or
+`TREE_RING_AGENT_PROFILE`. Project/global/workflow/session writes, heartwood,
+imports, persisted DOX/Revolve sync, persisted consolidation, ring changes,
+supersede/delete/redact, and applied maintenance require
+`TREE_RING_COORDINATOR_TOKEN`. Read-only recall/export, policy status/audit,
+adapter and consolidation dry-runs, and report-only maintenance remain
+available without it.
+
+For the TUI, set `--agent-profile <worker>` or
+`TREE_RING_AGENT_PROFILE=<worker>` so `/remember` defaults to agent scope.
+Lifecycle actions require the coordinator capability.
+
+Rotate and disable only while the current capability is exported:
+
+```bash
+tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
+export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+tree-ring --root .tree-ring policy disable
+unset TREE_RING_COORDINATOR_TOKEN
+```
+
+This is operational authorization in official Rust/CLI write paths, not a read
+ACL or protection against an adversary who controls local files or the process
+environment.
+
+Before a v0.13/schema-v3 upgrade, stop all Tree Ring processes, checkpoint and
+back up the store, and upgrade every CLI, plugin, and bundled worker before
+reopening it. Schema v3 fences memory inserts, updates, and deletes from old
+v0.12 writers; all mixed-version operation is unsupported. Roll back only by
+restoring the pre-upgrade backup.
 
 ## Ring Mapping
 
