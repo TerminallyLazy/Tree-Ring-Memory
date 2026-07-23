@@ -319,6 +319,15 @@ fn audit_contradictions(events: &[MemoryEvent], findings: &mut Vec<AuditFinding>
             let key = ContradictionKey {
                 project: event.project.clone(),
                 scope: event.scope.clone(),
+                agent_partition: (event.scope == "agent")
+                    .then(|| event.agent_profile.clone())
+                    .flatten(),
+                workflow_partition: (event.scope == "workflow")
+                    .then(|| event.workflow_id.clone())
+                    .flatten(),
+                session_partition: (event.scope == "session")
+                    .then(|| event.session_id.clone())
+                    .flatten(),
                 event_type: event.event_type.clone(),
                 tag: tag.clone(),
                 subject: subject.clone(),
@@ -358,6 +367,9 @@ fn audit_contradictions(events: &[MemoryEvent], findings: &mut Vec<AuditFinding>
 struct ContradictionKey {
     project: Option<String>,
     scope: String,
+    agent_partition: Option<String>,
+    workflow_partition: Option<String>,
+    session_partition: Option<String>,
     event_type: String,
     tag: String,
     subject: String,
@@ -524,6 +536,89 @@ mod tests {
         let report = audit_memories(&[use_memory, avoid_memory], "contradictions").unwrap();
 
         assert_eq!(report.finding_count, 1);
+    }
+
+    #[test]
+    fn private_scope_contradictions_stay_within_their_partition() {
+        fn directive_pair(
+            scope: &str,
+            use_partition: &str,
+            avoid_partition: &str,
+        ) -> [MemoryEvent; 2] {
+            let mut use_memory = MemoryEvent::new("Use shared cache policy", "decision").unwrap();
+            let mut avoid_memory =
+                MemoryEvent::new("Avoid shared cache policy", "decision").unwrap();
+            for memory in [&mut use_memory, &mut avoid_memory] {
+                memory.project = Some("ui".to_string());
+                memory.scope = scope.to_string();
+                memory.tags = vec!["cache".to_string()];
+            }
+            match scope {
+                "agent" => {
+                    use_memory.agent_profile = Some(use_partition.to_string());
+                    avoid_memory.agent_profile = Some(avoid_partition.to_string());
+                    use_memory.workflow_id = Some("workflow-use".to_string());
+                    avoid_memory.workflow_id = Some("workflow-avoid".to_string());
+                }
+                "workflow" => {
+                    use_memory.workflow_id = Some(use_partition.to_string());
+                    avoid_memory.workflow_id = Some(avoid_partition.to_string());
+                    use_memory.agent_profile = Some("coder".to_string());
+                    avoid_memory.agent_profile = Some("reviewer".to_string());
+                }
+                "session" => {
+                    use_memory.session_id = Some(use_partition.to_string());
+                    avoid_memory.session_id = Some(avoid_partition.to_string());
+                    use_memory.agent_profile = Some("coder".to_string());
+                    avoid_memory.agent_profile = Some("reviewer".to_string());
+                }
+                _ => unreachable!(),
+            }
+            [use_memory, avoid_memory]
+        }
+
+        for scope in ["agent", "workflow", "session"] {
+            let isolated = directive_pair(scope, "partition-a", "partition-b");
+            let isolated_report = audit_memories(&isolated, "contradictions").unwrap();
+            assert_eq!(
+                isolated_report.finding_count, 0,
+                "{scope} directives leaked across partitions"
+            );
+
+            let shared = directive_pair(scope, "partition-a", "partition-a");
+            let shared_report = audit_memories(&shared, "contradictions").unwrap();
+            assert_eq!(
+                shared_report.finding_count, 1,
+                "{scope} directives in one partition should be compared"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_scope_contradictions_surface_across_producers() {
+        for scope in ["project", "global"] {
+            let mut use_memory = MemoryEvent::new("Use shared cache policy", "decision").unwrap();
+            let mut avoid_memory =
+                MemoryEvent::new("Avoid shared cache policy", "decision").unwrap();
+            for memory in [&mut use_memory, &mut avoid_memory] {
+                memory.project = (scope == "project").then(|| "ui".to_string());
+                memory.scope = scope.to_string();
+                memory.tags = vec!["cache".to_string()];
+            }
+            use_memory.agent_profile = Some("coder".to_string());
+            use_memory.workflow_id = Some("workflow-a".to_string());
+            use_memory.session_id = Some("session-a".to_string());
+            avoid_memory.agent_profile = Some("reviewer".to_string());
+            avoid_memory.workflow_id = Some("workflow-b".to_string());
+            avoid_memory.session_id = Some("session-b".to_string());
+
+            let report = audit_memories(&[use_memory, avoid_memory], "contradictions").unwrap();
+
+            assert_eq!(
+                report.finding_count, 1,
+                "{scope} directives should be compared across producers"
+            );
+        }
     }
 
     #[test]

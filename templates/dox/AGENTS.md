@@ -74,6 +74,36 @@ the CLI. It must not be used as a hidden transcript recorder. Bridge files tell
 the active agent when to call Tree Ring; they do not authorize autonomous
 background capture.
 
+## Multi-Agent Coordination
+
+When multiple local workers share this memory root:
+
+- Give every worker a unique `agent_profile`.
+- Share one `workflow_id` across the fan-out/fan-in.
+- Use one `session_id` for each genuine execution attempt; exact retries reuse
+  the original session ID.
+- Give each logical write a stable unique `operation_id` and a source reference.
+- Use `scope=agent` only with `agent_profile`, `scope=workflow` only with
+  `workflow_id`, and `scope=session` only with `session_id`.
+- Recall at fan-in with explicit workflow, session, and scope filters. Omit the
+  agent-profile filter when the coordinator needs every worker.
+- Treat project and global memories as shared. Do not attribute a shared summary
+  to one worker unless every source has that producer identity.
+
+`TREE_RING_AGENT_PROFILE`, `TREE_RING_WORKFLOW_ID`, and
+`TREE_RING_SESSION_ID` can provide the matching CLI defaults. An exact retry of
+the same operation and payload returns the original memory; conflicting reuse
+of the operation key must fail. Replaced operation namespaces and redacted
+memory IDs stay claimed until explicit hard deletion.
+
+Scope and identity fields are routing partitions, not authorization boundaries.
+A same-user coordinator with filesystem access can recall across worker
+profiles.
+
+This shared-root contract covers concurrent processes on one host and a local
+filesystem. It is not a distributed lock service and does not claim safe
+cross-host or NFS database sharing.
+
 ## Ring Mapping
 
 - Use `cambium` for active task context.

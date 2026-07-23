@@ -13,6 +13,9 @@ pub struct ConsolidateActionRequest {
     pub period_type: String,
     pub period_key: Option<String>,
     pub project: Option<String>,
+    pub agent_profile: Option<String>,
+    pub workflow_id: Option<String>,
+    pub session_id: Option<String>,
     pub dry_run: bool,
     pub force: bool,
 }
@@ -34,6 +37,9 @@ pub fn consolidation_request(
             .map_err(|err| err.to_string())?,
         period_key: request.period_key,
         project: request.project,
+        agent_profile: request.agent_profile,
+        workflow_id: request.workflow_id,
+        session_id: request.session_id,
         dry_run: request.dry_run,
         force: request.force,
     })

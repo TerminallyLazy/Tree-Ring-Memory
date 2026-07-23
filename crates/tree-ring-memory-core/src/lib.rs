@@ -17,9 +17,9 @@ pub use consolidation::{
 };
 pub use dox::{collect_dox_memories, DoxSyncReport, DoxSyncRequest};
 pub use import_export::{
-    decode_jsonl, encode_jsonl, normalize_import_event, normalize_import_events, DecodedJsonl,
-    ExportHeader, MemoryEventEnvelope, EXPORT_PLUGIN_VERSION, EXPORT_RECORD_TYPE,
-    EXPORT_SCHEMA_VERSION, MEMORY_EVENT_RECORD_TYPE,
+    decode_jsonl, encode_jsonl, normalize_import_event, normalize_import_events,
+    normalize_legacy_private_scope_identity, DecodedJsonl, ExportHeader, MemoryEventEnvelope,
+    EXPORT_PLUGIN_VERSION, EXPORT_RECORD_TYPE, EXPORT_SCHEMA_VERSION, MEMORY_EVENT_RECORD_TYPE,
 };
 pub use maintenance::{
     plan_maintenance, MaintenanceAction, MaintenanceActionType, MaintenanceFtsReport,

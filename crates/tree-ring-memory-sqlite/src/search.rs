@@ -1,12 +1,19 @@
 use rusqlite::{types::Value, Result as SqliteResult, Row};
 
-use tree_ring_memory_core::models::{MemoryEvent, TreeRingResult};
+use tree_ring_memory_core::{
+    models::{MemoryEvent, TreeRingResult},
+    normalize_legacy_private_scope_identity,
+};
 
 use crate::sqlite_error_from_rusqlite;
 
 pub(crate) fn event_from_row(row: &Row<'_>) -> SqliteResult<TreeRingResult<MemoryEvent>> {
     let raw_json: String = row.get(0)?;
-    Ok(serde_json::from_str::<MemoryEvent>(&raw_json).map_err(Into::into))
+    Ok((|| {
+        let mut event = serde_json::from_str::<MemoryEvent>(&raw_json)?;
+        normalize_legacy_private_scope_identity(&mut event)?;
+        Ok(event)
+    })())
 }
 
 pub(crate) fn collect_rows<I>(rows: I) -> TreeRingResult<Vec<MemoryEvent>>

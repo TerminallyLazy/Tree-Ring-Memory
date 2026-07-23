@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -202,10 +206,7 @@ fn load_index(index_path: &Path) -> Result<EvidenceIndex, String> {
     serde_json::from_str(&input).map_err(|err| err.to_string())
 }
 
-pub(crate) fn read_or_create_index(
-    evidence_dir: &Path,
-    generated_at: &str,
-) -> Result<EvidenceIndex, String> {
+fn read_or_create_index(evidence_dir: &Path, generated_at: &str) -> Result<EvidenceIndex, String> {
     let index_path = evidence_dir.join("evidence-index.json");
     if index_path.exists() {
         let input = fs::read_to_string(&index_path).map_err(|err| err.to_string())?;
@@ -222,12 +223,81 @@ pub(crate) fn read_or_create_index(
     })
 }
 
-pub(crate) fn write_index(evidence_dir: &Path, index: &EvidenceIndex) -> Result<PathBuf, String> {
+fn write_index(evidence_dir: &Path, index: &EvidenceIndex) -> Result<PathBuf, String> {
     fs::create_dir_all(evidence_dir).map_err(|err| err.to_string())?;
     let index_path = evidence_dir.join("evidence-index.json");
     let json = serde_json::to_string_pretty(index).map_err(|err| err.to_string())?;
-    fs::write(&index_path, json).map_err(|err| err.to_string())?;
+    atomic_write(&index_path, json.as_bytes())?;
     Ok(index_path)
+}
+
+/// Publishes evidence payloads and their index update while holding the same
+/// per-directory lock.
+///
+/// Callers must perform every write to a fixed artifact path from `publish`.
+/// This prevents concurrent producers from leaving an index record from one
+/// run pointing at a payload overwritten by another run.
+pub(crate) fn publish_indexed_evidence(
+    evidence_dir: &Path,
+    generated_at: &str,
+    publish: impl FnOnce(&mut EvidenceIndex) -> Result<(), String>,
+) -> Result<PathBuf, String> {
+    fs::create_dir_all(evidence_dir).map_err(|err| err.to_string())?;
+    let lock_path = evidence_dir.join(".evidence-index.lock");
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|err| err.to_string())?;
+    lock_file.lock().map_err(|err| err.to_string())?;
+
+    let mut index = read_or_create_index(evidence_dir, generated_at)?;
+    if let Some(certification) = certification_record_from_metrics(evidence_dir, generated_at) {
+        index.certification = Some(certification);
+    }
+    publish(&mut index)?;
+    write_index(evidence_dir, &index)
+}
+
+pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            format!(
+                "atomic output path has no UTF-8 file name: {}",
+                path.display()
+            )
+        })?;
+    let counter = ATOMIC_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp_path = parent.join(format!(
+        ".{file_name}.{}.{}.tmp",
+        std::process::id(),
+        counter
+    ));
+
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)
+            .map_err(|err| err.to_string())?;
+        file.write_all(contents).map_err(|err| err.to_string())?;
+        file.sync_all().map_err(|err| err.to_string())?;
+        drop(file);
+        fs::rename(&temp_path, path).map_err(|err| err.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 pub(crate) fn rollup_index_status(index: &EvidenceIndex) -> EvidenceStatus {
@@ -379,6 +449,16 @@ fn certification_record_from_metrics(
     if !metrics_path.exists() {
         return None;
     }
+    let metrics_generated_at = fs::read_to_string(&metrics_path)
+        .ok()
+        .and_then(|input| serde_json::from_str::<Value>(&input).ok())
+        .and_then(|value| {
+            value
+                .get("created_at")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| generated_at.to_string());
     let summary_path = evidence_dir.join("summary.md");
     Some(EvidenceRecordRef {
         category: "certification".to_string(),
@@ -386,7 +466,7 @@ fn certification_record_from_metrics(
         label: "Local certification".to_string(),
         path: PathBuf::from("metrics.json"),
         summary_path: summary_path.exists().then_some(PathBuf::from("summary.md")),
-        generated_at: generated_at.to_string(),
+        generated_at: metrics_generated_at,
     })
 }
 
@@ -492,6 +572,9 @@ fn get_value<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::thread;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     #[test]
@@ -824,5 +907,157 @@ mod tests {
         assert_eq!(rollup_index_status(&index), EvidenceStatus::NeedsReview);
         index.recall_quality.as_mut().unwrap().status = EvidenceStatus::Fail;
         assert_eq!(rollup_index_status(&index), EvidenceStatus::Fail);
+    }
+
+    #[test]
+    fn concurrent_index_updates_preserve_every_producer() {
+        const PRODUCERS: usize = 24;
+
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("evidence");
+        let barrier = Arc::new(Barrier::new(PRODUCERS));
+        let handles = (0..PRODUCERS)
+            .map(|producer| {
+                let evidence_dir = evidence_dir.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    let harness_id = format!("worker-{producer:02}");
+                    publish_indexed_evidence(&evidence_dir, "2026-07-23T00:00:00Z", |index| {
+                        index.harness.insert(
+                            harness_id.clone(),
+                            EvidenceRecordRef {
+                                category: "harness".to_string(),
+                                status: EvidenceStatus::Pass,
+                                label: format!("Worker {producer:02}"),
+                                path: PathBuf::from(format!("harness/{harness_id}.json")),
+                                summary_path: None,
+                                generated_at: "2026-07-23T00:00:00Z".to_string(),
+                            },
+                        );
+                        Ok(())
+                    })
+                    .unwrap();
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let index = load_index(&evidence_dir.join("evidence-index.json")).unwrap();
+        assert_eq!(index.harness.len(), PRODUCERS);
+        for producer in 0..PRODUCERS {
+            assert!(index.harness.contains_key(&format!("worker-{producer:02}")));
+        }
+    }
+
+    #[test]
+    fn concurrent_same_target_publications_keep_payload_and_index_from_the_same_run() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("evidence");
+        let payload_path = evidence_dir.join("harness/shared.json");
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+
+        let first_evidence_dir = evidence_dir.clone();
+        let first_payload_path = payload_path.clone();
+        let first = thread::spawn(move || {
+            publish_indexed_evidence(&first_evidence_dir, "2026-07-23T00:00:01Z", |index| {
+                atomic_write(&first_payload_path, br#"{"producer":"first"}"#)?;
+                first_entered_tx.send(()).unwrap();
+                release_first_rx.recv().unwrap();
+                index.harness.insert(
+                    "shared".to_string(),
+                    EvidenceRecordRef {
+                        category: "harness".to_string(),
+                        status: EvidenceStatus::Pass,
+                        label: "first".to_string(),
+                        path: PathBuf::from("harness/shared.json"),
+                        summary_path: None,
+                        generated_at: "2026-07-23T00:00:01Z".to_string(),
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+        });
+
+        first_entered_rx.recv().unwrap();
+
+        let second_evidence_dir = evidence_dir.clone();
+        let second_payload_path = payload_path.clone();
+        let (second_attempting_tx, second_attempting_rx) = mpsc::channel();
+        let (second_done_tx, second_done_rx) = mpsc::channel();
+        let second = thread::spawn(move || {
+            second_attempting_tx.send(()).unwrap();
+            publish_indexed_evidence(&second_evidence_dir, "2026-07-23T00:00:02Z", |index| {
+                atomic_write(&second_payload_path, br#"{"producer":"second"}"#)?;
+                index.harness.insert(
+                    "shared".to_string(),
+                    EvidenceRecordRef {
+                        category: "harness".to_string(),
+                        status: EvidenceStatus::Fail,
+                        label: "second".to_string(),
+                        path: PathBuf::from("harness/shared.json"),
+                        summary_path: None,
+                        generated_at: "2026-07-23T00:00:02Z".to_string(),
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+            second_done_tx.send(()).unwrap();
+        });
+
+        second_attempting_rx.recv().unwrap();
+        assert!(
+            second_done_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "the second publication must wait for the first publication lock"
+        );
+        release_first_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        second_done_rx.recv().unwrap();
+
+        let payload: Value =
+            serde_json::from_str(&fs::read_to_string(&payload_path).unwrap()).unwrap();
+        let index = load_index(&evidence_dir.join("evidence-index.json")).unwrap();
+        let record = index.harness.get("shared").unwrap();
+        assert_eq!(payload["producer"], "second");
+        assert_eq!(record.label, "second");
+        assert_eq!(record.status, EvidenceStatus::Fail);
+        assert_eq!(record.generated_at, "2026-07-23T00:00:02Z");
+    }
+
+    #[test]
+    fn locked_index_update_publishes_current_certification_metrics() {
+        let dir = tempdir().unwrap();
+        let evidence_dir = dir.path().join("evidence");
+        fs::create_dir_all(&evidence_dir).unwrap();
+        fs::write(
+            evidence_dir.join("metrics.json"),
+            r#"{"ok":true,"created_at":"2026-07-23T00:00:00Z"}"#,
+        )
+        .unwrap();
+        fs::write(evidence_dir.join("summary.md"), "# Current run\n").unwrap();
+
+        publish_indexed_evidence(&evidence_dir, "2026-07-23T00:01:00Z", |index| {
+            index.generated_at = "2026-07-23T00:01:00Z".to_string();
+            Ok(())
+        })
+        .unwrap();
+
+        let index = load_index(&evidence_dir.join("evidence-index.json")).unwrap();
+        let certification = index.certification.unwrap();
+        assert_eq!(certification.path, PathBuf::from("metrics.json"));
+        assert_eq!(
+            certification.summary_path,
+            Some(PathBuf::from("summary.md"))
+        );
+        assert_eq!(certification.generated_at, "2026-07-23T00:00:00Z");
     }
 }

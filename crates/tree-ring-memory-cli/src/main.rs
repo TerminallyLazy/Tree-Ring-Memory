@@ -20,7 +20,7 @@ use actions::lifecycle::{
     MaintainActionRequest,
 };
 use actions::recall::{recall as recall_action, RecallRequest};
-use actions::remember::{remember as remember_action, RememberRequest};
+use actions::remember::{remember as remember_action, store_event_idempotently, RememberRequest};
 use harness_evidence::{
     certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
 };
@@ -77,6 +77,34 @@ enum Command {
         scope: String,
         #[arg(long)]
         project: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_AGENT_PROFILE",
+            help = "agent role or worker identity that produced this memory"
+        )]
+        agent_profile: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_WORKFLOW_ID",
+            help = "shared workflow or fan-out/fan-in correlation id"
+        )]
+        workflow_id: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_SESSION_ID",
+            help = "session or execution-attempt correlation id"
+        )]
+        session_id: Option<String>,
+        #[arg(
+            long,
+            help = "idempotency key for one logical write within its project/workflow/agent namespace"
+        )]
+        operation_id: Option<String>,
+        #[arg(
+            long,
+            help = "source artifact, task, run, message, or result reference"
+        )]
+        source_ref: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
@@ -96,6 +124,26 @@ enum Command {
         evidence_ref: String,
         #[arg(long, help = "optional project scope")]
         project: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_AGENT_PROFILE",
+            help = "agent role or worker identity that produced this evidence"
+        )]
+        agent_profile: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_WORKFLOW_ID",
+            help = "shared workflow or fan-out/fan-in correlation id"
+        )]
+        workflow_id: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_SESSION_ID",
+            help = "session or execution-attempt correlation id"
+        )]
+        session_id: Option<String>,
+        #[arg(long, help = "idempotency key for one logical evidence write")]
+        operation_id: Option<String>,
         #[arg(long, help = "optional extra context")]
         details: Option<String>,
         #[arg(long, help = "optional numeric evaluation score")]
@@ -108,6 +156,29 @@ enum Command {
         query: String,
         #[arg(long)]
         project: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_AGENT_PROFILE",
+            help = "return only memories attributed to this agent profile"
+        )]
+        agent_profile: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_WORKFLOW_ID",
+            help = "return only memories from this workflow"
+        )]
+        workflow_id: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_SESSION_ID",
+            help = "return only memories from this session"
+        )]
+        session_id: Option<String>,
+        #[arg(
+            long,
+            help = "return only this scope (global, project, agent, session, workflow, tool, eval, manual, dox, revolve)"
+        )]
+        scope: Option<String>,
         #[arg(long, default_value_t = 8)]
         limit: usize,
         #[arg(long)]
@@ -162,6 +233,16 @@ enum Command {
         period_key: Option<String>,
         #[arg(long, help = "optional project filter")]
         project: Option<String>,
+        #[arg(
+            long,
+            env = "TREE_RING_AGENT_PROFILE",
+            help = "optional agent-profile filter"
+        )]
+        agent_profile: Option<String>,
+        #[arg(long, env = "TREE_RING_WORKFLOW_ID", help = "optional workflow filter")]
+        workflow_id: Option<String>,
+        #[arg(long, env = "TREE_RING_SESSION_ID", help = "optional session filter")]
+        session_id: Option<String>,
         #[arg(long, help = "plan consolidation without writing summaries or records")]
         dry_run: bool,
         #[arg(
@@ -434,6 +515,9 @@ fn run(cli: Cli) -> Result<(), String> {
         period_type,
         period_key,
         project,
+        agent_profile,
+        workflow_id,
+        session_id,
         force,
         dry_run: true,
     } = &cli.command
@@ -444,6 +528,9 @@ fn run(cli: Cli) -> Result<(), String> {
                 period_type: period_type.clone(),
                 period_key: period_key.clone(),
                 project: project.clone(),
+                agent_profile: agent_profile.clone(),
+                workflow_id: workflow_id.clone(),
+                session_id: session_id.clone(),
                 dry_run: true,
                 force: *force,
             },
@@ -545,6 +632,11 @@ fn run(cli: Cli) -> Result<(), String> {
             ring,
             scope,
             project,
+            agent_profile,
+            workflow_id,
+            session_id,
+            operation_id,
+            source_ref,
             tags,
         } => {
             let report = remember_action(
@@ -555,6 +647,11 @@ fn run(cli: Cli) -> Result<(), String> {
                     ring,
                     scope,
                     project,
+                    agent_profile,
+                    workflow_id,
+                    session_id,
+                    operation_id,
+                    source_ref,
                     tags,
                 },
             )?;
@@ -572,20 +669,28 @@ fn run(cli: Cli) -> Result<(), String> {
             outcome,
             evidence_ref,
             project,
+            agent_profile,
+            workflow_id,
+            session_id,
+            operation_id,
             details,
             score,
             tags,
         } => {
-            let event = evidence_event(
+            let event = evidence_event(EvidenceEventRequest {
                 summary,
                 outcome,
                 evidence_ref,
                 project,
+                agent_profile,
+                workflow_id,
+                session_id,
+                operation_id,
                 details,
                 score,
                 tags,
-            )?;
-            store.put(&event).map_err(|err| err.to_string())?;
+            })?;
+            let (event, _created) = store_event_idempotently(&mut store, &event)?;
             if cli.json {
                 println!(
                     "{}",
@@ -601,6 +706,10 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Recall {
             query,
             project,
+            agent_profile,
+            workflow_id,
+            session_id,
+            scope,
             limit,
             include_sensitive,
         } => {
@@ -609,6 +718,10 @@ fn run(cli: Cli) -> Result<(), String> {
                 RecallRequest {
                     query,
                     project,
+                    agent_profile,
+                    workflow_id,
+                    session_id,
+                    scope,
                     limit,
                     include_sensitive,
                     include_superseded: false,
@@ -670,6 +783,9 @@ fn run(cli: Cli) -> Result<(), String> {
             period_type,
             period_key,
             project,
+            agent_profile,
+            workflow_id,
+            session_id,
             dry_run,
             force,
         } => {
@@ -679,6 +795,9 @@ fn run(cli: Cli) -> Result<(), String> {
                     period_type,
                     period_key,
                     project,
+                    agent_profile,
+                    workflow_id,
+                    session_id,
                     dry_run,
                     force,
                 },
@@ -755,15 +874,35 @@ fn run(cli: Cli) -> Result<(), String> {
     Ok(())
 }
 
-fn evidence_event(
+struct EvidenceEventRequest {
     summary: String,
     outcome: String,
     evidence_ref: String,
     project: Option<String>,
+    agent_profile: Option<String>,
+    workflow_id: Option<String>,
+    session_id: Option<String>,
+    operation_id: Option<String>,
     details: Option<String>,
     score: Option<f64>,
     tags: Vec<String>,
-) -> Result<MemoryEvent, String> {
+}
+
+fn evidence_event(request: EvidenceEventRequest) -> Result<MemoryEvent, String> {
+    let EvidenceEventRequest {
+        summary,
+        outcome,
+        evidence_ref,
+        project,
+        agent_profile,
+        workflow_id,
+        session_id,
+        operation_id,
+        details,
+        score,
+        tags,
+    } = request;
+
     if summary.trim().is_empty() {
         return Err("evidence summary is required".to_string());
     }
@@ -817,6 +956,10 @@ fn evidence_event(
     let values = [&summary, &outcome, &evidence_ref]
         .into_iter()
         .chain(project.iter())
+        .chain(agent_profile.iter())
+        .chain(workflow_id.iter())
+        .chain(session_id.iter())
+        .chain(operation_id.iter())
         .chain(details.iter())
         .chain(tags.iter())
         .map(String::as_str);
@@ -828,6 +971,10 @@ fn evidence_event(
     event.ring = ring.to_string();
     event.scope = "eval".to_string();
     event.project = project;
+    event.agent_profile = agent_profile;
+    event.workflow_id = workflow_id;
+    event.session_id = session_id;
+    event.operation_id = operation_id;
     event.details = evidence_details(&normalized_outcome, score, details);
     event.source.source_type = "evidence".to_string();
     event.source.ref_ = evidence_ref.trim().to_string();
@@ -1226,6 +1373,11 @@ mod tests {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: Some("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: Vec::new(),
             },
         })
@@ -1254,6 +1406,11 @@ mod tests {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: Vec::new(),
             },
         })
@@ -1699,6 +1856,10 @@ mod tests {
                 outcome: "promoted".to_string(),
                 evidence_ref: "evals/chat-state/run-042".to_string(),
                 project: Some("agent-ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
                 details: Some("Passed regression suite and manual replay.".to_string()),
                 score: Some(0.91),
                 tags: vec!["chat".to_string()],
@@ -1733,6 +1894,10 @@ mod tests {
                 outcome: "rejected".to_string(),
                 evidence_ref: "evals/cache-branch/run-013".to_string(),
                 project: Some("agent-ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
                 details: None,
                 score: Some(0.82),
                 tags: Vec::new(),
@@ -1758,6 +1923,10 @@ mod tests {
                 outcome: "observed".to_string(),
                 evidence_ref: "evals/run".to_string(),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
                 details: None,
                 score: Some(2.0),
                 tags: Vec::new(),
@@ -1896,6 +2065,11 @@ mod tests {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: vec!["private diagnosis".to_string()],
             },
         })
@@ -1948,6 +2122,11 @@ mod tests {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: Vec::new(),
             },
         })
@@ -1991,7 +2170,7 @@ mod tests {
     }
 
     #[test]
-    fn audit_existing_store_does_not_create_sqlite_sidecars() {
+    fn audit_existing_store_does_not_mutate_database_contents() {
         let dir = tempdir().unwrap();
         let root = dir.path().join(".tree-ring");
         let db_path = root.join("memory.sqlite");
@@ -2014,6 +2193,7 @@ mod tests {
         assert!(db_path.exists());
         assert!(!wal_path.exists());
         assert!(!shm_path.exists());
+        let before = fs::read(&db_path).unwrap();
 
         run(Cli {
             root: root.clone(),
@@ -2024,8 +2204,7 @@ mod tests {
         })
         .unwrap();
 
-        assert!(!wal_path.exists());
-        assert!(!shm_path.exists());
+        assert_eq!(fs::read(&db_path).unwrap(), before);
     }
 
     #[test]
@@ -2040,6 +2219,9 @@ mod tests {
                 period_type: "manual".to_string(),
                 period_key: Some("manual-test".to_string()),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
                 dry_run: true,
                 force: false,
             },
@@ -2061,6 +2243,9 @@ mod tests {
                 period_type: "manual".to_string(),
                 period_key: Some("manual-empty".to_string()),
                 project: Some("core".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
                 dry_run: false,
                 force: false,
             },
@@ -2093,6 +2278,11 @@ mod tests {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: Some("core".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: vec!["memory".to_string()],
             },
         })
@@ -2105,6 +2295,9 @@ mod tests {
                 period_type: "manual".to_string(),
                 period_key: Some("manual-test".to_string()),
                 project: Some("core".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
                 dry_run: false,
                 force: false,
             },
@@ -2116,6 +2309,9 @@ mod tests {
                 period_type: ConsolidationPeriod::Manual,
                 period_key: Some("manual-test".to_string()),
                 project: Some("core".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
                 dry_run: false,
                 force: false,
             })

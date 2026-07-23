@@ -8,9 +8,12 @@
     "id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
-    "project": { "type": ["string", "null"] },
-    "agent_profile": { "type": ["string", "null"] },
-    "scope": { "enum": ["global", "project", "agent", "session", "workflow", "tool", "eval", "manual"] },
+    "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "agent_profile": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "workflow_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "session_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "operation_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "scope": { "enum": ["global", "project", "agent", "session", "workflow", "tool", "eval", "manual", "dox", "revolve"] },
     "ring": { "enum": ["cambium", "outer", "inner", "heartwood", "scar", "seed"] },
     "event_type": { "type": "string", "minLength": 1 },
     "summary": { "type": "string", "minLength": 1 },
@@ -57,5 +60,19 @@
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "agent" } }, "required": ["scope"] },
+      "then": { "properties": { "agent_profile": { "type": "string", "minLength": 1 } }, "required": ["agent_profile"] }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "workflow" } }, "required": ["scope"] },
+      "then": { "properties": { "workflow_id": { "type": "string", "minLength": 1 } }, "required": ["workflow_id"] }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "session" } }, "required": ["scope"] },
+      "then": { "properties": { "session_id": { "type": "string", "minLength": 1 } }, "required": ["session_id"] }
+    }
+  ],
   "additionalProperties": false
 }

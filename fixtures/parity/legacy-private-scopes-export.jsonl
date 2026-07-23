@@ -1,0 +1,4 @@
+{"type":"tree_ring_memory_export","schema_version":1,"plugin_version":"0.11.0","created_at":"2025-11-01T12:03:00Z","memory_count":3,"sensitive_included":false}
+{"type":"memory_event","memory":{"id":"mem_legacy_agent_001","created_at":"2025-11-01T12:00:00Z","updated_at":"2025-11-01T12:00:00Z","scope":"agent","event_type":"lesson","summary":"Legacy agent-scoped memory."}}
+{"type":"memory_event","memory":{"id":"mem_legacy_workflow_001","created_at":"2025-11-01T12:01:00Z","updated_at":"2025-11-01T12:01:00Z","scope":"workflow","event_type":"decision","summary":"Legacy workflow-scoped memory."}}
+{"type":"memory_event","memory":{"id":"mem_legacy_session_001","created_at":"2025-11-01T12:02:00Z","updated_at":"2025-11-01T12:02:00Z","scope":"session","event_type":"observation","summary":"Legacy session-scoped memory."}}

@@ -3,16 +3,29 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT_DIR="$ROOT/target/tree-ring-certification"
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tree-ring-cert.XXXXXX")
+mkdir -p "$OUT_DIR"
+RUN_LOCK="$OUT_DIR/.certification-run.lock"
+RUN_LOCK_OWNED=0
+TMP_DIR=""
+METRICS_TMP="$OUT_DIR/.metrics.$$.tmp"
+SUMMARY_TMP="$OUT_DIR/.summary.$$.tmp"
 BIN="$ROOT/target/release/tree-ring"
 IMPORT_COUNT=${TREE_RING_CERT_IMPORT_COUNT:-10000}
 EXTENDED=${TREE_RING_CERT_EXTENDED:-0}
 AGENT_ZERO_ROOT=${TREE_RING_AGENT_ZERO_ROOT:-}
 
 cleanup() {
-  rm -rf "$TMP_DIR"
+  [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"
+  rm -f "$METRICS_TMP" "$SUMMARY_TMP"
+  [ "$RUN_LOCK_OWNED" -eq 0 ] || rmdir "$RUN_LOCK" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+if ! mkdir "$RUN_LOCK" 2>/dev/null; then
+  printf 'Tree Ring certification failed: another certification run owns %s\n' "$RUN_LOCK" >&2
+  exit 1
+fi
+RUN_LOCK_OWNED=1
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tree-ring-cert.XXXXXX")
 
 log() {
   printf '==> %s\n' "$*"
@@ -121,14 +134,13 @@ if errors:
 PY
 }
 
-mkdir -p "$OUT_DIR"
 SUMMARY="$OUT_DIR/summary.md"
 METRICS="$OUT_DIR/metrics.json"
 INDEX="$OUT_DIR/evidence-index.json"
 LOG="$OUT_DIR/certification.log"
 QUALITY_OUT="$OUT_DIR/quality"
 QUALITY_RUN_OUT="$OUT_DIR/quality-run.out"
-rm -f "$SUMMARY" "$METRICS" "$QUALITY_RUN_OUT"
+rm -f "$QUALITY_RUN_OUT"
 rm -rf "$QUALITY_OUT"
 : > "$LOG"
 
@@ -295,7 +307,7 @@ if [ -n "$AGENT_ZERO_ROOT" ]; then
 fi
 
 created_at=$(now_utc)
-cat > "$METRICS" <<EOF
+cat > "$METRICS_TMP" <<EOF
 {
   "ok": true,
   "created_at": "$created_at",
@@ -319,8 +331,9 @@ cat > "$METRICS" <<EOF
   }
 }
 EOF
+mv -f "$METRICS_TMP" "$METRICS"
 
-cat > "$SUMMARY" <<EOF
+cat > "$SUMMARY_TMP" <<EOF
 # Tree Ring Certification Summary
 
 Generated: $created_at
@@ -338,25 +351,7 @@ Generated: $created_at
 
 Machine-readable metrics: \`metrics.json\`
 EOF
-
-cat > "$INDEX" <<EOF
-{
-  "generated_at": "$created_at",
-  "overall_status": "pass",
-  "certification": {
-    "category": "certification",
-    "status": "pass",
-    "label": "Local certification",
-    "path": "metrics.json",
-    "summary_path": "summary.md",
-    "generated_at": "$created_at"
-  },
-  "harness": {},
-  "recall_quality": null,
-  "missing": ["harness", "recall_quality"],
-  "stale": []
-}
-EOF
+mv -f "$SUMMARY_TMP" "$SUMMARY"
 
 HOME="$scan_home" "$BIN" --json integrations certify --source-root "$scan_root" --out-dir "$OUT_DIR" \
   > "$OUT_DIR/harness-certification.json"

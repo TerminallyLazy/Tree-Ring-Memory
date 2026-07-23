@@ -71,6 +71,12 @@ pub struct ConsolidationRequest {
     pub period_key: Option<String>,
     pub project: Option<String>,
     #[serde(default)]
+    pub agent_profile: Option<String>,
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
     pub dry_run: bool,
     #[serde(default)]
     pub force: bool,
@@ -82,6 +88,9 @@ impl ConsolidationRequest {
             period_type: ConsolidationPeriod::parse(period_type)?,
             period_key: None,
             project: None,
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         })
@@ -120,6 +129,9 @@ pub struct ConsolidationReport {
 struct GroupKey {
     project: Option<String>,
     scope: String,
+    agent_partition: Option<String>,
+    workflow_partition: Option<String>,
+    session_partition: Option<String>,
     ring: String,
     event_type: String,
     sensitivity_bucket: String,
@@ -231,6 +243,27 @@ fn is_candidate(event: &MemoryEvent, request: &ConsolidationRequest, period_key:
     {
         return false;
     }
+    if request
+        .agent_profile
+        .as_ref()
+        .is_some_and(|agent_profile| event.agent_profile.as_ref() != Some(agent_profile))
+    {
+        return false;
+    }
+    if request
+        .workflow_id
+        .as_ref()
+        .is_some_and(|workflow_id| event.workflow_id.as_ref() != Some(workflow_id))
+    {
+        return false;
+    }
+    if request
+        .session_id
+        .as_ref()
+        .is_some_and(|session_id| event.session_id.as_ref() != Some(session_id))
+    {
+        return false;
+    }
     if effective_sensitivity(event) == "secret" {
         return false;
     }
@@ -249,6 +282,15 @@ fn group_key(event: &MemoryEvent) -> GroupKey {
     GroupKey {
         project: event.project.clone(),
         scope: event.scope.clone(),
+        agent_partition: (event.scope == "agent")
+            .then(|| event.agent_profile.clone())
+            .flatten(),
+        workflow_partition: (event.scope == "workflow")
+            .then(|| event.workflow_id.clone())
+            .flatten(),
+        session_partition: (event.scope == "session")
+            .then(|| event.session_id.clone())
+            .flatten(),
         ring: event.ring.clone(),
         event_type: event.event_type.clone(),
         sensitivity_bucket: if sensitivity == "normal" {
@@ -302,6 +344,11 @@ fn build_output(
     };
     let mut memory = MemoryEvent::new(summary, "summary")?;
     memory.project = key.project.clone();
+    memory.agent_profile =
+        uniform_optional(events.iter().map(|event| event.agent_profile.as_deref()));
+    memory.workflow_id = uniform_optional(events.iter().map(|event| event.workflow_id.as_deref()));
+    memory.session_id = uniform_optional(events.iter().map(|event| event.session_id.as_deref()));
+    memory.operation_id = None;
     memory.scope = key.scope.clone();
     memory.ring = output_ring(period_type, key, events).to_string();
     memory.details = format!(
@@ -391,6 +438,15 @@ fn average(values: impl Iterator<Item = f64>) -> f64 {
     }
 }
 
+fn uniform_optional<'a>(mut values: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
+    let first = values.next()?;
+    if values.all(|value| value == first) {
+        first.map(ToOwned::to_owned)
+    } else {
+        None
+    }
+}
+
 fn event_period_key(event: &MemoryEvent, period_type: ConsolidationPeriod) -> Option<String> {
     let created_at = DateTime::parse_from_rfc3339(&event.created_at).ok()?;
     Some(period_key_for_datetime(
@@ -450,6 +506,9 @@ mod tests {
             period_type: ConsolidationPeriod::Daily,
             period_key: Some("2026-07-05".to_string()),
             project: Some("ui".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -481,6 +540,9 @@ mod tests {
             period_type: ConsolidationPeriod::Daily,
             period_key: Some("2026-07-05".to_string()),
             project: Some("ui".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: true,
             force: false,
         };
@@ -504,6 +566,9 @@ mod tests {
             period_type: ConsolidationPeriod::Daily,
             period_key: Some("2026-07-05".to_string()),
             project: Some("ui".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: true,
             force: false,
         };
@@ -522,6 +587,9 @@ mod tests {
             period_type: ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("ui".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -544,6 +612,9 @@ mod tests {
             period_type: ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("private diagnosis program".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -569,6 +640,9 @@ mod tests {
             period_type: ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("ui".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -578,5 +652,278 @@ mod tests {
 
         assert_eq!(output.tags, vec!["consolidation", "memory"]);
         assert!(!output.tags.iter().any(|tag| tag.contains("diagnosis")));
+    }
+
+    #[test]
+    fn legacy_consolidation_request_defaults_private_scope_filters() {
+        let request: ConsolidationRequest = serde_json::from_value(serde_json::json!({
+            "period_type": "manual",
+            "period_key": "manual-test",
+            "project": "ui",
+            "dry_run": false,
+            "force": false
+        }))
+        .unwrap();
+
+        assert_eq!(request.agent_profile, None);
+        assert_eq!(request.workflow_id, None);
+        assert_eq!(request.session_id, None);
+    }
+
+    #[test]
+    fn agent_scoped_consolidation_isolates_producers_and_retains_correlation() {
+        let mut coder = event("Use the implementation plan.", "ui", "2026-07-05T08:00:00Z");
+        coder.scope = "agent".to_string();
+        coder.agent_profile = Some("coder".to_string());
+        coder.workflow_id = Some("workflow-1".to_string());
+        coder.session_id = Some("session-1".to_string());
+        coder.operation_id = Some("operation-code".to_string());
+        coder.tags = vec!["coordination".to_string(), "implementation".to_string()];
+
+        let mut reviewer = event("Review the implementation.", "ui", "2026-07-05T09:00:00Z");
+        reviewer.scope = "agent".to_string();
+        reviewer.agent_profile = Some("reviewer".to_string());
+        reviewer.workflow_id = Some("workflow-1".to_string());
+        reviewer.session_id = Some("session-1".to_string());
+        reviewer.operation_id = Some("operation-review".to_string());
+        reviewer.tags = vec!["coordination".to_string(), "review".to_string()];
+
+        let report = consolidate_memories(
+            &[reviewer.clone(), coder.clone()],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-agent-isolation".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.outputs.len(), 2);
+        for source in [&coder, &reviewer] {
+            let output = report
+                .outputs
+                .iter()
+                .find(|output| output.memory.agent_profile == source.agent_profile)
+                .unwrap();
+            assert_eq!(output.source_memory_ids, vec![source.id.clone()]);
+            assert_eq!(output.memory.workflow_id, source.workflow_id);
+            assert_eq!(output.memory.session_id, source.session_id);
+            assert_eq!(output.memory.operation_id, None);
+            assert!(output.memory.tags.contains(&"coordination".to_string()));
+            assert_eq!(
+                output.memory.links,
+                vec![MemoryLink {
+                    link_type: "memory".to_string(),
+                    target: source.id.clone(),
+                }]
+            );
+            output.memory.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn workflow_scoped_consolidation_isolates_workflows_without_claiming_mixed_producers() {
+        let mut coder = event("Use the implementation plan.", "ui", "2026-07-05T08:00:00Z");
+        coder.scope = "workflow".to_string();
+        coder.agent_profile = Some("coder".to_string());
+        coder.workflow_id = Some("workflow-1".to_string());
+        coder.session_id = Some("session-shared".to_string());
+        coder.operation_id = Some("operation-code".to_string());
+
+        let mut reviewer = event("Review the implementation.", "ui", "2026-07-05T09:00:00Z");
+        reviewer.scope = "workflow".to_string();
+        reviewer.agent_profile = Some("reviewer".to_string());
+        reviewer.workflow_id = Some("workflow-1".to_string());
+        reviewer.session_id = Some("session-shared".to_string());
+        reviewer.operation_id = Some("operation-review".to_string());
+
+        let mut other_workflow = event("Coordinate the release.", "ui", "2026-07-05T10:00:00Z");
+        other_workflow.scope = "workflow".to_string();
+        other_workflow.agent_profile = Some("coordinator".to_string());
+        other_workflow.workflow_id = Some("workflow-2".to_string());
+        other_workflow.session_id = Some("session-other".to_string());
+        other_workflow.operation_id = Some("operation-release".to_string());
+
+        let report = consolidate_memories(
+            &[coder.clone(), reviewer.clone(), other_workflow],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-workflow-isolation".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.outputs.len(), 2);
+        let shared_workflow = report
+            .outputs
+            .iter()
+            .find(|output| output.memory.workflow_id.as_deref() == Some("workflow-1"))
+            .unwrap();
+        assert_eq!(shared_workflow.source_memory_ids.len(), 2);
+        assert_eq!(shared_workflow.memory.agent_profile, None);
+        assert_eq!(
+            shared_workflow.memory.session_id.as_deref(),
+            Some("session-shared")
+        );
+        assert_eq!(shared_workflow.memory.operation_id, None);
+        shared_workflow.memory.validate().unwrap();
+    }
+
+    #[test]
+    fn session_scoped_consolidation_isolates_sessions() {
+        let mut first = event("Use the implementation plan.", "ui", "2026-07-05T08:00:00Z");
+        first.scope = "session".to_string();
+        first.agent_profile = Some("coder".to_string());
+        first.workflow_id = Some("workflow-1".to_string());
+        first.session_id = Some("session-1".to_string());
+
+        let mut second = event("Review the implementation.", "ui", "2026-07-05T09:00:00Z");
+        second.scope = "session".to_string();
+        second.agent_profile = Some("reviewer".to_string());
+        second.workflow_id = Some("workflow-2".to_string());
+        second.session_id = Some("session-1".to_string());
+
+        let mut other_session = event("Coordinate the release.", "ui", "2026-07-05T10:00:00Z");
+        other_session.scope = "session".to_string();
+        other_session.agent_profile = Some("coordinator".to_string());
+        other_session.workflow_id = Some("workflow-1".to_string());
+        other_session.session_id = Some("session-2".to_string());
+
+        let report = consolidate_memories(
+            &[first, second, other_session],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-session-isolation".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.outputs.len(), 2);
+        let shared_session = report
+            .outputs
+            .iter()
+            .find(|output| output.memory.session_id.as_deref() == Some("session-1"))
+            .unwrap();
+        assert_eq!(shared_session.source_memory_ids.len(), 2);
+        assert_eq!(shared_session.memory.agent_profile, None);
+        assert_eq!(shared_session.memory.workflow_id, None);
+        shared_session.memory.validate().unwrap();
+    }
+
+    #[test]
+    fn shared_scope_consolidation_clears_mixed_producer_and_correlation_claims() {
+        let mut coder = event("Use the implementation plan.", "ui", "2026-07-05T08:00:00Z");
+        coder.agent_profile = Some("coder".to_string());
+        coder.workflow_id = Some("workflow-1".to_string());
+        coder.session_id = Some("session-1".to_string());
+        coder.operation_id = Some("operation-code".to_string());
+
+        let mut reviewer = event("Review the implementation.", "ui", "2026-07-05T09:00:00Z");
+        reviewer.agent_profile = Some("reviewer".to_string());
+        reviewer.workflow_id = Some("workflow-2".to_string());
+        reviewer.session_id = Some("session-2".to_string());
+        reviewer.operation_id = Some("operation-review".to_string());
+
+        let report = consolidate_memories(
+            &[coder, reviewer],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-shared-producers".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.outputs.len(), 1);
+        let output = &report.outputs[0];
+        assert_eq!(output.source_memory_ids.len(), 2);
+        assert_eq!(output.memory.agent_profile, None);
+        assert_eq!(output.memory.workflow_id, None);
+        assert_eq!(output.memory.session_id, None);
+        assert_eq!(output.memory.operation_id, None);
+        assert_eq!(output.memory.links.len(), 2);
+    }
+
+    #[test]
+    fn derived_consolidation_output_does_not_reuse_a_source_operation_id() {
+        let mut source = event("Use the accepted plan.", "ui", "2026-07-05T08:00:00Z");
+        source.operation_id = Some("operation-source".to_string());
+
+        let report = consolidate_memories(
+            &[source],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-derived-operation".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.outputs.len(), 1);
+        assert_eq!(report.outputs[0].memory.operation_id, None);
+    }
+
+    #[test]
+    fn consolidation_request_filters_each_private_scope_dimension() {
+        let mut matching = event("Matching memory.", "ui", "2026-07-05T08:00:00Z");
+        matching.scope = "agent".to_string();
+        matching.agent_profile = Some("coder".to_string());
+        matching.workflow_id = Some("workflow-1".to_string());
+        matching.session_id = Some("session-1".to_string());
+
+        let mut other_agent = matching.clone();
+        other_agent.id = "mem_other_agent".to_string();
+        other_agent.agent_profile = Some("reviewer".to_string());
+        let mut other_workflow = matching.clone();
+        other_workflow.id = "mem_other_workflow".to_string();
+        other_workflow.workflow_id = Some("workflow-2".to_string());
+        let mut other_session = matching.clone();
+        other_session.id = "mem_other_session".to_string();
+        other_session.session_id = Some("session-2".to_string());
+
+        let report = consolidate_memories(
+            &[matching.clone(), other_agent, other_workflow, other_session],
+            &ConsolidationRequest {
+                period_type: ConsolidationPeriod::Manual,
+                period_key: Some("manual-filtered".to_string()),
+                project: Some("ui".to_string()),
+                agent_profile: Some("coder".to_string()),
+                workflow_id: Some("workflow-1".to_string()),
+                session_id: Some("session-1".to_string()),
+                dry_run: false,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.source_memory_ids, vec![matching.id]);
     }
 }

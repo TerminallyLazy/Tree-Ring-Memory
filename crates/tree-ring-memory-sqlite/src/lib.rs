@@ -1,4 +1,7 @@
-use rusqlite::{params, params_from_iter, types::Value, Connection, ErrorCode, OptionalExtension};
+use rusqlite::{
+    params, params_from_iter, types::Value, Connection, ErrorCode, OptionalExtension,
+    TransactionBehavior,
+};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -6,8 +9,9 @@ use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, Tr
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
 use tree_ring_memory_core::{
     audit_memories, consolidate_memories, decode_jsonl, encode_jsonl, normalize_import_events,
-    plan_maintenance, AuditReport, ConsolidationReport, ConsolidationRequest,
-    MaintenanceActionType, MaintenanceFtsReport, MaintenanceReport, MaintenanceRequest,
+    normalize_legacy_private_scope_identity, plan_maintenance, AuditReport, ConsolidationReport,
+    ConsolidationRequest, MaintenanceActionType, MaintenanceFtsReport, MaintenanceReport,
+    MaintenanceRequest,
 };
 
 mod lifecycle;
@@ -15,7 +19,7 @@ mod schema;
 mod search;
 mod write;
 
-const EXISTING_ID_QUERY_CHUNK: usize = 500;
+const SQLITE_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone)]
 pub struct RecallResult {
@@ -24,8 +28,48 @@ pub struct RecallResult {
     pub ranking: std::collections::BTreeMap<String, f64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RecallOptions<'a> {
+    pub project: Option<&'a str>,
+    pub agent_profile: Option<&'a str>,
+    pub workflow_id: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+    pub scope: Option<&'a str>,
+    pub rings: Option<&'a [String]>,
+    pub event_types: Option<&'a [String]>,
+    pub include_sensitive: bool,
+    pub include_superseded: bool,
+    pub limit: usize,
+    pub explain_ranking: bool,
+}
+
+impl Default for RecallOptions<'_> {
+    fn default() -> Self {
+        Self {
+            project: None,
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
+            scope: None,
+            rings: None,
+            event_types: None,
+            include_sensitive: false,
+            include_superseded: false,
+            limit: 8,
+            explain_ranking: false,
+        }
+    }
+}
+
 pub struct SQLiteMemoryStore {
     connection: Connection,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum PutOutcome {
+    Created,
+    Existing(MemoryEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,15 +113,31 @@ impl SQLiteMemoryStore {
     }
 
     pub fn migrate(&self) -> TreeRingResult<()> {
-        self.connection
-            .execute_batch(
-                r#"
+        if schema::user_version(&self.connection)? >= SQLITE_SCHEMA_VERSION {
+            return Ok(());
+        }
+        write::retry_locked(|| {
+            let transaction = rusqlite::Transaction::new_unchecked(
+                &self.connection,
+                TransactionBehavior::Immediate,
+            )
+            .map_err(sqlite_error_from_rusqlite)?;
+            if schema::user_version(&transaction)? >= SQLITE_SCHEMA_VERSION {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Ok(());
+            }
+            transaction
+                .execute_batch(
+                    r#"
                 CREATE TABLE IF NOT EXISTS memories (
                   id TEXT PRIMARY KEY,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL,
                   project TEXT,
                   agent_profile TEXT,
+                  workflow_id TEXT,
+                  session_id TEXT,
+                  operation_id TEXT,
                   scope TEXT NOT NULL,
                   ring TEXT NOT NULL,
                   event_type TEXT NOT NULL,
@@ -95,6 +155,14 @@ impl SQLiteMemoryStore {
                   links_json TEXT NOT NULL,
                   review_json TEXT NOT NULL,
                   raw_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS operation_claims (
+                  namespace_hash BLOB PRIMARY KEY NOT NULL
+                    CHECK(length(namespace_hash) = 32),
+                  memory_id TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS redaction_tombstones (
+                  memory_id TEXT PRIMARY KEY NOT NULL
                 );
                 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
                   id UNINDEXED,
@@ -114,9 +182,57 @@ impl SQLiteMemoryStore {
                   notes TEXT NOT NULL
                 );
                 "#,
-            )
-            .map_err(sqlite_error_from_rusqlite)?;
-        Ok(())
+                )
+                .map_err(sqlite_error_from_rusqlite)?;
+            for (column, definition) in [
+                ("workflow_id", "TEXT"),
+                ("session_id", "TEXT"),
+                ("operation_id", "TEXT"),
+            ] {
+                if !schema::memory_column_exists(&transaction, column)? {
+                    transaction
+                        .execute(
+                            &format!("ALTER TABLE memories ADD COLUMN {column} {definition}"),
+                            [],
+                        )
+                        .map_err(sqlite_error_from_rusqlite)?;
+                }
+            }
+            normalize_legacy_private_scope_rows(&transaction)?;
+            transaction
+                .execute_batch(
+                    r#"
+                CREATE INDEX IF NOT EXISTS idx_memories_project
+                  ON memories(project);
+                CREATE INDEX IF NOT EXISTS idx_memories_agent_profile
+                  ON memories(agent_profile);
+                CREATE INDEX IF NOT EXISTS idx_memories_workflow_id
+                  ON memories(workflow_id);
+                CREATE INDEX IF NOT EXISTS idx_memories_session_id
+                  ON memories(session_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_operation_namespace
+                  ON memories(
+                    COALESCE(project, ''),
+                    COALESCE(workflow_id, ''),
+                    COALESCE(agent_profile, ''),
+                    operation_id
+                  )
+                  WHERE operation_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_operation_claims_memory_id
+                  ON operation_claims(memory_id);
+                INSERT OR IGNORE INTO redaction_tombstones (memory_id)
+                  SELECT id
+                  FROM memories
+                  WHERE summary = '[REDACTED]';
+                "#,
+                )
+                .map_err(sqlite_error_from_rusqlite)?;
+            transaction
+                .pragma_update(None, "user_version", SQLITE_SCHEMA_VERSION)
+                .map_err(sqlite_error_from_rusqlite)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(())
+        })
     }
 
     pub fn put(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
@@ -131,6 +247,29 @@ impl SQLiteMemoryStore {
         })
     }
 
+    pub fn put_idempotent(&mut self, event: &MemoryEvent) -> TreeRingResult<PutOutcome> {
+        let Some(operation_id) = event.operation_id.as_deref() else {
+            self.put(event)?;
+            return Ok(PutOutcome::Created);
+        };
+        event.validate()?;
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            if let Some(existing) =
+                find_memory_by_operation_namespace(&transaction, event, operation_id)?
+            {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Ok(PutOutcome::Existing(existing));
+            }
+            write::put_in_transaction(&transaction, event)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(PutOutcome::Created)
+        })
+    }
+
     pub fn put_many(&mut self, events: &[MemoryEvent]) -> TreeRingResult<()> {
         write::retry_locked(|| {
             let transaction = self
@@ -139,16 +278,7 @@ impl SQLiteMemoryStore {
                 .map_err(sqlite_error_from_rusqlite)?;
             {
                 let mut insert_memory = transaction
-                    .prepare(
-                        r#"
-                        INSERT OR REPLACE INTO memories (
-                          id, created_at, updated_at, project, agent_profile, scope, ring,
-                          event_type, summary, details, source_json, tags_json, salience,
-                          confidence, sensitivity, retention, expires_at, supersedes_json,
-                          superseded_by, links_json, review_json, raw_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        "#,
-                    )
+                    .prepare(write::UPSERT_MEMORY_SQL)
                     .map_err(sqlite_error_from_rusqlite)?;
                 let mut delete_fts = transaction
                     .prepare("DELETE FROM memory_fts WHERE id = ?")
@@ -158,6 +288,7 @@ impl SQLiteMemoryStore {
                     .map_err(sqlite_error_from_rusqlite)?;
 
                 for event in events {
+                    write::prepare_memory_write(&transaction, event)?;
                     write::put_with_statements(
                         event,
                         &mut insert_memory,
@@ -184,19 +315,7 @@ impl SQLiteMemoryStore {
     }
 
     pub fn list_all(&self, include_superseded: bool) -> TreeRingResult<Vec<MemoryEvent>> {
-        let sql = if include_superseded {
-            "SELECT raw_json FROM memories ORDER BY created_at DESC"
-        } else {
-            "SELECT raw_json FROM memories WHERE superseded_by IS NULL ORDER BY created_at DESC"
-        };
-        let mut statement = self
-            .connection
-            .prepare(sql)
-            .map_err(sqlite_error_from_rusqlite)?;
-        let rows = statement
-            .query_map([], search::event_from_row)
-            .map_err(sqlite_error_from_rusqlite)?;
-        search::collect_rows(rows)
+        list_all_on_connection(&self.connection, include_superseded)
     }
 
     pub fn search_text(
@@ -270,6 +389,36 @@ impl SQLiteMemoryStore {
         include_superseded: bool,
         limit: Option<usize>,
     ) -> TreeRingResult<Vec<MemoryEvent>> {
+        self.search_text_filtered_with_context_limited(
+            query,
+            project,
+            agent_profile,
+            None,
+            None,
+            scope,
+            rings,
+            event_types,
+            include_sensitive,
+            include_superseded,
+            limit,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_text_filtered_with_context_limited(
+        &self,
+        query: &str,
+        project: Option<&str>,
+        agent_profile: Option<&str>,
+        workflow_id: Option<&str>,
+        session_id: Option<&str>,
+        scope: Option<&str>,
+        rings: Option<&[String]>,
+        event_types: Option<&[String]>,
+        include_sensitive: bool,
+        include_superseded: bool,
+        limit: Option<usize>,
+    ) -> TreeRingResult<Vec<MemoryEvent>> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -285,6 +434,8 @@ impl SQLiteMemoryStore {
             &fts_query,
             project,
             agent_profile,
+            workflow_id,
+            session_id,
             scope,
             rings,
             event_types,
@@ -300,6 +451,8 @@ impl SQLiteMemoryStore {
         fts_query: &str,
         project: Option<&str>,
         agent_profile: Option<&str>,
+        workflow_id: Option<&str>,
+        session_id: Option<&str>,
         scope: Option<&str>,
         rings: Option<&[String]>,
         event_types: Option<&[String]>,
@@ -327,6 +480,14 @@ impl SQLiteMemoryStore {
         if let Some(agent_profile) = agent_profile {
             sql.push_str(" AND memories.agent_profile = ?");
             parameters.push(Value::Text(agent_profile.to_string()));
+        }
+        if let Some(workflow_id) = workflow_id {
+            sql.push_str(" AND memories.workflow_id = ?");
+            parameters.push(Value::Text(workflow_id.to_string()));
+        }
+        if let Some(session_id) = session_id {
+            sql.push_str(" AND memories.session_id = ?");
+            parameters.push(Value::Text(session_id.to_string()));
         }
         if let Some(scope) = scope {
             sql.push_str(" AND memories.scope = ?");
@@ -363,18 +524,13 @@ impl SQLiteMemoryStore {
     }
 
     pub fn supersede(&mut self, old_id: &str, new_id: &str) -> TreeRingResult<()> {
-        let Some(mut old) = self.get(old_id)? else {
-            return Ok(());
-        };
-        old.superseded_by = Some(new_id.to_string());
-        let raw_json = serde_json::to_string(&old)?;
         write::retry_locked(|| {
-            self.connection
-                .execute(
-                    "UPDATE memories SET superseded_by = ?, raw_json = ? WHERE id = ?",
-                    params![new_id, raw_json, old_id],
-                )
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(sqlite_error_from_rusqlite)?;
+            write::supersede_in_transaction(&transaction, old_id, new_id)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
         })
     }
@@ -385,23 +541,61 @@ impl SQLiteMemoryStore {
                 .connection
                 .transaction()
                 .map_err(sqlite_error_from_rusqlite)?;
-            transaction
-                .execute("DELETE FROM memories WHERE id = ?", params![memory_id])
-                .map_err(sqlite_error_from_rusqlite)?;
-            transaction
-                .execute("DELETE FROM memory_fts WHERE id = ?", params![memory_id])
-                .map_err(sqlite_error_from_rusqlite)?;
+            write::delete_in_transaction(&transaction, memory_id)?;
             transaction.commit().map_err(sqlite_error_from_rusqlite)?;
             Ok(())
         })
     }
 
     pub fn redact(&mut self, memory_id: &str) -> TreeRingResult<()> {
-        let Some(mut event) = self.get(memory_id)? else {
-            return Ok(());
-        };
-        event.redact();
-        self.put(&event)
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            write::redact_in_transaction(&transaction, memory_id)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(())
+        })
+    }
+
+    pub fn change_ring(
+        &mut self,
+        memory_id: &str,
+        ring: &str,
+        event_type: &str,
+    ) -> TreeRingResult<Option<MemoryEvent>> {
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            let Some(mut event) = transaction
+                .query_row(
+                    "SELECT raw_json FROM memories WHERE id = ?",
+                    params![memory_id],
+                    search::event_from_row,
+                )
+                .optional()
+                .map_err(sqlite_error_from_rusqlite)?
+                .transpose()?
+            else {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                return Ok(None);
+            };
+            let tombstoned = write::is_redaction_tombstoned(&transaction, memory_id)?;
+            event.ring = ring.to_string();
+            if !tombstoned {
+                event.event_type = event_type.to_string();
+            }
+            event.updated_at = tree_ring_memory_core::now_iso();
+            if ring == "heartwood" {
+                event.retention = "durable".to_string();
+            }
+            write::put_in_transaction(&transaction, &event)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(Some(event))
+        })
     }
 
     pub fn export_jsonl(
@@ -442,32 +636,47 @@ impl SQLiteMemoryStore {
             return Ok(report);
         }
 
-        let ids = events
-            .iter()
-            .map(|event| event.id.clone())
-            .collect::<Vec<_>>();
-        let mut known_ids = self.existing_memory_ids(&ids)?;
-        let mut batch_events = Vec::new();
-        for event in events {
-            if known_ids.contains(&event.id) {
-                if replace_existing {
-                    batch_events.push(event);
-                    report.replaced_count += 1;
-                } else {
-                    report.skipped_duplicate_count += 1;
+        let (inserted_count, replaced_count, skipped_duplicate_count) =
+            write::retry_locked(|| {
+                let transaction = self
+                    .connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(sqlite_error_from_rusqlite)?;
+                let mut inserted_count = 0;
+                let mut replaced_count = 0;
+                let mut skipped_duplicate_count = 0;
+                let mut written_events = Vec::new();
+                for event in &events {
+                    let exists: bool = transaction
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM memories WHERE id = ?)",
+                            params![&event.id],
+                            |row| row.get(0),
+                        )
+                        .map_err(sqlite_error_from_rusqlite)?;
+                    if exists && !replace_existing {
+                        skipped_duplicate_count += 1;
+                        continue;
+                    }
+                    write::put_in_transaction(&transaction, event)?;
+                    written_events.push(event);
+                    if exists {
+                        replaced_count += 1;
+                    } else {
+                        inserted_count += 1;
+                    }
                 }
-            } else {
-                known_ids.insert(event.id.clone());
-                batch_events.push(event);
-                report.inserted_count += 1;
-            }
-        }
-        if !batch_events.is_empty() {
-            self.put_many(&batch_events)?;
-            for event in &batch_events {
-                self.apply_supersedes(event)?;
-            }
-        }
+                for event in written_events {
+                    for old_id in &event.supersedes {
+                        write::supersede_in_transaction(&transaction, old_id, &event.id)?;
+                    }
+                }
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                Ok((inserted_count, replaced_count, skipped_duplicate_count))
+            })?;
+        report.inserted_count = inserted_count;
+        report.replaced_count = replaced_count;
+        report.skipped_duplicate_count = skipped_duplicate_count;
         Ok(report)
     }
 
@@ -480,292 +689,130 @@ impl SQLiteMemoryStore {
         &mut self,
         request: &ConsolidationRequest,
     ) -> TreeRingResult<ConsolidationReport> {
-        let events = self.list_all(false)?;
-        let mut report = consolidate_memories(&events, request)?;
-        if request.dry_run || report.candidate_count == 0 {
-            return Ok(report);
+        if request.dry_run {
+            let events = self.list_all(false)?;
+            return consolidate_memories(&events, request);
         }
-
-        let source_ids_json =
-            serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
-        if !request.force {
-            if let Some(existing) = self.find_consolidation(
-                report.period_type.as_str(),
-                &report.period_key,
-                &source_ids_json,
-            )? {
-                report.id = existing.id;
-                report.created_at = existing.created_at;
-                report.output_memory_ids = existing.output_memory_ids;
-                report.status = "unchanged".to_string();
-                report.notes = "Matching consolidation already exists.".to_string();
-                report.outputs.clear();
+        write::retry_locked(|| {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(sqlite_error_from_rusqlite)?;
+            let events = list_all_on_connection(&transaction, false)?;
+            let mut report = consolidate_memories(&events, request)?;
+            if report.candidate_count == 0 {
+                transaction.commit().map_err(sqlite_error_from_rusqlite)?;
                 return Ok(report);
             }
-        }
 
-        let previous_outputs = if request.force {
-            self.previous_consolidation_outputs(report.period_type.as_str(), &report.period_key)?
-        } else {
-            Vec::new()
-        };
-        let output_events = report
-            .outputs
-            .iter()
-            .map(|output| output.memory.clone())
-            .collect::<Vec<_>>();
-        let supersession_pairs = if request.force {
-            consolidation_supersession_pairs(&previous_outputs, &output_events)
-        } else {
-            Vec::new()
-        };
-        report.status = "created".to_string();
-        report.notes = "Consolidation summaries stored.".to_string();
-        self.insert_consolidation_transaction(&report, &output_events, &supersession_pairs)?;
-        Ok(report)
+            let source_ids_json =
+                serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
+            if !request.force {
+                if let Some(existing) = find_consolidation_on_connection(
+                    &transaction,
+                    report.period_type.as_str(),
+                    &report.period_key,
+                    &source_ids_json,
+                )? {
+                    report.id = existing.id;
+                    report.created_at = existing.created_at;
+                    report.output_memory_ids = existing.output_memory_ids;
+                    report.status = "unchanged".to_string();
+                    report.notes = "Matching consolidation already exists.".to_string();
+                    report.outputs.clear();
+                    transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+                    return Ok(report);
+                }
+            }
+
+            let output_events = report
+                .outputs
+                .iter()
+                .map(|output| output.memory.clone())
+                .collect::<Vec<_>>();
+            let supersession_pairs = if request.force {
+                let previous_outputs = previous_consolidation_outputs_on_connection(
+                    &transaction,
+                    report.period_type.as_str(),
+                    &report.period_key,
+                    request,
+                )?;
+                consolidation_supersession_pairs(&previous_outputs, &output_events)
+            } else {
+                Vec::new()
+            };
+            report.status = "created".to_string();
+            report.notes = "Consolidation summaries stored.".to_string();
+            for event in &output_events {
+                write::put_in_transaction(&transaction, event)?;
+            }
+            for (old_id, new_id) in &supersession_pairs {
+                write::supersede_in_transaction(&transaction, old_id, new_id)?;
+            }
+            insert_consolidation_record(&transaction, &report, &source_ids_json)?;
+            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
+            Ok(report)
+        })
     }
 
     pub fn maintain(&mut self, request: &MaintenanceRequest) -> TreeRingResult<MaintenanceReport> {
-        let events = self.list_all(true)?;
-        let mut report = plan_maintenance(&events, request);
-        report.fts = self.fts_report(false)?;
-
         let apply_expired = !request.dry_run && request.apply_expired;
         let apply_secret_redactions = !request.dry_run && request.apply_secret_redactions;
         let repair_fts = !request.dry_run && request.repair_fts;
-        let needs_transaction = repair_fts
-            || report.actions.iter().any(|action| {
-                matches!(action.action_type, MaintenanceActionType::DeleteExpired) && apply_expired
-                    || matches!(action.action_type, MaintenanceActionType::RedactSecret)
-                        && apply_secret_redactions
-            });
-        if needs_transaction {
-            let (applied_indexes, fts_repaired) = write::retry_locked(|| {
+        let needs_transaction = apply_expired || apply_secret_redactions || repair_fts;
+        let mut report = if needs_transaction {
+            write::retry_locked(|| {
                 let transaction = self
                     .connection
-                    .transaction()
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(sqlite_error_from_rusqlite)?;
-                let mut transaction_applied = Vec::new();
+                let events = list_all_on_connection(&transaction, true)?;
+                let mut transaction_report = plan_maintenance(&events, request);
+                transaction_report.fts = fts_report_on_connection(&transaction, false)?;
 
-                for (index, action) in report.actions.iter().enumerate() {
+                for action in &mut transaction_report.actions {
                     if action.action_type == MaintenanceActionType::RedactSecret
                         && apply_secret_redactions
                         && write::redact_in_transaction(&transaction, &action.memory_id)?
                     {
-                        transaction_applied.push(index);
+                        action.applied = true;
                     }
                 }
 
-                for (index, action) in report.actions.iter().enumerate() {
+                for action in &mut transaction_report.actions {
                     if action.action_type == MaintenanceActionType::DeleteExpired
                         && apply_expired
                         && write::delete_in_transaction(&transaction, &action.memory_id)?
                     {
-                        transaction_applied.push(index);
+                        action.applied = true;
                     }
                 }
 
                 if repair_fts {
                     lifecycle::rebuild_fts_in_transaction(&transaction)?;
                 }
-
+                transaction_report.applied_action_count = transaction_report
+                    .actions
+                    .iter()
+                    .filter(|action| action.applied)
+                    .count();
+                transaction_report.fts = fts_report_on_connection(&transaction, repair_fts)?;
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
-                Ok((transaction_applied, repair_fts))
-            })?;
-
-            for index in applied_indexes {
-                if let Some(action) = report.actions.get_mut(index) {
-                    action.applied = true;
-                }
-            }
-            report.applied_action_count = report
-                .actions
-                .iter()
-                .filter(|action| action.applied)
-                .count();
-            report.fts = self.fts_report(fts_repaired)?;
-        }
+                Ok(transaction_report)
+            })?
+        } else {
+            let events = self.list_all(true)?;
+            let mut report = plan_maintenance(&events, request);
+            report.fts = self.fts_report(false)?;
+            report
+        };
 
         report.status = maintenance_status(&report);
         Ok(report)
     }
 
-    fn find_consolidation(
-        &self,
-        period_type: &str,
-        period_key: &str,
-        source_ids_json: &str,
-    ) -> TreeRingResult<Option<StoredConsolidation>> {
-        self.connection
-            .query_row(
-                r#"
-                SELECT id, created_at, output_memory_ids_json
-                FROM consolidations
-                WHERE period_type = ?
-                  AND period_key = ?
-                  AND source_memory_ids_json = ?
-                  AND status = 'created'
-                ORDER BY created_at DESC
-                LIMIT 1
-                "#,
-                params![period_type, period_key, source_ids_json],
-                lifecycle::stored_consolidation_from_row,
-            )
-            .optional()
-            .map_err(sqlite_error_from_rusqlite)?
-            .transpose()
-    }
-
-    fn previous_consolidation_outputs(
-        &self,
-        period_type: &str,
-        period_key: &str,
-    ) -> TreeRingResult<Vec<MemoryEvent>> {
-        let mut statement = self
-            .connection
-            .prepare(
-                r#"
-                SELECT output_memory_ids_json
-                FROM consolidations
-                WHERE period_type = ?
-                  AND period_key = ?
-                  AND status = 'created'
-                ORDER BY created_at ASC
-                "#,
-            )
-            .map_err(sqlite_error_from_rusqlite)?;
-        let rows = statement
-            .query_map(params![period_type, period_key], |row| {
-                row.get::<_, String>(0)
-            })
-            .map_err(sqlite_error_from_rusqlite)?;
-        let mut output_ids = Vec::new();
-        for row in rows {
-            let output_ids_json = row.map_err(sqlite_error_from_rusqlite)?;
-            let mut parsed = serde_json::from_str::<Vec<String>>(&output_ids_json)
-                .map_err(TreeRingError::Json)?;
-            output_ids.append(&mut parsed);
-        }
-        let mut outputs = Vec::new();
-        for output_id in output_ids {
-            if let Some(output) = self.get(&output_id)? {
-                outputs.push(output);
-            }
-        }
-        Ok(outputs)
-    }
-
-    fn insert_consolidation_transaction(
-        &mut self,
-        report: &ConsolidationReport,
-        output_events: &[MemoryEvent],
-        supersession_pairs: &[(MemoryEvent, String)],
-    ) -> TreeRingResult<()> {
-        let source_ids_json =
-            serde_json::to_string(&report.source_memory_ids).map_err(TreeRingError::Json)?;
-        let output_ids_json =
-            serde_json::to_string(&report.output_memory_ids).map_err(TreeRingError::Json)?;
-        write::retry_locked(|| {
-            let transaction = self
-                .connection
-                .transaction()
-                .map_err(sqlite_error_from_rusqlite)?;
-            for event in output_events {
-                write::put_in_transaction(&transaction, event)?;
-            }
-            for (old, new_id) in supersession_pairs {
-                let mut updated = old.clone();
-                updated.superseded_by = Some(new_id.clone());
-                let raw_json = serde_json::to_string(&updated)?;
-                transaction
-                    .execute(
-                        "UPDATE memories SET superseded_by = ?, raw_json = ? WHERE id = ?",
-                        params![new_id, raw_json, &old.id],
-                    )
-                    .map_err(sqlite_error_from_rusqlite)?;
-            }
-            transaction
-                .execute(
-                    r#"
-                    INSERT INTO consolidations (
-                      id, created_at, period_type, period_key, source_memory_ids_json,
-                      output_memory_ids_json, status, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    "#,
-                    params![
-                        report.id,
-                        report.created_at,
-                        report.period_type.as_str(),
-                        &report.period_key,
-                        source_ids_json,
-                        output_ids_json,
-                        &report.status,
-                        &report.notes
-                    ],
-                )
-                .map_err(sqlite_error_from_rusqlite)?;
-            transaction.commit().map_err(sqlite_error_from_rusqlite)?;
-            Ok(())
-        })
-    }
-
-    fn apply_supersedes(&mut self, event: &MemoryEvent) -> TreeRingResult<()> {
-        for old_id in &event.supersedes {
-            self.supersede(old_id, &event.id)?;
-        }
-        Ok(())
-    }
-
-    fn existing_memory_ids(&self, ids: &[String]) -> TreeRingResult<HashSet<String>> {
-        let mut existing = HashSet::new();
-        for chunk in ids.chunks(EXISTING_ID_QUERY_CHUNK) {
-            if chunk.is_empty() {
-                continue;
-            }
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let sql = format!("SELECT id FROM memories WHERE id IN ({placeholders})");
-            let mut statement = self
-                .connection
-                .prepare(&sql)
-                .map_err(sqlite_error_from_rusqlite)?;
-            let rows = statement
-                .query_map(params_from_iter(chunk.iter()), |row| {
-                    row.get::<_, String>(0)
-                })
-                .map_err(sqlite_error_from_rusqlite)?;
-            for row in rows {
-                existing.insert(row.map_err(sqlite_error_from_rusqlite)?);
-            }
-        }
-        Ok(existing)
-    }
-
     fn fts_report(&self, repaired: bool) -> TreeRingResult<MaintenanceFtsReport> {
-        Ok(MaintenanceFtsReport {
-            memory_rows: lifecycle::count_query(&self.connection, "SELECT count(*) FROM memories")?,
-            fts_rows: lifecycle::count_query(&self.connection, "SELECT count(*) FROM memory_fts")?,
-            missing_fts_rows: lifecycle::count_query(
-                &self.connection,
-                r#"
-                SELECT count(*)
-                FROM memories
-                LEFT JOIN memory_fts ON memories.id = memory_fts.id
-                WHERE memory_fts.id IS NULL
-                "#,
-            )?,
-            orphan_fts_rows: lifecycle::count_query(
-                &self.connection,
-                r#"
-                SELECT count(*)
-                FROM memory_fts
-                LEFT JOIN memories ON memories.id = memory_fts.id
-                WHERE memories.id IS NULL
-                "#,
-            )?,
-            repaired,
-        })
+        fts_report_on_connection(&self.connection, repaired)
     }
 }
 
@@ -792,26 +839,51 @@ impl<'a> MemoryRetriever<'a> {
         limit: usize,
         explain_ranking: bool,
     ) -> TreeRingResult<Vec<RecallResult>> {
+        self.recall_with_options(
+            query,
+            &RecallOptions {
+                project,
+                agent_profile,
+                workflow_id: None,
+                session_id: None,
+                scope,
+                rings,
+                event_types,
+                include_sensitive,
+                include_superseded,
+                limit,
+                explain_ranking,
+            },
+        )
+    }
+
+    pub fn recall_with_options(
+        &self,
+        query: &str,
+        options: &RecallOptions<'_>,
+    ) -> TreeRingResult<Vec<RecallResult>> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
 
         let mut candidates = Vec::new();
         let mut seen_queries = HashSet::new();
-        let candidate_limit = Some(limit.saturating_mul(128).clamp(256, 2048));
+        let candidate_limit = Some(options.limit.saturating_mul(128).clamp(256, 2048));
         for search_query in search_queries(query) {
             if !seen_queries.insert(search_query.clone()) {
                 continue;
             }
-            candidates = self.store.search_text_filtered_limited(
+            candidates = self.store.search_text_filtered_with_context_limited(
                 &search_query,
-                project,
-                agent_profile,
-                scope,
-                rings,
-                event_types,
-                include_sensitive,
-                include_superseded,
+                options.project,
+                options.agent_profile,
+                options.workflow_id,
+                options.session_id,
+                options.scope,
+                options.rings,
+                options.event_types,
+                options.include_sensitive,
+                options.include_superseded,
                 candidate_limit,
             )?;
             if !candidates.is_empty() {
@@ -822,13 +894,15 @@ impl<'a> MemoryRetriever<'a> {
             if let Some(fts_query) = format_plain_text_fts_or_query(query) {
                 candidates = self.store.search_fts_filtered_limited(
                     &fts_query,
-                    project,
-                    agent_profile,
-                    scope,
-                    rings,
-                    event_types,
-                    include_sensitive,
-                    include_superseded,
+                    options.project,
+                    options.agent_profile,
+                    options.workflow_id,
+                    options.session_id,
+                    options.scope,
+                    options.rings,
+                    options.event_types,
+                    options.include_sensitive,
+                    options.include_superseded,
                     candidate_limit,
                 )?;
             }
@@ -839,12 +913,14 @@ impl<'a> MemoryRetriever<'a> {
             .filter(|event| {
                 matches_filters(
                     event,
-                    project,
-                    agent_profile,
-                    scope,
-                    rings,
-                    event_types,
-                    include_sensitive,
+                    options.project,
+                    options.agent_profile,
+                    options.workflow_id,
+                    options.session_id,
+                    options.scope,
+                    options.rings,
+                    options.event_types,
+                    options.include_sensitive,
                 )
             })
             .map(|memory| {
@@ -852,7 +928,7 @@ impl<'a> MemoryRetriever<'a> {
                 RecallResult {
                     memory,
                     score: scored.score,
-                    ranking: if explain_ranking {
+                    ranking: if options.explain_ranking {
                         scored.ranking.factors
                     } else {
                         Default::default()
@@ -861,15 +937,18 @@ impl<'a> MemoryRetriever<'a> {
             })
             .collect();
         results.sort_by(|left, right| right.score.total_cmp(&left.score));
-        results.truncate(limit);
+        results.truncate(options.limit);
         Ok(results)
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn matches_filters(
     event: &MemoryEvent,
     project: Option<&str>,
     agent_profile: Option<&str>,
+    workflow_id: Option<&str>,
+    session_id: Option<&str>,
     scope: Option<&str>,
     rings: Option<&[String]>,
     event_types: Option<&[String]>,
@@ -879,6 +958,12 @@ fn matches_filters(
         return false;
     }
     if agent_profile.is_some_and(|profile| event.agent_profile.as_deref() != Some(profile)) {
+        return false;
+    }
+    if workflow_id.is_some_and(|workflow| event.workflow_id.as_deref() != Some(workflow)) {
+        return false;
+    }
+    if session_id.is_some_and(|session| event.session_id.as_deref() != Some(session)) {
         return false;
     }
     if scope.is_some_and(|scope| event.scope != scope) {
@@ -899,7 +984,7 @@ fn matches_filters(
 fn consolidation_supersession_pairs(
     previous_outputs: &[MemoryEvent],
     new_outputs: &[MemoryEvent],
-) -> Vec<(MemoryEvent, String)> {
+) -> Vec<(String, String)> {
     if new_outputs.is_empty() {
         return Vec::new();
     }
@@ -909,9 +994,231 @@ fn consolidation_supersession_pairs(
         .map(|(index, old)| {
             let target = best_consolidation_replacement(old, new_outputs)
                 .unwrap_or_else(|| &new_outputs[index % new_outputs.len()]);
-            (old.clone(), target.id.clone())
+            (old.id.clone(), target.id.clone())
         })
         .collect()
+}
+
+fn find_memory_by_operation_namespace(
+    connection: &Connection,
+    event: &MemoryEvent,
+    operation_id: &str,
+) -> TreeRingResult<Option<MemoryEvent>> {
+    let active = connection
+        .query_row(
+            r#"
+            SELECT raw_json
+            FROM memories
+            WHERE COALESCE(project, '') = COALESCE(?, '')
+              AND COALESCE(workflow_id, '') = COALESCE(?, '')
+              AND COALESCE(agent_profile, '') = COALESCE(?, '')
+              AND operation_id = ?
+            LIMIT 1
+            "#,
+            params![
+                event.project.as_deref(),
+                event.workflow_id.as_deref(),
+                event.agent_profile.as_deref(),
+                operation_id
+            ],
+            search::event_from_row,
+        )
+        .optional()
+        .map_err(sqlite_error_from_rusqlite)?
+        .transpose()?;
+    if active.is_some() {
+        return Ok(active);
+    }
+    let claim_hash = write::operation_namespace_hash(event, operation_id);
+    connection
+        .query_row(
+            r#"
+            SELECT memories.raw_json
+            FROM operation_claims
+            JOIN memories ON memories.id = operation_claims.memory_id
+            WHERE operation_claims.namespace_hash = ?
+            LIMIT 1
+            "#,
+            params![claim_hash.as_slice()],
+            search::event_from_row,
+        )
+        .optional()
+        .map_err(sqlite_error_from_rusqlite)?
+        .transpose()
+}
+
+fn list_all_on_connection(
+    connection: &Connection,
+    include_superseded: bool,
+) -> TreeRingResult<Vec<MemoryEvent>> {
+    let sql = if include_superseded {
+        "SELECT raw_json FROM memories ORDER BY created_at DESC"
+    } else {
+        "SELECT raw_json FROM memories WHERE superseded_by IS NULL ORDER BY created_at DESC"
+    };
+    let mut statement = connection
+        .prepare(sql)
+        .map_err(sqlite_error_from_rusqlite)?;
+    let rows = statement
+        .query_map([], search::event_from_row)
+        .map_err(sqlite_error_from_rusqlite)?;
+    search::collect_rows(rows)
+}
+
+fn fts_report_on_connection(
+    connection: &Connection,
+    repaired: bool,
+) -> TreeRingResult<MaintenanceFtsReport> {
+    Ok(MaintenanceFtsReport {
+        memory_rows: lifecycle::count_query(connection, "SELECT count(*) FROM memories")?,
+        fts_rows: lifecycle::count_query(connection, "SELECT count(*) FROM memory_fts")?,
+        missing_fts_rows: lifecycle::count_query(
+            connection,
+            r#"
+            SELECT count(*)
+            FROM memories
+            LEFT JOIN memory_fts ON memories.id = memory_fts.id
+            WHERE memory_fts.id IS NULL
+            "#,
+        )?,
+        orphan_fts_rows: lifecycle::count_query(
+            connection,
+            r#"
+            SELECT count(*)
+            FROM memory_fts
+            LEFT JOIN memories ON memories.id = memory_fts.id
+            WHERE memories.id IS NULL
+            "#,
+        )?,
+        repaired,
+    })
+}
+
+fn previous_consolidation_outputs_on_connection(
+    connection: &Connection,
+    period_type: &str,
+    period_key: &str,
+    request: &ConsolidationRequest,
+) -> TreeRingResult<Vec<MemoryEvent>> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT output_memory_ids_json
+            FROM consolidations
+            WHERE period_type = ?
+              AND period_key = ?
+              AND status = 'created'
+            ORDER BY created_at ASC
+            "#,
+        )
+        .map_err(sqlite_error_from_rusqlite)?;
+    let rows = statement
+        .query_map(params![period_type, period_key], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(sqlite_error_from_rusqlite)?;
+    let mut output_ids = Vec::new();
+    for row in rows {
+        let output_ids_json = row.map_err(sqlite_error_from_rusqlite)?;
+        let mut parsed =
+            serde_json::from_str::<Vec<String>>(&output_ids_json).map_err(TreeRingError::Json)?;
+        output_ids.append(&mut parsed);
+    }
+    drop(statement);
+
+    let mut outputs = Vec::new();
+    for output_id in output_ids {
+        if let Some(output) = connection
+            .query_row(
+                "SELECT raw_json FROM memories WHERE id = ?",
+                params![output_id],
+                search::event_from_row,
+            )
+            .optional()
+            .map_err(sqlite_error_from_rusqlite)?
+            .transpose()?
+        {
+            if consolidation_context_matches(&output, request) {
+                outputs.push(output);
+            }
+        }
+    }
+    Ok(outputs)
+}
+
+fn consolidation_context_matches(event: &MemoryEvent, request: &ConsolidationRequest) -> bool {
+    request
+        .project
+        .as_ref()
+        .is_none_or(|project| event.project.as_ref() == Some(project))
+        && request
+            .agent_profile
+            .as_ref()
+            .is_none_or(|profile| event.agent_profile.as_ref() == Some(profile))
+        && request
+            .workflow_id
+            .as_ref()
+            .is_none_or(|workflow| event.workflow_id.as_ref() == Some(workflow))
+        && request
+            .session_id
+            .as_ref()
+            .is_none_or(|session| event.session_id.as_ref() == Some(session))
+}
+
+fn insert_consolidation_record(
+    connection: &Connection,
+    report: &ConsolidationReport,
+    source_ids_json: &str,
+) -> TreeRingResult<()> {
+    let output_ids_json =
+        serde_json::to_string(&report.output_memory_ids).map_err(TreeRingError::Json)?;
+    connection
+        .execute(
+            r#"
+            INSERT INTO consolidations (
+              id, created_at, period_type, period_key, source_memory_ids_json,
+              output_memory_ids_json, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            params![
+                report.id,
+                report.created_at,
+                report.period_type.as_str(),
+                &report.period_key,
+                source_ids_json,
+                output_ids_json,
+                &report.status,
+                &report.notes
+            ],
+        )
+        .map_err(sqlite_error_from_rusqlite)?;
+    Ok(())
+}
+
+fn find_consolidation_on_connection(
+    connection: &Connection,
+    period_type: &str,
+    period_key: &str,
+    source_ids_json: &str,
+) -> TreeRingResult<Option<StoredConsolidation>> {
+    connection
+        .query_row(
+            r#"
+            SELECT id, created_at, output_memory_ids_json
+            FROM consolidations
+            WHERE period_type = ?
+              AND period_key = ?
+              AND source_memory_ids_json = ?
+              AND status = 'created'
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+            params![period_type, period_key, source_ids_json],
+            lifecycle::stored_consolidation_from_row,
+        )
+        .optional()
+        .map_err(sqlite_error_from_rusqlite)?
+        .transpose()
 }
 
 fn best_consolidation_replacement<'a>(
@@ -957,6 +1264,56 @@ fn maintenance_status(report: &MaintenanceReport) -> String {
     }
 }
 
+fn normalize_legacy_private_scope_rows(
+    transaction: &rusqlite::Transaction<'_>,
+) -> TreeRingResult<()> {
+    let rows = {
+        let mut statement = transaction
+            .prepare(
+                r#"
+                SELECT raw_json
+                FROM memories
+                WHERE scope IN ('agent', 'workflow', 'session')
+                "#,
+            )
+            .map_err(sqlite_error_from_rusqlite)?;
+        let mapped = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(sqlite_error_from_rusqlite)?;
+        mapped
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlite_error_from_rusqlite)?
+    };
+
+    for raw_json in rows {
+        let mut event: MemoryEvent = serde_json::from_str(&raw_json)?;
+        normalize_legacy_private_scope_identity(&mut event)?;
+        event.validate()?;
+        transaction
+            .execute(
+                r#"
+                UPDATE memories
+                SET agent_profile = ?,
+                    workflow_id = ?,
+                    session_id = ?,
+                    review_json = ?,
+                    raw_json = ?
+                WHERE id = ?
+                "#,
+                params![
+                    event.agent_profile.as_deref(),
+                    event.workflow_id.as_deref(),
+                    event.session_id.as_deref(),
+                    serde_json::to_string(&event.review)?,
+                    serde_json::to_string(&event)?,
+                    &event.id,
+                ],
+            )
+            .map_err(sqlite_error_from_rusqlite)?;
+    }
+    Ok(())
+}
+
 fn sqlite_error_from_rusqlite(error: rusqlite::Error) -> TreeRingError {
     let is_locked = matches!(
         &error,
@@ -998,7 +1355,10 @@ const SEARCH_FILLER_TERMS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
+    use std::{
+        sync::{Arc, Barrier},
+        thread,
+    };
     use tempfile::tempdir;
     use tree_ring_memory_core::models::MemorySource;
 
@@ -1072,6 +1432,221 @@ mod tests {
     }
 
     #[test]
+    fn read_only_store_sees_committed_rows_in_live_wal() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
+        writer
+            .connection()
+            .execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        let event = MemoryEvent::new("Visible from the live WAL.", "lesson").unwrap();
+
+        writer.put(&event).unwrap();
+
+        let wal_path = db_path.with_extension("sqlite-wal");
+        assert!(std::fs::metadata(&wal_path).unwrap().len() > 0);
+        let reader = SQLiteMemoryStore::open_read_only(&db_path).unwrap();
+        assert_eq!(reader.get(&event.id).unwrap().unwrap().id, event.id);
+        let query_only: i64 = reader
+            .connection()
+            .query_row("PRAGMA query_only", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(query_only, 1);
+        assert!(reader
+            .connection()
+            .execute("CREATE TABLE forbidden_write (id INTEGER)", [])
+            .is_err());
+    }
+
+    #[test]
+    fn migrate_adds_multi_agent_columns_and_indexes_to_legacy_database() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        create_legacy_database(&db_path);
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+
+        for column in ["workflow_id", "session_id", "operation_id"] {
+            assert!(schema::memory_column_exists(store.connection(), column).unwrap());
+        }
+        let indexes: HashSet<String> = {
+            let mut statement = store
+                .connection()
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+                .unwrap();
+            statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        for index in [
+            "idx_memories_project",
+            "idx_memories_agent_profile",
+            "idx_memories_workflow_id",
+            "idx_memories_session_id",
+            "idx_memories_operation_namespace",
+        ] {
+            assert!(indexes.contains(index), "missing index {index}");
+        }
+    }
+
+    #[test]
+    fn migration_normalizes_and_round_trips_identity_less_legacy_private_scope() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        create_legacy_database(&db_path);
+        let mut legacy =
+            MemoryEvent::new("Legacy workflow memory remains portable.", "lesson").unwrap();
+        legacy.id = "mem_legacy_workflow_portability".to_string();
+        legacy.scope = "workflow".to_string();
+        insert_legacy_event(&db_path, &legacy);
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let migrated = store.get(&legacy.id).unwrap().unwrap();
+        let workflow_id = migrated.workflow_id.as_deref().unwrap();
+        assert!(workflow_id.starts_with("legacy-workflow-"));
+        assert!(migrated.review.needs_review);
+        let stored_workflow_id: String = store
+            .connection()
+            .query_row(
+                "SELECT workflow_id FROM memories WHERE id = ?",
+                params![&legacy.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_workflow_id, workflow_id);
+
+        let (jsonl, report) = store.export_jsonl(false, false).unwrap();
+        assert_eq!(report.memory_count, 1);
+        let target_dir = tempdir().unwrap();
+        let mut target = SQLiteMemoryStore::open(target_dir.path().join("memory.sqlite")).unwrap();
+        assert_eq!(
+            target
+                .import_jsonl(&jsonl, false, false)
+                .unwrap()
+                .inserted_count,
+            1
+        );
+        assert_eq!(
+            target
+                .get(&legacy.id)
+                .unwrap()
+                .unwrap()
+                .workflow_id
+                .as_deref(),
+            Some(workflow_id)
+        );
+    }
+
+    #[test]
+    fn migration_normalizes_blank_legacy_agent_identity() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        create_legacy_database(&db_path);
+        let mut legacy =
+            MemoryEvent::new("Legacy blank agent identity is normalized.", "lesson").unwrap();
+        legacy.id = "mem_legacy_blank_agent_migration".to_string();
+        legacy.scope = "agent".to_string();
+        legacy.agent_profile = Some(" \t ".to_string());
+        insert_legacy_event(&db_path, &legacy);
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let migrated = store.get(&legacy.id).unwrap().unwrap();
+
+        assert!(migrated
+            .agent_profile
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("legacy-agent-")));
+        assert!(migrated.review.needs_review);
+        migrated.validate().unwrap();
+    }
+
+    #[test]
+    fn read_only_legacy_rows_are_normalized_in_memory_without_migration() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        create_legacy_database(&db_path);
+        let mut legacy = MemoryEvent::new(
+            "Legacy session memory is readable without mutation.",
+            "lesson",
+        )
+        .unwrap();
+        legacy.id = "mem_legacy_read_only_session".to_string();
+        legacy.scope = "session".to_string();
+        insert_legacy_event(&db_path, &legacy);
+
+        let store = SQLiteMemoryStore::open_read_only(&db_path).unwrap();
+        let loaded = store.get(&legacy.id).unwrap().unwrap();
+
+        assert!(loaded
+            .session_id
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("legacy-session-")));
+        assert!(loaded.review.needs_review);
+        assert!(store.export_jsonl(false, false).is_ok());
+        assert!(!schema::memory_column_exists(store.connection(), "session_id").unwrap());
+    }
+
+    #[test]
+    fn concurrent_open_serializes_legacy_schema_migration() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        create_legacy_database(&db_path);
+        let barrier = Arc::new(Barrier::new(3));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let db_path = db_path.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    SQLiteMemoryStore::open(db_path)
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        for column in ["workflow_id", "session_id", "operation_id"] {
+            assert!(schema::memory_column_exists(store.connection(), column).unwrap());
+        }
+    }
+
+    #[test]
+    fn current_schema_open_does_not_wait_for_writer_lock() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
+        assert_eq!(
+            schema::user_version(writer.connection()).unwrap(),
+            SQLITE_SCHEMA_VERSION
+        );
+        let transaction = writer
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            let result = SQLiteMemoryStore::open(&db_path)
+                .and_then(|store| schema::user_version(store.connection()));
+            result_tx.send(result).unwrap();
+        });
+
+        let opened_version = result_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("current-schema open waited for the writer lock")
+            .unwrap();
+        assert_eq!(opened_version, SQLITE_SCHEMA_VERSION);
+        transaction.commit().unwrap();
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn store_searches_fts() {
         let dir = tempdir().unwrap();
         let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
@@ -1108,6 +1683,87 @@ mod tests {
             .unwrap();
         assert_eq!(memory_count, 5);
         assert_eq!(fts_count, 5);
+    }
+
+    #[test]
+    fn put_idempotent_returns_existing_without_replacing_a_different_id() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut first = MemoryEvent::new("First operation result.", "lesson").unwrap();
+        first.project = Some("core".to_string());
+        first.workflow_id = Some("workflow-1".to_string());
+        first.agent_profile = Some("agent-a".to_string());
+        first.operation_id = Some("operation-1".to_string());
+        let mut duplicate = first.clone();
+        duplicate.id = "mem_duplicate_operation".to_string();
+        duplicate.summary = "A retry with a different id.".to_string();
+
+        assert_eq!(store.put_idempotent(&first).unwrap(), PutOutcome::Created);
+        let outcome = store.put_idempotent(&duplicate).unwrap();
+
+        match outcome {
+            PutOutcome::Existing(existing) => assert_eq!(existing.id, first.id),
+            PutOutcome::Created => panic!("duplicate operation unexpectedly created a row"),
+        }
+        assert!(store.get(&duplicate.id).unwrap().is_none());
+        assert!(store.put(&duplicate).is_err());
+        assert_eq!(
+            store.get(&first.id).unwrap().unwrap().summary,
+            "First operation result."
+        );
+    }
+
+    #[test]
+    fn concurrent_put_idempotent_claims_operation_once() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        SQLiteMemoryStore::open(&db_path).unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let handles: Vec<_> = (0..2)
+            .map(|index| {
+                let db_path = db_path.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let mut event =
+                        MemoryEvent::new(format!("Concurrent operation {index}."), "lesson")
+                            .unwrap();
+                    event.project = Some("core".to_string());
+                    event.workflow_id = Some("workflow-1".to_string());
+                    event.agent_profile = Some("agent-a".to_string());
+                    event.operation_id = Some("operation-1".to_string());
+                    let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                    barrier.wait();
+                    store.put_idempotent(&event).unwrap()
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        let outcomes: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, PutOutcome::Created))
+                .count(),
+            1
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, PutOutcome::Existing(_)))
+                .count(),
+            1
+        );
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let rows: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
     }
 
     #[test]
@@ -1182,6 +1838,62 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].memory.id, target_id);
+    }
+
+    #[test]
+    fn recall_filters_workflow_and_session_before_candidate_limit() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut events = Vec::new();
+        for index in 0..300 {
+            let mut event = MemoryEvent::new(
+                format!("Workflow partition bottleneck distractor {index}"),
+                "lesson",
+            )
+            .unwrap();
+            event.workflow_id = Some("other-workflow".to_string());
+            event.session_id = Some("target-session".to_string());
+            events.push(event);
+        }
+        let mut workflow_target =
+            MemoryEvent::new("Workflow partition bottleneck target", "lesson").unwrap();
+        workflow_target.workflow_id = Some("target-workflow".to_string());
+        workflow_target.session_id = Some("target-session".to_string());
+        let workflow_target_id = workflow_target.id.clone();
+        events.push(workflow_target);
+        for index in 0..300 {
+            let mut event = MemoryEvent::new(
+                format!("Session partition bottleneck distractor {index}"),
+                "lesson",
+            )
+            .unwrap();
+            event.workflow_id = Some("target-workflow".to_string());
+            event.session_id = Some("other-session".to_string());
+            events.push(event);
+        }
+        let mut session_target =
+            MemoryEvent::new("Session partition bottleneck target", "lesson").unwrap();
+        session_target.workflow_id = Some("target-workflow".to_string());
+        session_target.session_id = Some("target-session".to_string());
+        let session_target_id = session_target.id.clone();
+        events.push(session_target);
+        store.put_many(&events).unwrap();
+        let options = RecallOptions {
+            workflow_id: Some("target-workflow"),
+            session_id: Some("target-session"),
+            limit: 1,
+            ..RecallOptions::default()
+        };
+
+        let workflow_results = MemoryRetriever::new(&store)
+            .recall_with_options("workflow partition bottleneck", &options)
+            .unwrap();
+        let session_results = MemoryRetriever::new(&store)
+            .recall_with_options("session partition bottleneck", &options)
+            .unwrap();
+
+        assert_eq!(workflow_results[0].memory.id, workflow_target_id);
+        assert_eq!(session_results[0].memory.id, session_target_id);
     }
 
     #[test]
@@ -1319,6 +2031,262 @@ mod tests {
             .search_text("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890", true)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn redaction_preserves_operation_claim_against_exact_retry() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Payload that must stay forgotten.", "lesson").unwrap();
+        event.project = Some("core".to_string());
+        event.workflow_id = Some("workflow-1".to_string());
+        event.agent_profile = Some("agent-a".to_string());
+        event.operation_id = Some("operation-1".to_string());
+        assert_eq!(store.put_idempotent(&event).unwrap(), PutOutcome::Created);
+
+        store.redact(&event.id).unwrap();
+        let mut retry = event.clone();
+        retry.id = "mem_exact_retry_after_redaction".to_string();
+        let outcome = store.put_idempotent(&retry).unwrap();
+
+        match outcome {
+            PutOutcome::Existing(existing) => {
+                assert_eq!(existing.id, event.id);
+                assert_eq!(existing.summary, "[REDACTED]");
+                assert!(existing.operation_id.is_none());
+            }
+            PutOutcome::Created => panic!("redacted operation claim was unexpectedly released"),
+        }
+        assert!(store.get(&retry.id).unwrap().is_none());
+        assert!(store.put(&retry).is_err());
+        let scrubbed_columns: [Option<String>; 5] = store
+            .connection()
+            .query_row(
+                r#"
+                SELECT project, agent_profile, workflow_id, session_id, operation_id
+                FROM memories
+                WHERE id = ?
+                "#,
+                params![&event.id],
+                |row| {
+                    Ok([
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ])
+                },
+            )
+            .unwrap();
+        assert_eq!(scrubbed_columns, [None, None, None, None, None]);
+        let (claim_hash, claim_memory_id): (Vec<u8>, String) = store
+            .connection()
+            .query_row(
+                "SELECT namespace_hash, memory_id FROM operation_claims",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(claim_hash.len(), 32);
+        assert_eq!(claim_memory_id, event.id);
+        assert!(!claim_hash
+            .windows("operation-1".len())
+            .any(|window| window == b"operation-1"));
+        let rows: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn redacted_id_cannot_be_resurrected_by_put_or_replacement_import() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let original = MemoryEvent::new(
+            "Payload that replacement import must not restore.",
+            "lesson",
+        )
+        .unwrap();
+        store.put(&original).unwrap();
+        store.redact(&original.id).unwrap();
+
+        let mut replacement = original.clone();
+        replacement.summary = "Resurrected payload.".to_string();
+        assert!(store.put(&replacement).is_err());
+
+        let jsonl = encode_jsonl(&[replacement], false).unwrap();
+        assert!(store.import_jsonl(&jsonl, false, true).is_err());
+
+        let retained = store.get(&original.id).unwrap().unwrap();
+        assert_eq!(retained.summary, "[REDACTED]");
+        assert_eq!(retained.event_type, "redacted");
+        let tombstones: i64 = store
+            .connection()
+            .query_row(
+                "SELECT count(*) FROM redaction_tombstones WHERE memory_id = ?",
+                params![&original.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tombstones, 1);
+    }
+
+    #[test]
+    fn replacing_active_operation_preserves_old_namespace_until_hard_delete() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut original = MemoryEvent::new("Original operation payload.", "lesson").unwrap();
+        original.project = Some("core".to_string());
+        original.workflow_id = Some("workflow-1".to_string());
+        original.agent_profile = Some("agent-a".to_string());
+        original.operation_id = Some("operation-a".to_string());
+        store.put(&original).unwrap();
+
+        let mut replacement = original.clone();
+        replacement.summary = "Replacement operation payload.".to_string();
+        replacement.operation_id = Some("operation-b".to_string());
+        store.put(&replacement).unwrap();
+
+        let mut retry = original.clone();
+        retry.id = "mem_retry_replaced_operation".to_string();
+        let outcome = store.put_idempotent(&retry).unwrap();
+        match outcome {
+            PutOutcome::Existing(existing) => {
+                assert_eq!(existing.id, original.id);
+                assert_eq!(existing.operation_id.as_deref(), Some("operation-b"));
+            }
+            PutOutcome::Created => panic!("replaced operation namespace was unexpectedly released"),
+        }
+        assert!(store.get(&retry.id).unwrap().is_none());
+
+        store.delete(&original.id).unwrap();
+        assert_eq!(store.put_idempotent(&retry).unwrap(), PutOutcome::Created);
+    }
+
+    #[test]
+    fn hard_delete_removes_redacted_operation_claim() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = MemoryEvent::new("Deleted operation payload.", "lesson").unwrap();
+        event.project = Some("core".to_string());
+        event.operation_id = Some("operation-delete".to_string());
+        store.put(&event).unwrap();
+        store.redact(&event.id).unwrap();
+
+        store.delete(&event.id).unwrap();
+
+        let claims: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM operation_claims", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(claims, 0);
+        let tombstones: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM redaction_tombstones", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(tombstones, 0);
+        let mut retry = event.clone();
+        retry.id = "mem_retry_after_hard_delete".to_string();
+        assert_eq!(store.put_idempotent(&retry).unwrap(), PutOutcome::Created);
+    }
+
+    #[test]
+    fn concurrent_redact_and_supersede_preserve_both_monotonic_changes() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        let event = MemoryEvent::new("Secret payload must not be resurrected.", "lesson").unwrap();
+        let event_id = event.id.clone();
+        setup.put(&event).unwrap();
+        drop(setup);
+
+        let barrier = Arc::new(Barrier::new(3));
+        let redact_handle = {
+            let db_path = db_path.clone();
+            let event_id = event_id.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                barrier.wait();
+                store.redact(&event_id).unwrap();
+            })
+        };
+        let supersede_handle = {
+            let db_path = db_path.clone();
+            let event_id = event_id.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                barrier.wait();
+                store.supersede(&event_id, "mem_replacement").unwrap();
+            })
+        };
+
+        barrier.wait();
+        redact_handle.join().unwrap();
+        supersede_handle.join().unwrap();
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let updated = store.get(&event_id).unwrap().unwrap();
+        assert_eq!(updated.summary, "[REDACTED]");
+        assert_eq!(updated.superseded_by.as_deref(), Some("mem_replacement"));
+        assert!(!serde_json::to_string(&updated)
+            .unwrap()
+            .contains("Secret payload"));
+    }
+
+    #[test]
+    fn concurrent_ring_change_reloads_redacted_row_under_write_lock() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        let event = MemoryEvent::new("Sensitive payload must stay gone.", "lesson").unwrap();
+        let event_id = event.id.clone();
+        setup.put(&event).unwrap();
+        drop(setup);
+
+        let barrier = Arc::new(Barrier::new(3));
+        let redact_handle = {
+            let db_path = db_path.clone();
+            let event_id = event_id.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                barrier.wait();
+                store.redact(&event_id).unwrap();
+            })
+        };
+        let promote_handle = {
+            let db_path = db_path.clone();
+            let event_id = event_id.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                barrier.wait();
+                store
+                    .change_ring(&event_id, "heartwood", "decision")
+                    .unwrap();
+            })
+        };
+
+        barrier.wait();
+        redact_handle.join().unwrap();
+        promote_handle.join().unwrap();
+
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let updated = store.get(&event_id).unwrap().unwrap();
+        assert_eq!(updated.summary, "[REDACTED]");
+        assert_eq!(updated.ring, "heartwood");
+        assert_eq!(updated.retention, "durable");
+        assert!(!serde_json::to_string(&updated)
+            .unwrap()
+            .contains("Sensitive payload"));
     }
 
     #[test]
@@ -1509,6 +2477,59 @@ mod tests {
     }
 
     #[test]
+    fn import_rolls_back_all_rows_when_operation_namespace_conflicts() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut existing = MemoryEvent::new("Existing operation claimant.", "lesson").unwrap();
+        existing.project = Some("core".to_string());
+        existing.workflow_id = Some("workflow-1".to_string());
+        existing.agent_profile = Some("agent-a".to_string());
+        existing.operation_id = Some("operation-1".to_string());
+        store.put(&existing).unwrap();
+        let new_event = MemoryEvent::new("This import must roll back.", "lesson").unwrap();
+        let mut conflict = existing.clone();
+        conflict.id = "mem_import_operation_conflict".to_string();
+        conflict.summary = "Conflicting imported operation.".to_string();
+        let jsonl = encode_jsonl(&[new_event.clone(), conflict.clone()], false).unwrap();
+
+        assert!(store.import_jsonl(&jsonl, false, false).is_err());
+
+        assert!(store.get(&new_event.id).unwrap().is_none());
+        assert!(store.get(&conflict.id).unwrap().is_none());
+        assert_eq!(
+            store.get(&existing.id).unwrap().unwrap().summary,
+            "Existing operation claimant."
+        );
+    }
+
+    #[test]
+    fn import_cannot_bypass_redacted_operation_claim() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut redacted = MemoryEvent::new("Original operation payload.", "lesson").unwrap();
+        redacted.project = Some("core".to_string());
+        redacted.workflow_id = Some("workflow-1".to_string());
+        redacted.agent_profile = Some("agent-a".to_string());
+        redacted.operation_id = Some("operation-1".to_string());
+        store.put(&redacted).unwrap();
+        store.redact(&redacted.id).unwrap();
+
+        let first = MemoryEvent::new("Earlier import row must roll back.", "lesson").unwrap();
+        let mut retry = redacted.clone();
+        retry.id = "mem_import_retry_after_redaction".to_string();
+        let jsonl = encode_jsonl(&[first.clone(), retry.clone()], false).unwrap();
+
+        assert!(store.import_jsonl(&jsonl, false, false).is_err());
+
+        assert!(store.get(&first.id).unwrap().is_none());
+        assert!(store.get(&retry.id).unwrap().is_none());
+        assert_eq!(
+            store.get(&redacted.id).unwrap().unwrap().summary,
+            "[REDACTED]"
+        );
+    }
+
+    #[test]
     fn audit_uses_all_rows_and_does_not_mutate_storage() {
         let dir = tempdir().unwrap();
         let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
@@ -1555,6 +2576,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: true,
             force: false,
         };
@@ -1583,6 +2607,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-empty".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1614,6 +2641,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1633,6 +2663,111 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_consolidation_claim_creates_one_record_and_output_set() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut setup = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut event =
+            MemoryEvent::new("Consolidate this source exactly once.", "decision").unwrap();
+        event.project = Some("core".to_string());
+        setup.put(&event).unwrap();
+        drop(setup);
+
+        let mut request = ConsolidationRequest::new("manual").unwrap();
+        request.period_key = Some("manual-concurrent".to_string());
+        request.project = Some("core".to_string());
+        let barrier = Arc::new(Barrier::new(3));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let db_path = db_path.clone();
+                let request = request.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let mut store = SQLiteMemoryStore::open(db_path).unwrap();
+                    barrier.wait();
+                    store.consolidate(&request).unwrap()
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        let reports: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        assert_eq!(
+            reports
+                .iter()
+                .filter(|report| report.status == "created")
+                .count(),
+            1
+        );
+        assert_eq!(
+            reports
+                .iter()
+                .filter(|report| report.status == "unchanged")
+                .count(),
+            1
+        );
+        assert_eq!(reports[0].output_memory_ids, reports[1].output_memory_ids);
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let records: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM consolidations", [], |row| row.get(0))
+            .unwrap();
+        let rows: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(records, 1);
+        assert_eq!(rows as usize, 1 + reports[0].output_memory_ids.len());
+    }
+
+    #[test]
+    fn consolidation_reloads_sources_after_waiting_for_concurrent_redaction() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut event =
+            MemoryEvent::new("Source being redacted before consolidation.", "lesson").unwrap();
+        event.project = Some("core".to_string());
+        event.tags = vec!["stale_sensitive_marker".to_string()];
+        writer.put(&event).unwrap();
+        let mut consolidator = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut request = ConsolidationRequest::new("manual").unwrap();
+        request.period_key = Some("manual-redaction-race".to_string());
+        request.project = Some("core".to_string());
+
+        let transaction = writer
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        write::redact_in_transaction(&transaction, &event.id).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            consolidator.consolidate(&request).unwrap()
+        });
+        started_rx.recv().unwrap();
+        thread::sleep(std::time::Duration::from_millis(100));
+        transaction.commit().unwrap();
+
+        let report = handle.join().unwrap();
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        for output_id in report.output_memory_ids {
+            let output = store.get(&output_id).unwrap().unwrap();
+            assert!(!output
+                .tags
+                .iter()
+                .any(|tag| tag == "stale_sensitive_marker"));
+            assert!(!serde_json::to_string(&output)
+                .unwrap()
+                .contains("stale_sensitive_marker"));
+        }
+    }
+
+    #[test]
     fn forced_consolidation_supersedes_prior_summary() {
         let dir = tempdir().unwrap();
         let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
@@ -1643,6 +2778,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1676,6 +2814,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-test".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1703,6 +2844,71 @@ mod tests {
     }
 
     #[test]
+    fn forced_consolidation_does_not_supersede_other_project_outputs() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut project_a = MemoryEvent::new("Project A decision.", "decision").unwrap();
+        project_a.project = Some("project-a".to_string());
+        let mut project_b = MemoryEvent::new("Project B decision.", "decision").unwrap();
+        project_b.project = Some("project-b".to_string());
+        store.put(&project_a).unwrap();
+        store.put(&project_b).unwrap();
+        let mut request_a = ConsolidationRequest::new("manual").unwrap();
+        request_a.period_key = Some("manual-project-isolation".to_string());
+        request_a.project = Some("project-a".to_string());
+        let mut request_b = request_a.clone();
+        request_b.project = Some("project-b".to_string());
+        let first_a = store.consolidate(&request_a).unwrap();
+        let first_b = store.consolidate(&request_b).unwrap();
+
+        request_a.force = true;
+        let second_a = store.consolidate(&request_a).unwrap();
+
+        let old_a = store.get(&first_a.output_memory_ids[0]).unwrap().unwrap();
+        let old_b = store.get(&first_b.output_memory_ids[0]).unwrap().unwrap();
+        assert_eq!(
+            old_a.superseded_by.as_deref(),
+            Some(second_a.output_memory_ids[0].as_str())
+        );
+        assert!(old_b.superseded_by.is_none());
+    }
+
+    #[test]
+    fn forced_consolidation_does_not_supersede_other_workflow_outputs() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut workflow_a = MemoryEvent::new("Workflow A decision.", "decision").unwrap();
+        workflow_a.project = Some("core".to_string());
+        workflow_a.scope = "workflow".to_string();
+        workflow_a.workflow_id = Some("workflow-a".to_string());
+        let mut workflow_b = MemoryEvent::new("Workflow B decision.", "decision").unwrap();
+        workflow_b.project = Some("core".to_string());
+        workflow_b.scope = "workflow".to_string();
+        workflow_b.workflow_id = Some("workflow-b".to_string());
+        store.put(&workflow_a).unwrap();
+        store.put(&workflow_b).unwrap();
+        let mut request_a = ConsolidationRequest::new("manual").unwrap();
+        request_a.period_key = Some("manual-workflow-isolation".to_string());
+        request_a.project = Some("core".to_string());
+        request_a.workflow_id = Some("workflow-a".to_string());
+        let mut request_b = request_a.clone();
+        request_b.workflow_id = Some("workflow-b".to_string());
+        let first_a = store.consolidate(&request_a).unwrap();
+        let first_b = store.consolidate(&request_b).unwrap();
+
+        request_a.force = true;
+        let second_a = store.consolidate(&request_a).unwrap();
+
+        let old_a = store.get(&first_a.output_memory_ids[0]).unwrap().unwrap();
+        let old_b = store.get(&first_b.output_memory_ids[0]).unwrap().unwrap();
+        assert_eq!(
+            old_a.superseded_by.as_deref(),
+            Some(second_a.output_memory_ids[0].as_str())
+        );
+        assert!(old_b.superseded_by.is_none());
+    }
+
+    #[test]
     fn forced_consolidation_maps_multiple_prior_outputs_to_matching_new_outputs() {
         let dir = tempdir().unwrap();
         let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
@@ -1717,6 +2923,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-multi-output".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1769,6 +2978,9 @@ mod tests {
             period_type: tree_ring_memory_core::ConsolidationPeriod::Manual,
             period_key: Some("manual-sensitive".to_string()),
             project: Some("core".to_string()),
+            agent_profile: None,
+            workflow_id: None,
+            session_id: None,
             dry_run: false,
             force: false,
         };
@@ -1837,6 +3049,40 @@ mod tests {
             MaintenanceActionType::ReviewExpiredProtected
         );
         assert!(!protected_action.applied);
+    }
+
+    #[test]
+    fn maintenance_replans_after_waiting_for_concurrent_writer() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut writer = SQLiteMemoryStore::open(&db_path).unwrap();
+        let mut maintainer = SQLiteMemoryStore::open(&db_path).unwrap();
+        let expired =
+            expired_maintenance_memory("Concurrent expired cache", "ephemeral", "cambium");
+        let transaction = writer
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        write::put_in_transaction(&transaction, &expired).unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            maintainer
+                .maintain(&MaintenanceRequest {
+                    dry_run: false,
+                    apply_expired: true,
+                    ..MaintenanceRequest::default()
+                })
+                .unwrap()
+        });
+        started_rx.recv().unwrap();
+        thread::sleep(std::time::Duration::from_millis(100));
+        transaction.commit().unwrap();
+
+        let report = handle.join().unwrap();
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        assert_eq!(report.applied_action_count, 1);
+        assert!(store.get(&expired.id).unwrap().is_none());
     }
 
     #[test]
@@ -2008,6 +3254,80 @@ mod tests {
         event.ring = ring.to_string();
         event.expires_at = Some("2000-01-01T00:00:00Z".to_string());
         event
+    }
+
+    fn create_legacy_database(path: &Path) {
+        let legacy = Connection::open(path).unwrap();
+        legacy
+            .execute_batch(
+                r#"
+                CREATE TABLE memories (
+                  id TEXT PRIMARY KEY,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  project TEXT,
+                  agent_profile TEXT,
+                  scope TEXT NOT NULL,
+                  ring TEXT NOT NULL,
+                  event_type TEXT NOT NULL,
+                  summary TEXT NOT NULL,
+                  details TEXT NOT NULL,
+                  source_json TEXT NOT NULL,
+                  tags_json TEXT NOT NULL,
+                  salience REAL NOT NULL,
+                  confidence REAL NOT NULL,
+                  sensitivity TEXT NOT NULL,
+                  retention TEXT NOT NULL,
+                  expires_at TEXT,
+                  supersedes_json TEXT NOT NULL,
+                  superseded_by TEXT,
+                  links_json TEXT NOT NULL,
+                  review_json TEXT NOT NULL,
+                  raw_json TEXT NOT NULL
+                );
+                "#,
+            )
+            .unwrap();
+    }
+
+    fn insert_legacy_event(path: &Path, event: &MemoryEvent) {
+        let legacy = Connection::open(path).unwrap();
+        legacy
+            .execute(
+                r#"
+                INSERT INTO memories (
+                  id, created_at, updated_at, project, agent_profile, scope, ring,
+                  event_type, summary, details, source_json, tags_json, salience,
+                  confidence, sensitivity, retention, expires_at, supersedes_json,
+                  superseded_by, links_json, review_json, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+                params![
+                    &event.id,
+                    &event.created_at,
+                    &event.updated_at,
+                    event.project.as_deref(),
+                    event.agent_profile.as_deref(),
+                    &event.scope,
+                    &event.ring,
+                    &event.event_type,
+                    &event.summary,
+                    &event.details,
+                    serde_json::to_string(&event.source).unwrap(),
+                    serde_json::to_string(&event.tags).unwrap(),
+                    event.salience,
+                    event.confidence,
+                    &event.sensitivity,
+                    &event.retention,
+                    event.expires_at.as_deref(),
+                    serde_json::to_string(&event.supersedes).unwrap(),
+                    event.superseded_by.as_deref(),
+                    serde_json::to_string(&event.links).unwrap(),
+                    serde_json::to_string(&event.review).unwrap(),
+                    serde_json::to_string(event).unwrap(),
+                ],
+            )
+            .unwrap();
     }
 
     fn assert_action_type(

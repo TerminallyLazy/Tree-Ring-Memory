@@ -1,5 +1,5 @@
 use crate::evidence::{
-    read_or_create_index, rollup_index_status, write_index, EvidenceRecordRef, EvidenceStatus,
+    atomic_write, publish_indexed_evidence, rollup_index_status, EvidenceRecordRef, EvidenceStatus,
 };
 use crate::integrations::{scan_integrations, IntegrationMarker, MarkerOrigin};
 use chrono::{SecondsFormat, Utc};
@@ -70,9 +70,6 @@ pub fn certify_harnesses(
     let generated_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let report = scan_integrations(&request.source_root);
     let guidance = inspect_guidance(&request.source_root);
-    let harness_dir = request.evidence_dir.join("harness");
-    fs::create_dir_all(&harness_dir).map_err(|err| err.to_string())?;
-
     let mut records = Vec::new();
     for harness_id in CERTIFIED_HARNESS_IDS {
         let integration = report
@@ -81,13 +78,10 @@ pub fn certify_harnesses(
             .find(|integration| integration.id == *harness_id)
             .ok_or_else(|| format!("missing integration definition for {harness_id}"))?;
         let record = probe_record(integration, &request.source_root, &generated_at, &guidance);
-        let path = harness_dir.join(format!("{harness_id}.json"));
-        let json = serde_json::to_string_pretty(&record).map_err(|err| err.to_string())?;
-        fs::write(&path, json).map_err(|err| err.to_string())?;
         records.push(record);
     }
 
-    let index_path = merge_harness_index(&request.evidence_dir, &generated_at, &records)?;
+    let index_path = publish_harness_evidence(&request.evidence_dir, &generated_at, &records)?;
     let pass_count = records
         .iter()
         .filter(|record| record.status == EvidenceStatus::Pass)
@@ -212,35 +206,45 @@ fn marker_from_scan(marker: &IntegrationMarker) -> HarnessProbeMarker {
     }
 }
 
-fn merge_harness_index(
+fn publish_harness_evidence(
     evidence_dir: &Path,
     generated_at: &str,
     records: &[HarnessProbeRecord],
 ) -> Result<PathBuf, String> {
-    let mut index = read_or_create_index(evidence_dir, generated_at)?;
-    index.generated_at = generated_at.to_string();
-    for record in records {
-        index.harness.insert(
-            record.harness_id.clone(),
-            EvidenceRecordRef {
-                category: "harness".to_string(),
-                status: record.status,
-                label: record.name.clone(),
-                path: PathBuf::from(format!("harness/{}.json", record.harness_id)),
-                summary_path: None,
-                generated_at: record.generated_at.clone(),
-            },
-        );
-    }
-    index.missing.retain(|item| item != "harness");
-    if index.recall_quality.is_none() && !index.missing.iter().any(|item| item == "recall_quality")
-    {
-        index.missing.push("recall_quality".to_string());
-    }
-    index.missing.sort();
-    index.missing.dedup();
-    index.overall_status = rollup_index_status(&index);
-    write_index(evidence_dir, &index)
+    publish_indexed_evidence(evidence_dir, generated_at, |index| {
+        let harness_dir = evidence_dir.join("harness");
+        fs::create_dir_all(&harness_dir).map_err(|err| err.to_string())?;
+        for record in records {
+            let path = harness_dir.join(format!("{}.json", record.harness_id));
+            let json = serde_json::to_string_pretty(record).map_err(|err| err.to_string())?;
+            atomic_write(&path, json.as_bytes())?;
+        }
+
+        index.generated_at = generated_at.to_string();
+        for record in records {
+            index.harness.insert(
+                record.harness_id.clone(),
+                EvidenceRecordRef {
+                    category: "harness".to_string(),
+                    status: record.status,
+                    label: record.name.clone(),
+                    path: PathBuf::from(format!("harness/{}.json", record.harness_id)),
+                    summary_path: None,
+                    generated_at: record.generated_at.clone(),
+                },
+            );
+        }
+        index.missing.retain(|item| item != "harness");
+        if index.recall_quality.is_none()
+            && !index.missing.iter().any(|item| item == "recall_quality")
+        {
+            index.missing.push("recall_quality".to_string());
+        }
+        index.missing.sort();
+        index.missing.dedup();
+        index.overall_status = rollup_index_status(index);
+        Ok(())
+    })
 }
 
 #[cfg(test)]

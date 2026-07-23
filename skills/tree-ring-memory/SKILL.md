@@ -1,7 +1,7 @@
 ---
 name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
-version: 0.11.0
+version: 0.12.0
 tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "revolve", "skills", "cli"]
 triggers:
   - "remember this"
@@ -14,6 +14,7 @@ triggers:
   - "sync DOX"
   - "sync Revolve"
   - "evidence loop"
+  - "multi-agent memory"
 ---
 
 # Tree Ring Memory
@@ -175,7 +176,9 @@ If a useful memory contains sensitive material, store a redacted summary with en
 Set project and scope deliberately:
 
 - use project scope for repo-specific rules, decisions, warnings, and lessons
-- use agent scope for agent-profile behavior
+- use agent scope for agent-partitioned behavior and always set `agent_profile`
+- use workflow scope for one coordinated fan-out/fan-in and always set `workflow_id`
+- use session scope for one execution attempt and always set `session_id`
 - use global scope only for durable user preferences or cross-project guidance
 - include source references such as file paths, issue ids, PR ids, run ids, or docs paths
 - use `tree-ring evidence ... --evidence-ref <ref>` for evaluated outcomes
@@ -188,6 +191,57 @@ Memory does not replace source documents. If a repo has `AGENTS.md`, project doc
 When DOX or Revolve source records change, re-run the matching sync adapter with
 `--dry-run`, inspect the generated memories, then run the write command only
 when the summaries are useful and source-linked.
+
+## Multi-Agent Coordination
+
+For workers sharing one local Tree Ring root, give every write explicit
+coordination metadata:
+
+```bash
+tree-ring --root .tree-ring remember "Worker validated the storage boundary." \
+  --event-type lesson \
+  --scope agent \
+  --project example-service \
+  --agent-profile worker-storage \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --operation-id validate-storage-v1 \
+  --source-ref runs/release-readiness/worker-storage.json
+```
+
+Use a unique `agent_profile` per worker, one shared `workflow_id` for the
+fan-out/fan-in, one `session_id` for each genuine execution attempt, and a stable
+unique `operation_id` for each logical write. An exact retry reuses both the
+original session ID and operation ID; changing only the session is a conflicting
+reuse. Start a new session and use new operation IDs only for a genuinely new
+attempt. Exact retries with the same operation metadata and payload return the
+original memory. Reusing that operation key for a different payload fails
+closed. Replacing a stored memory keeps its old operation namespace claimed.
+Redaction also tombstones the memory ID; only an explicit hard delete releases
+those claims.
+
+At fan-in, recall the shared workflow and session without an agent-profile
+filter, inspect the source refs, then write a source-linked workflow or project
+summary:
+
+```bash
+tree-ring --root .tree-ring recall "release readiness" \
+  --project example-service \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --scope agent
+```
+
+`TREE_RING_AGENT_PROFILE`, `TREE_RING_WORKFLOW_ID`, and
+`TREE_RING_SESSION_ID` provide the same defaults as their CLI flags. Do not
+leave an agent-profile environment filter set when the coordinator intends to
+recall every worker.
+
+This shared-root pattern is for concurrent processes on one host using a local
+filesystem. It is not a distributed lock service and does not claim safe
+cross-host or NFS operation. Scope and identity fields are routing metadata, not
+an ACL; a same-user coordinator can recall across profiles. Use per-host stores
+plus an explicit, evidence-preserving fan-in process when work spans hosts.
 
 ## Agent-Mediated Updates
 
@@ -213,6 +267,10 @@ If memory is wrong, private, stale, or superseded:
 - delete it when it should not be retained
 - supersede it when a newer decision replaces it
 - prefer explicit reasons for every forget operation
+
+Treat redaction as monotonic. Do not try to restore a redacted ID through
+replacement import; create a new reviewed memory only if the user deliberately
+reintroduces safe content.
 
 Never keep known-wrong memory merely because it was previously recalled.
 
