@@ -10,7 +10,7 @@ pub(crate) fn open_connection(path: &Path) -> TreeRingResult<Connection> {
         std::fs::create_dir_all(parent).map_err(|err| sqlite_error(err.to_string()))?;
     }
     let connection = Connection::open(path).map_err(sqlite_error_from_rusqlite)?;
-    configure_connection(&connection)?;
+    configure_writable_connection(&connection)?;
     Ok(connection)
 }
 
@@ -19,20 +19,17 @@ pub(crate) fn open_read_only_connection(path: &Path) -> TreeRingResult<Connectio
         .canonicalize()
         .map_err(|err| sqlite_error(err.to_string()))?;
     let normalized_path = normalize_sqlite_uri_path(&path.to_string_lossy());
-    let uri = format!(
-        "file:{}?mode=ro&immutable=1",
-        sqlite_uri_path(&normalized_path)
-    );
+    let uri = format!("file:{}?mode=ro", sqlite_uri_path(&normalized_path));
     let connection = Connection::open_with_flags(
         uri,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(sqlite_error_from_rusqlite)?;
-    configure_connection(&connection)?;
+    configure_read_only_connection(&connection)?;
     Ok(connection)
 }
 
-fn configure_connection(connection: &Connection) -> TreeRingResult<()> {
+fn configure_writable_connection(connection: &Connection) -> TreeRingResult<()> {
     connection
         .busy_timeout(std::time::Duration::from_millis(30_000))
         .map_err(sqlite_error_from_rusqlite)?;
@@ -40,6 +37,16 @@ fn configure_connection(connection: &Connection) -> TreeRingResult<()> {
         .execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;",
         )
+        .map_err(sqlite_error_from_rusqlite)?;
+    Ok(())
+}
+
+fn configure_read_only_connection(connection: &Connection) -> TreeRingResult<()> {
+    connection
+        .busy_timeout(std::time::Duration::from_millis(30_000))
+        .map_err(sqlite_error_from_rusqlite)?;
+    connection
+        .execute_batch("PRAGMA query_only=ON; PRAGMA busy_timeout=30000;")
         .map_err(sqlite_error_from_rusqlite)?;
     Ok(())
 }
@@ -68,6 +75,29 @@ pub(crate) fn sqlite_uri_path(path: &str) -> String {
             _ => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
+}
+
+pub(crate) fn memory_column_exists(
+    connection: &Connection,
+    column_name: &str,
+) -> TreeRingResult<bool> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(memories)")
+        .map_err(sqlite_error_from_rusqlite)?;
+    let mut rows = statement.query([]).map_err(sqlite_error_from_rusqlite)?;
+    while let Some(row) = rows.next().map_err(sqlite_error_from_rusqlite)? {
+        let existing_name: String = row.get(1).map_err(sqlite_error_from_rusqlite)?;
+        if existing_name == column_name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+pub(crate) fn user_version(connection: &Connection) -> TreeRingResult<i64> {
+    connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(sqlite_error_from_rusqlite)
 }
 
 #[cfg(test)]

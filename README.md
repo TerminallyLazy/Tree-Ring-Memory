@@ -48,6 +48,8 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
   project truths.
 - Rust-native import/export, audit, consolidation, maintenance, DOX/Revolve
   adapters, harness discovery, and terminal UI.
+- Same-host multi-agent correlation, scoped recall filters, and idempotent
+  worker writes through the public CLI.
 - Evidence artifacts for install size, recall speed, harness readiness, and
   recall quality.
 - Privacy defaults that block secret-like memory, hide sensitive details, and
@@ -236,6 +238,70 @@ Command ownership is Rust-native:
 - `export`, `import`, `audit`, `consolidate`, and `maintain` are local maintenance surfaces over the same SQLite store.
 - `welcome` and `tui` are the terminal onboarding and operator-console surfaces.
 
+## Same-Host Multi-Agent Workflow
+
+A coordinator can fan work out to multiple local CLI processes that share one
+Tree Ring root. Give every worker a unique agent profile and operation ID while
+sharing the workflow and session:
+
+```bash
+tree-ring --root .tree-ring remember "Storage worker validated WAL behavior." \
+  --event-type lesson \
+  --scope agent \
+  --project example-service \
+  --agent-profile worker-storage \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --operation-id validate-storage-v1 \
+  --source-ref runs/release-readiness/worker-storage.json
+```
+
+At fan-in, omit the agent-profile filter so the coordinator sees every
+agent-partitioned result:
+
+```bash
+tree-ring --root .tree-ring --json recall "release readiness" \
+  --project example-service \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --scope agent \
+  --limit 64
+```
+
+When writing, `scope=agent` requires `agent_profile`, `scope=workflow` requires
+`workflow_id`, and `scope=session` requires `session_id`. A coordinator's
+aggregate recall may intentionally omit the agent-profile filter. Project and
+global scopes remain shared. These are routing and consolidation partitions,
+not ACLs; any process with filesystem access to the store can perform
+unfiltered recall.
+Pre-0.12 private-scope records that lack the now-required identity are migrated
+to a deterministic, per-record `legacy-*` partition and marked for review
+instead of being widened into shared scope or becoming unexportable.
+
+`TREE_RING_AGENT_PROFILE`, `TREE_RING_WORKFLOW_ID`, and
+`TREE_RING_SESSION_ID` can supply the matching flag defaults. `operation_id`
+provides write idempotency inside the `(project, workflow_id, agent_profile)`
+namespace: an exact retry returns the existing memory ID, while a different
+payload using the same key fails nonzero. Session ID is retained context but is
+not part of that idempotency namespace. Replacing an active row preserves its
+prior operation namespace as a one-way claim. Redaction also keeps a memory-ID
+tombstone, so replacement import cannot restore the payload by omitting the
+operation ID; only explicit hard deletion releases those claims.
+
+The shared-root contract is limited to concurrent processes on one host using a
+local filesystem. Tree Ring does not claim distributed locking, cross-host
+SQLite coordination, or safe database sharing over NFS/network filesystems.
+For work spanning hosts, keep per-host roots and use an explicit,
+evidence-preserving fan-in.
+
+The bounded acceptance test at
+`crates/tree-ring-memory-cli/tests/multi_agent_acceptance.rs` holds a real
+SQLite write lock, starts eight real CLI workers, verifies they wait and then
+complete, exercises each recall filter and operation conflict behavior, and
+checks exact row/FTS parity through `tree-ring --json maintain`. This is
+same-host evidence, not sustained-load, crash-recovery, fairness, or distributed
+storage certification.
+
 ## Evidence Loop
 
 The Revolve-inspired loop is exposed through `tree-ring evidence`. It records
@@ -422,6 +488,7 @@ cargo run -p tree-ring-memory-cli -- maintain --help
 cargo run -p tree-ring-memory-cli -- dox sync --help
 cargo run -p tree-ring-memory-cli -- revolve sync --help
 cargo run -p tree-ring-memory-cli -- integrations scan --help
+cargo test -p tree-ring-memory-cli --test multi_agent_acceptance
 cargo run --release -p tree-ring-memory-sqlite --example performance_smoke -- 1000
 sh scripts/certify-tree-ring.sh
 sh scripts/package-release.sh

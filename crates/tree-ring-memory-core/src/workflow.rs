@@ -55,6 +55,12 @@ struct WorkflowSeedMemory {
     project: Option<String>,
     #[serde(default)]
     agent_profile: Option<String>,
+    #[serde(default)]
+    workflow_id: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    operation_id: Option<String>,
     #[serde(default = "default_workflow_seed_scope")]
     scope: String,
     #[serde(default = "default_workflow_seed_ring")]
@@ -95,6 +101,9 @@ impl From<WorkflowSeedMemory> for MemoryEvent {
             updated_at: seed_memory.updated_at,
             project: seed_memory.project,
             agent_profile: seed_memory.agent_profile,
+            workflow_id: seed_memory.workflow_id,
+            session_id: seed_memory.session_id,
+            operation_id: seed_memory.operation_id,
             scope: seed_memory.scope,
             ring: seed_memory.ring,
             event_type: seed_memory.event_type,

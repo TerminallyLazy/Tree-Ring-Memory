@@ -1,5 +1,5 @@
 use crate::evidence::{
-    read_or_create_index, rollup_index_status, write_index, EvidenceRecordRef, EvidenceStatus,
+    atomic_write, publish_indexed_evidence, rollup_index_status, EvidenceRecordRef, EvidenceStatus,
 };
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -269,30 +269,31 @@ fn write_report_and_index(
     let report_dir = evidence_dir.join("recall-quality");
     fs::create_dir_all(&report_dir).map_err(|err| err.to_string())?;
     let report_json = serde_json::to_string_pretty(report).map_err(|err| err.to_string())?;
-    fs::write(&report.record_path, report_json).map_err(|err| err.to_string())?;
 
-    let mut index = read_or_create_index(evidence_dir, generated_at)?;
-    index.generated_at = generated_at.to_string();
-    index.recall_quality = Some(EvidenceRecordRef {
-        category: "recall_quality".to_string(),
-        status: report.status,
-        label: "Recall quality".to_string(),
-        path: PathBuf::from(format!("recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json")),
-        summary_path: None,
-        generated_at: generated_at.to_string(),
-    });
-    index.missing.retain(|item| item != "recall_quality");
-    if index.harness.is_empty() {
-        if !index.missing.iter().any(|item| item == "harness") {
-            index.missing.push("harness".to_string());
+    publish_indexed_evidence(evidence_dir, generated_at, |index| {
+        atomic_write(&report.record_path, report_json.as_bytes())?;
+        index.generated_at = generated_at.to_string();
+        index.recall_quality = Some(EvidenceRecordRef {
+            category: "recall_quality".to_string(),
+            status: report.status,
+            label: "Recall quality".to_string(),
+            path: PathBuf::from(format!("recall-quality/{RECALL_QUALITY_QUERY_SET_ID}.json")),
+            summary_path: None,
+            generated_at: generated_at.to_string(),
+        });
+        index.missing.retain(|item| item != "recall_quality");
+        if index.harness.is_empty() {
+            if !index.missing.iter().any(|item| item == "harness") {
+                index.missing.push("harness".to_string());
+            }
+        } else {
+            index.missing.retain(|item| item != "harness");
         }
-    } else {
-        index.missing.retain(|item| item != "harness");
-    }
-    index.missing.sort();
-    index.missing.dedup();
-    index.overall_status = rollup_index_status(&index);
-    write_index(evidence_dir, &index)?;
+        index.missing.sort();
+        index.missing.dedup();
+        index.overall_status = rollup_index_status(index);
+        Ok(())
+    })?;
     Ok(())
 }
 

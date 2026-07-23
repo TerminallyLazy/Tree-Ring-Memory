@@ -61,6 +61,13 @@ Adapter rules:
 - Run adapter commands with `--dry-run` before writing memory.
 - `tree-ring integrations scan` is read-only; add harness bridge references manually until a link command is available.
 
+Multi-agent coordination:
+
+- Give each worker a distinct `--agent-profile`, share one `--workflow-id`, and use a new `--session-id` for each execution attempt.
+- Give every logical write a stable `--operation-id` and a durable `--source-ref`; exact retries return the original memory, while conflicting reuse fails closed.
+- At fan-in, recall with the shared workflow/session and an explicit scope. Scope and identity fields partition and route local memory; they are not access-control boundaries.
+- A shared SQLite root supports concurrent processes on one host and a local filesystem. Use per-host stores plus an explicit source-preserving fan-in for cross-host or network-filesystem workflows.
+
 Memory quality gates:
 
 - Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds.
@@ -290,6 +297,19 @@ call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
 `tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
 They do not authorize hidden transcript scraping or autonomous durable writes.
 
+## Multi-Agent Coordination
+
+For same-host fan-out/fan-in, give every worker a distinct `--agent-profile`,
+share one `--workflow-id`, use a new `--session-id` for each attempt, and attach
+a stable `--operation-id` plus `--source-ref` to every logical write. At fan-in,
+recall with the workflow, session, and intended scope before creating a
+source-linked shared summary.
+
+Scope and identity fields partition and route local memory; they are not
+authorization boundaries. A shared SQLite root is for concurrent processes on
+one host using a local filesystem. Cross-host or network-filesystem workflows
+should use per-host stores and an explicit evidence-preserving fan-in.
+
 ## Memory Quality Gates
 
 Recall gates:
@@ -418,6 +438,9 @@ mod tests {
         assert!(agents.contains("revolve sync --source-root"));
         assert!(agents.contains("integrations scan --source-root"));
         assert!(agents.contains("Tree Ring Memory Project Contract"));
+        assert!(agents.contains("Multi-Agent Coordination"));
+        assert!(agents.contains("--operation-id"));
+        assert!(agents.contains("not authorization boundaries"));
     }
 
     #[test]
@@ -444,6 +467,9 @@ mod tests {
         let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
 
         assert!(cli.contains("Memory quality gates"));
+        assert!(cli.contains("Multi-agent coordination"));
+        assert!(cli.contains("--workflow-id"));
+        assert!(cli.contains("not access-control boundaries"));
         assert!(cli.contains("Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds."));
         assert!(cli
             .contains("Before risky changes, recall warnings and evidence-linked prior failures."));

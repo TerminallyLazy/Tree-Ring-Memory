@@ -1,7 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tree_ring_memory_core::{now_iso, ConsolidationRequest, MemoryEvent};
+use tree_ring_memory_core::{ConsolidationRequest, MemoryEvent};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore};
 
 use crate::actions::export_import::{export_jsonl, ExportActionRequest};
@@ -294,6 +294,11 @@ impl App {
                 ring: "cambium".to_string(),
                 scope: "global".to_string(),
                 project: None,
+                agent_profile: None,
+                workflow_id: None,
+                session_id: None,
+                operation_id: None,
+                source_ref: None,
                 tags: Vec::new(),
             },
         )?;
@@ -343,17 +348,13 @@ impl App {
             }
             ActionKind::ChangeRing { ring, event_type } => {
                 if let Some(memory_id) = pending.memory_id {
-                    if let Some(mut memory) =
-                        self.store.get(&memory_id).map_err(|err| err.to_string())?
+                    match self
+                        .store
+                        .change_ring(&memory_id, &ring, &event_type)
+                        .map_err(|err| err.to_string())?
                     {
-                        memory.ring = ring.clone();
-                        memory.event_type = event_type;
-                        memory.updated_at = now_iso();
-                        if ring == "heartwood" {
-                            memory.retention = "durable".to_string();
-                        }
-                        self.store.put(&memory).map_err(|err| err.to_string())?;
-                        self.status = format!("marked {memory_id} as {ring}");
+                        Some(_) => self.status = format!("marked {memory_id} as {ring}"),
+                        None => self.status = format!("memory not found: {memory_id}"),
                     }
                 }
             }
@@ -649,6 +650,23 @@ mod tests {
         confirm(&mut app);
 
         assert_eq!(app.dashboard.total, 0);
+    }
+
+    #[test]
+    fn confirmation_reports_when_change_ring_target_is_missing() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.status = "marked stale memory as heartwood".to_string();
+        app.pending_action = Some(PendingAction::change_ring(
+            "mem_missing".to_string(),
+            "Missing".to_string(),
+            "heartwood",
+            "lesson",
+        ));
+
+        confirm(&mut app);
+
+        assert_eq!(app.status, "memory not found: mem_missing");
     }
 
     #[test]

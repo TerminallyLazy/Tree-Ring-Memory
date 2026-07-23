@@ -268,6 +268,25 @@ fn rejects_invalid_seed_memories() {
 }
 
 #[test]
+fn workflow_seed_conversion_preserves_multi_agent_context() {
+    let mut seed = valid_seed_memory();
+    seed["agent_profile"] = json!("reviewer");
+    seed["workflow_id"] = json!("workflow-42");
+    seed["session_id"] = json!("session-7");
+    seed["operation_id"] = json!("operation-3");
+    seed["scope"] = json!("workflow");
+
+    let scenario = parse_workflow_scenario(&scenario_with_seed_memory(seed)).unwrap();
+    let memory = &scenario.seed_memories[0];
+
+    assert_eq!(memory.agent_profile.as_deref(), Some("reviewer"));
+    assert_eq!(memory.workflow_id.as_deref(), Some("workflow-42"));
+    assert_eq!(memory.session_id.as_deref(), Some("session-7"));
+    assert_eq!(memory.operation_id.as_deref(), Some("operation-3"));
+    memory.validate().unwrap();
+}
+
+#[test]
 fn rejects_blank_and_cross_sensitivity_duplicate_seed_memory_ids() {
     let mut blank_id = valid_seed_memory();
     blank_id["id"] = json!("   ");

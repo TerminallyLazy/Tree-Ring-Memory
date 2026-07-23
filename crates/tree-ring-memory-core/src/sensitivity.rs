@@ -99,6 +99,9 @@ impl SensitivityGuard {
         self.accumulate(&mut detected, &event.updated_at)?;
         self.accumulate_optional(&mut detected, event.project.as_deref())?;
         self.accumulate_optional(&mut detected, event.agent_profile.as_deref())?;
+        self.accumulate_optional(&mut detected, event.workflow_id.as_deref())?;
+        self.accumulate_optional(&mut detected, event.session_id.as_deref())?;
+        self.accumulate_optional(&mut detected, event.operation_id.as_deref())?;
         self.accumulate(&mut detected, &event.scope)?;
         self.accumulate(&mut detected, &event.ring)?;
         self.accumulate(&mut detected, &event.event_type)?;
@@ -275,5 +278,29 @@ mod tests {
         let error = guard.detect_memory_event_sensitivity(&event).unwrap_err();
 
         assert!(error.to_string().contains("blocked"));
+    }
+
+    #[test]
+    fn memory_event_detection_checks_all_correlation_metadata() {
+        let guard = SensitivityGuard::default();
+
+        for set_sensitive_field in [
+            (|event: &mut MemoryEvent| {
+                event.workflow_id = Some("private diagnosis workflow".to_string())
+            }) as fn(&mut MemoryEvent),
+            |event: &mut MemoryEvent| {
+                event.session_id = Some("private diagnosis session".to_string())
+            },
+            |event: &mut MemoryEvent| {
+                event.operation_id = Some("private diagnosis operation".to_string())
+            },
+        ] {
+            let mut event = MemoryEvent::new("Correlation policy.", "lesson").unwrap();
+            set_sensitive_field(&mut event);
+
+            let detected = guard.detect_memory_event_sensitivity(&event).unwrap();
+
+            assert_eq!(detected, "health");
+        }
     }
 }

@@ -6,9 +6,13 @@
   "required": ["query"],
   "properties": {
     "query": { "type": "string" },
-    "project": { "type": ["string", "null"] },
-    "agent_profile": { "type": ["string", "null"] },
-    "scope": { "type": ["string", "null"] },
+    "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "agent_profile": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "workflow_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "session_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "scope": {
+      "enum": ["global", "project", "agent", "session", "workflow", "tool", "eval", "manual", "dox", "revolve", null]
+    },
     "rings": { "type": "array", "items": { "type": "string" } },
     "event_types": { "type": "array", "items": { "type": "string" } },
     "include_sensitive": { "type": "boolean", "default": false },

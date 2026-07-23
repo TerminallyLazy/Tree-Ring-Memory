@@ -68,6 +68,129 @@ For a project-local install, use the generated quick reference in
 .tree-ring/bin/tree-ring --root .tree-ring tui
 ```
 
+## Multi-Agent Fan-Out And Fan-In
+
+Tree Ring can coordinate multiple CLI workers that share one local memory root
+on one host. The coordinator chooses one project, workflow ID, and session ID.
+Every worker gets a unique agent profile and a stable operation ID for each
+logical write:
+
+```bash
+tree-ring --root .tree-ring init
+
+tree-ring --root .tree-ring remember "Storage worker validated WAL behavior." \
+  --event-type lesson \
+  --scope agent \
+  --project example-service \
+  --agent-profile worker-storage \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --operation-id validate-storage-v1 \
+  --source-ref runs/release-readiness/worker-storage.json \
+  --tag coordination
+```
+
+Repeat the worker command with a different `--agent-profile`,
+`--operation-id`, and source reference. Keep `--workflow-id` and
+`--session-id` shared across that fan-out. An exact retry of one logical write
+reuses its original session and operation IDs. Rotate the session and assign new
+operation IDs only when starting a genuinely new execution attempt.
+
+Scope determines the required partition identity:
+
+| Scope | Required identity | Intended use |
+| --- | --- | --- |
+| `agent` | `agent_profile` | One worker's partitioned task memory |
+| `workflow` | `workflow_id` | Shared state for one fan-out/fan-in |
+| `session` | `session_id` | State partitioned by execution attempt |
+| `project` | None; `project` is recommended | Shared repository memory |
+| `global` | None | Deliberate cross-project memory |
+
+The CLI also reads `TREE_RING_AGENT_PROFILE`, `TREE_RING_WORKFLOW_ID`, and
+`TREE_RING_SESSION_ID`. Explicit flags are easier to audit in retained worker
+commands. If the coordinator uses environment defaults, clear the agent-profile
+default before recalling all workers; otherwise it becomes an unintended recall
+filter.
+
+At fan-in, recall worker results through the shared dimensions:
+
+```bash
+tree-ring --root .tree-ring --json recall "release readiness" \
+  --project example-service \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --scope agent \
+  --limit 64
+```
+
+Inspect each memory's source reference before writing a coordinator-owned
+summary. Use `scope=workflow` with the same workflow ID for shared workflow
+state, or `scope=project` for a reviewed durable project conclusion:
+
+```bash
+tree-ring --root .tree-ring remember "Release readiness checks passed." \
+  --event-type summary \
+  --scope workflow \
+  --project example-service \
+  --agent-profile coordinator \
+  --workflow-id release-readiness \
+  --session-id attempt-1 \
+  --operation-id fan-in-summary-v1 \
+  --source-ref runs/release-readiness/fan-in.json
+```
+
+Consolidation accepts `--agent-profile`, `--workflow-id`, and `--session-id`
+filters. Agent-, workflow-, and session-scoped inputs remain partitioned;
+consolidation does not silently merge memories from different partition
+identities. A coordinator that wants a shared conclusion should write the
+explicit source-linked summary shown above.
+
+### Idempotency
+
+`operation_id` is an idempotency key inside the
+`(project, workflow_id, agent_profile)` namespace:
+
+- An exact retry with the same payload returns the existing memory ID and does
+  not add a row.
+- Reusing the key in that namespace for a different payload fails nonzero.
+- `session_id` is retained context but is not part of the idempotency namespace;
+  changing only the session makes the retry conflict.
+- Omitting `operation_id` creates an ordinary new write.
+- Consolidation-derived summaries do not inherit a source operation ID.
+- Replacing an active memory ID preserves its old operation namespace as a
+  one-way claim.
+- Redaction keeps both the one-way operation claim and a memory-ID tombstone,
+  so retries and replacement imports fail closed without restoring redacted
+  content. Only hard deletion removes those claims.
+
+Pre-0.12 `agent`, `workflow`, or `session` records that lack the now-required
+identity are assigned a deterministic, per-record `legacy-*` identity during
+migration/import and marked for review. They remain privately partitioned and
+portable instead of being widened into project/global scope.
+
+The identifiers must be nonblank, contain no control characters, and stay at or
+below 256 characters. These fields are routing and correlation metadata, not an
+authorization boundary. A process with filesystem access to the SQLite store
+can read it, so host permissions still control access.
+
+### Runtime Boundary And Evidence
+
+The supported shared-root pattern is concurrent processes on the same host
+using a local filesystem. SQLite WAL, bounded lock retries, and a busy timeout
+handle local contention. Tree Ring is not a distributed database or lock
+service, and this evidence does not establish safe shared-database operation
+over NFS, network filesystems, containers on different hosts, or multiple
+machines. Use per-host roots and an explicit export/import or other
+evidence-preserving coordinator when work spans hosts.
+
+`crates/tree-ring-memory-cli/tests/multi_agent_acceptance.rs` is a bounded
+process-level acceptance test. It launches eight real CLI writers against one
+root, exercises profile/workflow/session/scope recall filters, verifies exact
+retry and conflicting-key behavior, and checks memory-row/FTS parity through
+the JSON maintenance report. It is evidence for the same-host contract only;
+it is not a sustained-load, crash-recovery, fairness, or distributed-storage
+certification.
+
 ## Evidence-Driven Improvement
 
 Use `tree-ring evidence` when a lesson comes from an evaluation, checkpoint,
