@@ -16,10 +16,14 @@ jobs:
     name: Package ubuntu-latest
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout release tooling
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Checkout source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+          path: source
 
       - name: Build package on Debian Bookworm
         env:
@@ -32,16 +36,16 @@ jobs:
             -e CARGO_HOME=/tmp/cargo \
             -e RUSTUP_HOME=/usr/local/rustup \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            -w /workspace \
+            -w /workspace/source \
             "$RUST_BOOKWORM_IMAGE" \
-            sh -c 'sh scripts/package-release.sh'
+            sh -c 'sh ../scripts/package-release.sh'
 
       - name: Smoke-test package on Debian Bookworm
         env:
           DEBIAN_BOOKWORM_IMAGE: docker.io/library/debian:bookworm-slim@sha256:63a496b5d3b99214b39f5ed70eb71a61e590a77979c79cbee4faf991f8c0783e
         run: |
           linux_binary=$(
-            find "$GITHUB_WORKSPACE/dist" \
+            find "$GITHUB_WORKSPACE/source/dist" \
               -path '*-linux-x86_64/tree-ring' \
               -type f \
               -print
@@ -59,28 +63,33 @@ jobs:
         with:
           name: tree-ring-memory-ubuntu-latest
           path: |
-            dist/*.tar.gz
-            dist/*.sha256
+            source/dist/*.tar.gz
+            source/dist/*.sha256
 
   package-macos:
     name: Package macos-latest
     runs-on: macos-latest
     steps:
-      - name: Checkout
+      - name: Checkout release tooling
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Checkout source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ inputs.source_ref || github.ref }}
+          path: source
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Build package
-        run: sh scripts/package-release.sh
+        working-directory: source
+        run: sh ../scripts/package-release.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: tree-ring-memory-macos-latest
           path: |
-            dist/*.tar.gz
-            dist/*.sha256
+            source/dist/*.tar.gz
+            source/dist/*.sha256
