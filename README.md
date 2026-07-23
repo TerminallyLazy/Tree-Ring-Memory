@@ -643,7 +643,9 @@ interpretation limits.
 
 `scripts/package-release.sh` builds the Rust CLI in release mode, creates a
 platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
-run the release artifact workflow for Linux and macOS.
+run the release artifact workflow for Linux and macOS. Linux x86_64 artifacts
+are built and executed on Debian Bookworm (glibc 2.36); older glibc systems
+must build from source.
 
 ## Design Docs
 
