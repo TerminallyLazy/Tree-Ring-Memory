@@ -97,10 +97,18 @@ guidance.
 
 ## Quick Start
 
-Global user install:
+Source install (requires Rust and Cargo):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+```
+
+Linux x86_64 prebuilt install (glibc 2.36 or newer):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
+  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.13.0/tree-ring-memory-0.13.0-linux-x86_64.tar.gz \
+  --archive-sha256 76966ec89990c0d10ab933733b1d0f601beec343cb90b64ee7f0655672b10a6a
 ```
 
 macOS ARM64 install with Homebrew:
@@ -110,7 +118,7 @@ brew tap TerminallyLazy/tree-ring
 brew install tree-ring
 ```
 
-Project-local install with first-run initialization:
+Project-local source install with first-run initialization (requires Cargo):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
