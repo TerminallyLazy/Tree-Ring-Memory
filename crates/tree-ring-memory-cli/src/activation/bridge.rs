@@ -1,14 +1,17 @@
 use super::{
     adapters::{adapter_version, ActivationProject, AdapterPlan, ManagedBlockUpdate, PlannedWrite},
     manifest::{
-        bridge_fingerprint, validate_manifest, validate_project_relative_path, ActivationManifest,
-        HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
+        bridge_fingerprint, fingerprint_path, validate_manifest, validate_project_relative_path,
+        ActivationManifest, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
     },
     ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -17,7 +20,7 @@ use std::cell::RefCell;
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::{
-    ffi::{CStr, CString, OsStr, OsString},
+    ffi::{CStr, CString, OsString},
     fs::File,
     io::{Read, Write},
     os::{
@@ -197,6 +200,12 @@ pub struct BridgePlanResult {
     pub next_step: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeBatchResult {
+    pub harness_id: String,
+    pub result: BridgePlanResult,
+}
+
 #[derive(Debug, Clone)]
 struct PreparedFile {
     relative: PathBuf,
@@ -333,6 +342,12 @@ impl ProjectFs {
         let manifest_lock = ManifestLock { file };
         self.ensure_root_binding()?;
         Ok(manifest_lock)
+    }
+
+    fn same_root_identity(&self, other: &Self) -> Result<bool, String> {
+        self.ensure_root_binding()?;
+        other.ensure_root_binding()?;
+        Ok(self.root_identity == other.root_identity)
     }
 
     pub(crate) fn read_optional(&self, relative: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -914,6 +929,10 @@ impl ProjectFs {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
+    fn same_root_identity(&self, _other: &Self) -> Result<bool, String> {
+        Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
     pub(crate) fn read_optional(&self, _relative: &Path) -> Result<Option<Vec<u8>>, String> {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
@@ -1113,6 +1132,221 @@ pub fn apply_bridge_plan(
         changed_paths,
         next_step: plan.next_step,
     })
+}
+
+/// Applies every safe adapter plan beneath one pinned project root and publishes
+/// one creation-only activation manifest after all bridge files are ready.
+///
+/// This is deliberately narrower than repeated `apply_bridge_plan` calls: it
+/// exists for first-run init, where publishing the manifest after the first
+/// adapter would make later adapters require replacement of a trusted final
+/// entry. Existing manifests are accepted only when the complete batch is
+/// already semantically identical.
+pub fn apply_bridge_plans_create_only(
+    project: &ActivationProject,
+    manifest: &mut ActivationManifest,
+    mut plans: Vec<AdapterPlan>,
+) -> Result<Vec<BridgeBatchResult>, String> {
+    validate_manifest(manifest)?;
+    plans.sort_by(|left, right| left.harness_id.cmp(&right.harness_id));
+    for plan in &plans {
+        validate_plan(plan)?;
+    }
+    if plans
+        .windows(2)
+        .any(|pair| pair[0].harness_id == pair[1].harness_id)
+    {
+        return Err("duplicate harness plan in activation batch".to_string());
+    }
+
+    let project_fs = ProjectFs::open(project)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
+    let mut next_manifest = current_manifest.clone();
+    let mut files = Vec::<PreparedFile>::new();
+    let mut outcomes = Vec::with_capacity(plans.len());
+
+    for plan in plans {
+        if matches!(
+            plan.state,
+            ActivationState::NeedsPlugin | ActivationState::Unsupported
+        ) {
+            if !plan.writes.is_empty() {
+                return Err(format!(
+                    "{} plan cannot write while in state {:?}",
+                    plan.harness_id, plan.state
+                ));
+            }
+            let mut activation = next_manifest
+                .harnesses
+                .get(&plan.harness_id)
+                .cloned()
+                .unwrap_or(HarnessActivation {
+                    state: plan.state,
+                    adapter_capability: capability_for(&plan.harness_id)?,
+                    adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
+                    bridge_fingerprint: String::new(),
+                    bridge_path: None,
+                    owned_files: Vec::new(),
+                    managed_blocks: Vec::new(),
+                });
+            activation.state = plan.state;
+            activation.adapter_capability = capability_for(&plan.harness_id)?;
+            activation.adapter_version = adapter_version_for(&plan.harness_id)?.to_string();
+            activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+            next_manifest
+                .harnesses
+                .insert(plan.harness_id.clone(), activation);
+            outcomes.push(BridgeBatchResult {
+                harness_id: plan.harness_id,
+                result: BridgePlanResult {
+                    state: plan.state,
+                    changed_paths: Vec::new(),
+                    next_step: plan.next_step,
+                },
+            });
+            continue;
+        }
+
+        match prepare_apply(&project_fs, &next_manifest, &plan, false)? {
+            Preparation::Review { next_step } => outcomes.push(BridgeBatchResult {
+                harness_id: plan.harness_id,
+                result: BridgePlanResult {
+                    state: ActivationState::NeedsUserReview,
+                    changed_paths: Vec::new(),
+                    next_step,
+                },
+            }),
+            Preparation::Ready {
+                files: plan_files,
+                activation,
+            } => {
+                let changed_paths = plan_files
+                    .iter()
+                    .filter(|file| file.before != file.after)
+                    .map(|file| file.relative.clone())
+                    .collect::<Vec<_>>();
+                for file in plan_files {
+                    if let Some(existing) = files
+                        .iter()
+                        .find(|existing| existing.relative == file.relative)
+                    {
+                        if existing.before != file.before || existing.after != file.after {
+                            return Err(
+                                "incompatible shared bridge target in activation batch".to_string()
+                            );
+                        }
+                    } else {
+                        files.push(file);
+                    }
+                }
+                next_manifest
+                    .harnesses
+                    .insert(plan.harness_id.clone(), activation);
+                let state = applied_state(&plan.harness_id, plan.state);
+                outcomes.push(BridgeBatchResult {
+                    harness_id: plan.harness_id,
+                    result: BridgePlanResult {
+                        state,
+                        changed_paths,
+                        next_step: plan.next_step,
+                    },
+                });
+            }
+        }
+    }
+
+    validate_manifest(&next_manifest)?;
+    if files_require_existing_entry_mutation(&files) {
+        return Err(
+            "bridge writer will not replace or remove an existing final entry; explicit review is required"
+                .to_string(),
+        );
+    }
+    if manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest) {
+        for outcome in &mut outcomes {
+            if current_manifest.harnesses.get(&outcome.harness_id)
+                != next_manifest.harnesses.get(&outcome.harness_id)
+            {
+                outcome.result = creation_only_review_result(&outcome.harness_id);
+            } else {
+                outcome.result.changed_paths.clear();
+            }
+        }
+        *manifest = current_manifest;
+        return Ok(outcomes);
+    }
+    if expected_persisted.is_some()
+        && files.iter().all(|file| file.before == file.after)
+        && next_manifest == current_manifest
+    {
+        *manifest = current_manifest;
+        for outcome in &mut outcomes {
+            outcome.result.changed_paths.clear();
+        }
+        return Ok(outcomes);
+    }
+
+    commit_files_and_manifest(
+        &project_fs,
+        manifest,
+        &current_manifest,
+        expected_persisted.as_ref(),
+        next_manifest,
+        &files,
+    )?;
+    Ok(outcomes)
+}
+
+/// Validates the two-root preflight topology without following project-root or
+/// manifest symlinks. The selected manifest is returned for the subsequent
+/// isolated-store preflight; the canonical manifest is read only to prove that
+/// the explicit project root is itself a valid Tree Ring project.
+pub fn validate_isolated_preflight_roots(
+    selected_memory_root: &Path,
+    canonical_project_root: &Path,
+) -> Result<ActivationManifest, String> {
+    fn validate(
+        selected_memory_root: &Path,
+        canonical_project_root: &Path,
+    ) -> Result<ActivationManifest, String> {
+        if selected_memory_root.file_name() != Some(OsStr::new(".tree-ring")) {
+            return Err("selected memory root is not project-local".to_string());
+        }
+        let selected_project = ActivationProject::from_memory_root(selected_memory_root)?;
+        let canonical_project = ActivationProject::from_project_root(canonical_project_root);
+        let selected_fs = ProjectFs::open(&selected_project)?;
+        let canonical_fs = ProjectFs::open(&canonical_project)?;
+        let selected = load_persisted_manifest(&selected_fs)?
+            .ok_or_else(|| "selected activation manifest is unavailable".to_string())?;
+        let canonical = load_persisted_manifest(&canonical_fs)?
+            .ok_or_else(|| "canonical activation manifest is unavailable".to_string())?;
+
+        if selected.project_root_fingerprint != fingerprint_path(&selected_project.project_root)
+            || canonical.project_root_fingerprint
+                != fingerprint_path(&canonical_project.project_root)
+        {
+            return Err("activation manifest project identity mismatch".to_string());
+        }
+        if selected_fs.same_root_identity(&canonical_fs)? || selected.store_id == canonical.store_id
+        {
+            return Err("preflight roots are not isolated".to_string());
+        }
+        Ok(selected)
+    }
+
+    validate(selected_memory_root, canonical_project_root)
+        .map_err(|_| "isolated preflight roots are invalid".to_string())
+}
+
+/// Reads the init manifest through the pinned project descriptor. A missing
+/// manifest is returned as `None`; callers may then construct the first
+/// in-memory identity for creation-only batch publication.
+pub fn load_init_manifest_no_follow(
+    project: &ActivationProject,
+) -> Result<Option<ActivationManifest>, String> {
+    let project_fs = ProjectFs::open(project)?;
+    load_persisted_manifest(&project_fs)
 }
 
 /// Produces the same validated plan as apply without writing files or the
@@ -2570,6 +2804,200 @@ mod tests {
         {
             assert_eq!(owned["sha256"].as_str().unwrap().len(), 64);
         }
+    }
+
+    #[test]
+    fn init_batch_publishes_all_safe_adapters_in_one_deterministic_manifest() {
+        let (_temp, project, mut manifest) = fixture();
+        let plans = vec![
+            plan("pi", &project),
+            plan("codex", &project),
+            plan("claude-code", &project),
+        ];
+
+        let first = apply_bridge_plans_create_only(&project, &mut manifest, plans.clone()).unwrap();
+
+        assert_eq!(
+            first
+                .iter()
+                .map(|outcome| outcome.harness_id.as_str())
+                .collect::<Vec<_>>(),
+            ["claude-code", "codex", "pi"]
+        );
+        assert_eq!(
+            manifest
+                .harnesses
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["claude-code", "codex", "pi"]
+        );
+        assert_eq!(manifest.harnesses["pi"].state, ActivationState::NeedsTrust);
+        let shared = ".agents/skills/tree-ring-memory/SKILL.md";
+        assert!(manifest.harnesses["codex"]
+            .owned_files
+            .iter()
+            .any(|owned| owned.path == shared));
+        assert!(manifest.harnesses["pi"]
+            .owned_files
+            .iter()
+            .any(|owned| owned.path == shared));
+        assert_eq!(
+            crate::activation::load_manifest(&project.memory_root).unwrap(),
+            manifest
+        );
+
+        let bytes = fs::read(project.memory_root.join("activation.json")).unwrap();
+        let second = apply_bridge_plans_create_only(&project, &mut manifest, plans).unwrap();
+        assert!(second
+            .iter()
+            .all(|outcome| outcome.result.changed_paths.is_empty()));
+        assert_eq!(
+            fs::read(project.memory_root.join("activation.json")).unwrap(),
+            bytes
+        );
+    }
+
+    #[test]
+    fn empty_init_batch_still_creation_publishes_the_store_manifest() {
+        let (_temp, project, mut manifest) = fixture();
+
+        let outcomes = apply_bridge_plans_create_only(&project, &mut manifest, Vec::new()).unwrap();
+
+        assert!(outcomes.is_empty());
+        assert_eq!(
+            crate::activation::load_manifest(&project.memory_root).unwrap(),
+            manifest
+        );
+    }
+
+    #[test]
+    fn init_batch_never_extends_a_preexisting_partial_manifest() {
+        let (_temp, project, mut manifest) = fixture();
+        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
+        let manifest_bytes = fs::read(project.memory_root.join("activation.json")).unwrap();
+
+        let outcomes = apply_bridge_plans_create_only(
+            &project,
+            &mut manifest,
+            vec![
+                plan("pi", &project),
+                plan("codex", &project),
+                plan("claude-code", &project),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(outcomes[1].harness_id, "codex");
+        assert_eq!(
+            outcomes[1].result.state,
+            ActivationState::ConfiguredAwaitingProof
+        );
+        for harness in ["claude-code", "pi"] {
+            assert_eq!(
+                outcomes
+                    .iter()
+                    .find(|outcome| outcome.harness_id == harness)
+                    .unwrap()
+                    .result
+                    .state,
+                ActivationState::NeedsUserReview
+            );
+        }
+        assert_eq!(
+            fs::read(project.memory_root.join("activation.json")).unwrap(),
+            manifest_bytes
+        );
+        assert!(!project
+            .project_root
+            .join(".claude/skills/tree-ring-memory/SKILL.md")
+            .exists());
+        assert!(!project
+            .project_root
+            .join(".pi/extensions/tree-ring-memory.ts")
+            .exists());
+    }
+
+    #[test]
+    fn init_batch_rejects_duplicate_adapter_plans_before_writing() {
+        let (_temp, project, mut manifest) = fixture();
+        let codex = plan("codex", &project);
+
+        let error =
+            apply_bridge_plans_create_only(&project, &mut manifest, vec![codex.clone(), codex])
+                .unwrap_err();
+
+        assert_eq!(error, "duplicate harness plan in activation batch");
+        assert!(!project.memory_root.join("activation.json").exists());
+        assert!(manifest.harnesses.is_empty());
+    }
+
+    #[test]
+    fn init_batch_late_durability_failure_marks_every_staged_adapter_for_review() {
+        let (_temp, project, mut manifest) = fixture();
+        fail_directory_sync_at_for_test(2);
+
+        let error = apply_bridge_plans_create_only(
+            &project,
+            &mut manifest,
+            vec![
+                plan("codex", &project),
+                plan("claude-code", &project),
+                plan("pi", &project),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected directory sync failure"));
+        assert!(error.contains("indeterminate"));
+        assert!(!project.memory_root.join("activation.json").exists());
+        for harness in ["claude-code", "codex", "pi"] {
+            assert_eq!(
+                manifest.harnesses[harness].state,
+                ActivationState::NeedsUserReview
+            );
+        }
+    }
+
+    #[test]
+    fn isolated_preflight_roots_require_two_valid_project_local_manifests() {
+        let temp = tempfile::tempdir().unwrap();
+        let canonical_project = ActivationProject::from_project_root(temp.path().join("canonical"));
+        let selected_project = ActivationProject::from_project_root(temp.path().join("selected"));
+        for project in [&canonical_project, &selected_project] {
+            fs::create_dir_all(&project.memory_root).unwrap();
+        }
+        let make_manifest = |project: &ActivationProject, store_id: &str| ActivationManifest {
+            schema_version: ACTIVATION_SCHEMA_VERSION,
+            protocol_version: ACTIVATION_PROTOCOL_VERSION,
+            store_id: store_id.to_string(),
+            project_root_fingerprint: fingerprint_path(&project.project_root),
+            cli_version: "0.14.0".to_string(),
+            harnesses: BTreeMap::new(),
+        };
+        let canonical_manifest = make_manifest(&canonical_project, "canonical-store");
+        let selected_manifest = make_manifest(&selected_project, "selected-store");
+        crate::activation::save_manifest(&canonical_project.memory_root, &canonical_manifest)
+            .unwrap();
+        crate::activation::save_manifest(&selected_project.memory_root, &selected_manifest)
+            .unwrap();
+
+        assert_eq!(
+            validate_isolated_preflight_roots(
+                &selected_project.memory_root,
+                &canonical_project.project_root,
+            )
+            .unwrap(),
+            selected_manifest
+        );
+        assert_eq!(
+            validate_isolated_preflight_roots(
+                &selected_project.project_root,
+                &canonical_project.project_root,
+            )
+            .unwrap_err(),
+            "isolated preflight roots are invalid"
+        );
     }
 
     #[test]

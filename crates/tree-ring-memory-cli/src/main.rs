@@ -416,6 +416,11 @@ enum IntegrationCommand {
     Preflight {
         #[arg(long)]
         harness: String,
+        #[arg(
+            long,
+            help = "explicit canonical project root for a direct isolated-store preflight"
+        )]
+        canonical_project_root: Option<PathBuf>,
         #[arg(long)]
         agent_profile: Option<String>,
         #[arg(long)]
@@ -693,6 +698,7 @@ fn run(cli: Cli) -> Result<(), String> {
         command:
             IntegrationCommand::Preflight {
                 harness,
+                canonical_project_root,
                 agent_profile,
                 workflow_id,
                 session_id,
@@ -701,14 +707,26 @@ fn run(cli: Cli) -> Result<(), String> {
             },
     } = &cli.command
     {
-        let project = activation::adapters::ActivationProject {
-            project_root: cli
-                .root
-                .parent()
-                .filter(|path| !path.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf(),
-            memory_root: cli.root.clone(),
+        if canonical_project_root.is_some() && *input_json_stdin {
+            return Err(
+                "--canonical-project-root is supported only with direct identity flags".to_string(),
+            );
+        }
+        let project = if let Some(canonical_project_root) = canonical_project_root {
+            activation::adapters::ActivationProject {
+                project_root: canonical_project_root.clone(),
+                memory_root: cli.root.clone(),
+            }
+        } else {
+            activation::adapters::ActivationProject {
+                project_root: cli
+                    .root
+                    .parent()
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf(),
+                memory_root: cli.root.clone(),
+            }
         };
         let format = activation_context_format(*context_format);
         let input = if *input_json_stdin {
@@ -735,10 +753,22 @@ fn run(cli: Cli) -> Result<(), String> {
             input.as_deref(),
             format,
         )?;
-        let manifest = activation::load_manifest(&cli.root)?;
+        let manifest = if let Some(canonical_project_root) = canonical_project_root {
+            activation::bridge::validate_isolated_preflight_roots(
+                &cli.root,
+                canonical_project_root,
+            )?
+        } else {
+            activation::load_manifest(&cli.root)?
+        };
         ensure_manifest_preflight_ready(&manifest, harness)?;
-        let store =
-            SQLiteMemoryStore::open_read_only(&db_path).map_err(|error| error.to_string())?;
+        let store = SQLiteMemoryStore::open_read_only(&db_path).map_err(|error| {
+            if canonical_project_root.is_some() {
+                "isolated preflight storage unavailable".to_string()
+            } else {
+                error.to_string()
+            }
+        })?;
         println!(
             "{}",
             integration_preflight_action(&store, &project, &manifest, request, format)?
@@ -1263,21 +1293,15 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
         .map_err(|error| error.to_string())?;
     drop(store);
 
-    let mut manifest = if root.join("activation.json").exists() {
-        activation::load_manifest(root)?
-    } else {
-        new_activation_manifest(&project.project_root)
-    };
-    let mut outcomes = Vec::new();
-    for detection in candidates {
-        let result =
-            activation::bridge::apply_bridge_plan(&project, &mut manifest, detection.plan, false)?;
-        outcomes.push((detection.id, result.state, result.next_step));
-    }
-    let manifest = activation::load_or_create_manifest(
-        root,
-        &project.project_root,
-        env!("CARGO_PKG_VERSION"),
+    let mut manifest = activation::bridge::load_init_manifest_no_follow(&project)?
+        .unwrap_or_else(|| new_activation_manifest(&project.project_root));
+    let outcomes = activation::bridge::apply_bridge_plans_create_only(
+        &project,
+        &mut manifest,
+        candidates
+            .iter()
+            .map(|detection| detection.plan.clone())
+            .collect(),
     )?;
     let mut status = integration_status_action(IntegrationStatusRequest {
         source_root: project.project_root,
@@ -1285,11 +1309,15 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
         verbose: true,
     })?;
     status.store_id = Some(manifest.store_id);
-    for (id, state, next_step) in outcomes {
-        if let Some(entry) = status.integrations.iter_mut().find(|entry| entry.id == id) {
-            if state == activation::ActivationState::NeedsUserReview {
-                entry.state = state;
-                entry.next_step = next_step;
+    for outcome in outcomes {
+        if let Some(entry) = status
+            .integrations
+            .iter_mut()
+            .find(|entry| entry.id == outcome.harness_id)
+        {
+            if outcome.result.state == activation::ActivationState::NeedsUserReview {
+                entry.state = outcome.result.state;
+                entry.next_step = outcome.result.next_step;
             }
         }
     }
@@ -2068,6 +2096,7 @@ mod tests {
             Command::Integrations {
                 command: IntegrationCommand::Preflight {
                     harness,
+                    canonical_project_root: None,
                     agent_profile: Some(agent_profile),
                     workflow_id: Some(workflow_id),
                     session_id: Some(session_id),
