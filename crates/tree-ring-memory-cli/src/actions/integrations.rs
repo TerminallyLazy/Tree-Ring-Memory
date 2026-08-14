@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::integrations::{scan_integrations, IntegrationScanReport};
+use tree_ring_memory_cli::activation::adapters::{scan_integrations, IntegrationScanReport};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntegrationScanRequest {

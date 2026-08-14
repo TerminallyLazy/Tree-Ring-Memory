@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use tree_ring_memory_cli::activation;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
     AuditReport, ConsolidationReport, DoxSyncReport, MaintenanceReport, RevolveSyncReport,
@@ -34,7 +35,6 @@ mod agent_awareness;
 mod commands;
 mod evidence;
 mod harness_evidence;
-mod integrations;
 mod recall_quality;
 mod ring_mark;
 mod tui;
@@ -1408,7 +1408,7 @@ fn print_revolve_report(
 }
 
 fn print_integration_report(
-    report: &integrations::IntegrationScanReport,
+    report: &activation::adapters::IntegrationScanReport,
     json_output: bool,
 ) -> Result<(), String> {
     if json_output {
@@ -1427,13 +1427,13 @@ fn print_integration_report(
         );
         for integration in &report.integrations {
             println!(
-                "{} [{:?}] confidence={:.2}",
-                integration.name, integration.status, integration.confidence
+                "{} [{:?}] activation={:?}",
+                integration.name, integration.status, integration.state
             );
             if !integration.markers.is_empty() {
                 println!(
                     "  markers: {}",
-                    integrations::format_markers(&integration.markers)
+                    activation::adapters::format_markers(&integration.markers)
                 );
             }
             println!("  next: {}", integration.next_step);
@@ -2226,6 +2226,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "# Rules").unwrap();
         fs::create_dir_all(dir.path().join("revolve")).unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
         let root = dir.path().join(".tree-ring");
 
         run(Cli {
@@ -2240,8 +2241,12 @@ mod tests {
         .unwrap();
 
         assert!(!root.exists());
-        let report = integrations::scan_integrations(dir.path());
-        assert!(report.detected_count >= 2);
+        let report = activation::adapters::scan_integrations(dir.path());
+        assert_eq!(report.detected_count, 1);
+        assert_ne!(
+            report.by_id("codex").unwrap().state,
+            activation::ActivationState::Active
+        );
     }
 
     #[test]

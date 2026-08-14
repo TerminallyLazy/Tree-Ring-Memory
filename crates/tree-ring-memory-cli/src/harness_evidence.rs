@@ -1,11 +1,13 @@
 use crate::evidence::{
     atomic_write, publish_indexed_evidence, rollup_index_status, EvidenceRecordRef, EvidenceStatus,
 };
-use crate::integrations::{scan_integrations, IntegrationMarker, MarkerOrigin};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tree_ring_memory_cli::activation::adapters::{
+    scan_integrations, AdapterDetection, IntegrationMarker, MarkerOrigin,
+};
 
 pub const CERTIFIED_HARNESS_IDS: &[&str] = &[
     "codex",
@@ -108,7 +110,7 @@ pub fn certify_harnesses(
 }
 
 fn probe_record(
-    integration: &crate::integrations::AgentIntegration,
+    integration: &AdapterDetection,
     source_root: &Path,
     generated_at: &str,
     guidance: &HarnessGuidanceEvidence,
@@ -430,16 +432,24 @@ mod tests {
             recall_guidance: false,
             remember_guidance: false,
         };
-        let integration = crate::integrations::AgentIntegration {
-            id: "claude-code",
-            name: "Claude Code",
-            status: crate::integrations::IntegrationStatus::Detected,
-            confidence: 0.7,
+        let integration = AdapterDetection {
+            id: "claude-code".to_string(),
+            name: "Claude Code".to_string(),
+            capability: tree_ring_memory_cli::activation::AdapterCapability::NativePreflight,
+            executable_version: None,
+            status: tree_ring_memory_cli::activation::adapters::IntegrationStatus::Detected,
+            state: tree_ring_memory_cli::activation::ActivationState::ConfiguredAwaitingProof,
             markers: vec![IntegrationMarker {
                 path: "/Users/test/.claude".to_string(),
                 origin: MarkerOrigin::Home,
             }],
-            next_step: "Reference `.tree-ring/SKILL.md` from `CLAUDE.md` or `.claude` project instructions.",
+            plan: tree_ring_memory_cli::activation::adapters::AdapterPlan {
+                harness_id: "claude-code".to_string(),
+                state: tree_ring_memory_cli::activation::ActivationState::ConfiguredAwaitingProof,
+                writes: Vec::new(),
+                next_step: "Reference `.tree-ring/SKILL.md` from `CLAUDE.md` or `.claude` project instructions.".to_string(),
+            },
+            next_step: "Reference `.tree-ring/SKILL.md` from `CLAUDE.md` or `.claude` project instructions.".to_string(),
         };
 
         let record = probe_record(&integration, source_root, generated_at, &guidance);

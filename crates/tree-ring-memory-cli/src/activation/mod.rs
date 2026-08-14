@@ -34,8 +34,10 @@ pub struct SessionIdentity {
     pub session_id: String,
 }
 
+pub mod adapters;
 pub mod manifest;
 
+#[allow(unused_imports)]
 pub use manifest::{
     load_manifest, load_or_create_manifest, prune_receipts, write_receipt, ActivationManifest,
     ActivationReceipt, HarnessActivation,

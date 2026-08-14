@@ -8,7 +8,7 @@ use crate::actions::export_import::{export_jsonl, ExportActionRequest};
 use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
 use crate::actions::remember::{remember, RememberRequest};
 use crate::evidence::{certification_dir_for_project, load_snapshot, EvidenceSnapshot};
-use crate::integrations::IntegrationScanReport;
+use tree_ring_memory_cli::activation::adapters::IntegrationScanReport;
 
 use super::actions::{ActionKind, PendingAction};
 use super::input::{parse_slash_command, SlashCommand};
@@ -932,13 +932,14 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "# Rules").unwrap();
         fs::create_dir_all(dir.path().join("revolve")).unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
         let mut app = app(&dir);
 
         app.execute_slash_command("/integrations").unwrap();
 
         assert_eq!(app.mode, AppMode::Integrations);
         let report = app.integration_report.as_ref().unwrap();
-        assert!(report.detected_count >= 2);
+        assert_eq!(report.detected_count, 1);
         assert!(app.status.contains("integration scan"));
     }
 
