@@ -114,14 +114,18 @@ use synthetic IDs and no prompt, recalled context, capability, or absolute path.
 ```
 
 The adapter record is keyed by its canonical `harness_id`. `adapter_version`
-and `bridge_fingerprint` are required for receipt-backed activation. For a
-bridge with more than one owned file or managed block,
-`bridge_fingerprint` is the SHA-256 of the UTF-8 canonical JSON array of its
-components. Each component has exactly `path`, `kind`, and `sha256`; sort
-the array by `path`, then `kind`, and serialize object keys in lexical order
-with no insignificant whitespace. `kind` is either `file` or
-`managed-block:<block_id>`. This lets every adapter calculate the same
-fingerprint without recording the project root.
+and `bridge_fingerprint` are required for receipt-backed activation.
+`bridge_fingerprint` is the lowercase SHA-256 hex digest of a length-delimited
+UTF-8 field stream. Each field is encoded as its UTF-8 byte length followed by
+its bytes; the length is an unsigned, big-endian, platform-width integer
+(`usize::to_be_bytes`, eight bytes on the supported 64-bit CLI targets).
+
+The stream begins with `harness_id`, then `adapter_version`. Owned files are
+sorted by `(path, sha256)` and each appends the fields `"file"`, `path`, and
+`sha256`. Managed blocks follow the files, sorted by
+`(path, block_id, sha256, leading_separator)`, and each appends the fields
+`"block"`, `path`, `block_id`, `sha256`, and `leading_separator`. No project
+root is included.
 
 ### Redacted receipt
 

@@ -691,14 +691,23 @@ pub fn read_receipt_candidates(
             {
                 continue;
             }
-            candidates.push(
-                project_fs
-                    .read_optional(&worker_directory.join(name))?
-                    .unwrap_or_default(),
-            );
+            append_receipt_candidate(
+                &mut candidates,
+                project_fs.read_optional(&worker_directory.join(name)),
+            )?;
         }
     }
     Ok(candidates)
+}
+
+fn append_receipt_candidate(
+    candidates: &mut Vec<Vec<u8>>,
+    candidate: Result<Option<Vec<u8>>, String>,
+) -> Result<(), String> {
+    if let Some(candidate) = candidate? {
+        candidates.push(candidate);
+    }
+    Ok(())
 }
 
 fn preflight_state(
@@ -1434,5 +1443,21 @@ mod tests {
         let receipts = receipt_files(&project.memory_root);
         assert_eq!(receipts.len(), 1);
         assert_ne!(receipts[0], path);
+    }
+
+    #[test]
+    fn receipt_candidate_collection_skips_safe_missing_files_and_propagates_errors() {
+        let mut candidates = Vec::new();
+
+        append_receipt_candidate(&mut candidates, Ok(None)).unwrap();
+        append_receipt_candidate(&mut candidates, Ok(Some(b"valid receipt".to_vec()))).unwrap();
+
+        assert_eq!(candidates, vec![b"valid receipt".to_vec()]);
+        assert_eq!(
+            append_receipt_candidate(&mut candidates, Err("receipt read failed".to_string()))
+                .unwrap_err(),
+            "receipt read failed"
+        );
+        assert_eq!(candidates, vec![b"valid receipt".to_vec()]);
     }
 }
