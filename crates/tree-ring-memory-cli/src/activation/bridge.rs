@@ -127,9 +127,9 @@ export default function treeRingMemory(pi: ExtensionAPI) {
 #[cfg(test)]
 #[derive(Default)]
 struct TestMutationHooks {
-    after_project_root_opened: Option<Box<dyn FnOnce()>>,
-    after_target_snapshot: Option<Box<dyn FnOnce()>>,
-    fail_directory_sync_at: Option<usize>,
+    after_final_root_binding: Option<Box<dyn FnOnce()>>,
+    after_final_target_validation: Option<Box<dyn FnOnce()>>,
+    fail_directory_sync_at: Vec<usize>,
     directory_syncs: usize,
 }
 
@@ -139,35 +139,40 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn after_project_root_opened() {
+fn after_final_root_binding() {
     let action =
-        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_project_root_opened.take());
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_final_root_binding.take());
     if let Some(action) = action {
         action();
     }
 }
 
 #[cfg(not(test))]
-fn after_project_root_opened() {}
+fn after_final_root_binding() {}
 
 #[cfg(test)]
-fn after_target_snapshot() {
-    let action = TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_target_snapshot.take());
+fn after_final_target_validation() {
+    let action =
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_final_target_validation.take());
     if let Some(action) = action {
         action();
     }
 }
 
 #[cfg(not(test))]
-fn after_target_snapshot() {}
+fn after_final_target_validation() {}
 
 #[cfg(test)]
 fn fail_directory_sync_now() -> bool {
     TEST_MUTATION_HOOKS.with(|hooks| {
         let mut hooks = hooks.borrow_mut();
         hooks.directory_syncs += 1;
-        if hooks.fail_directory_sync_at == Some(hooks.directory_syncs) {
-            hooks.fail_directory_sync_at = None;
+        if let Some(position) = hooks
+            .fail_directory_sync_at
+            .iter()
+            .position(|number| *number == hooks.directory_syncs)
+        {
+            hooks.fail_directory_sync_at.remove(position);
             true
         } else {
             false
@@ -196,9 +201,8 @@ struct PreparedFile {
 
 #[derive(Debug)]
 struct AppliedFile {
-    prepared: PreparedFile,
     target: ResolvedTarget,
-    publication: Publication,
+    publication: FileIdentity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,20 +213,13 @@ struct FileIdentity {
 
 #[derive(Debug)]
 struct TargetSnapshot {
-    identity: FileIdentity,
     bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Publication {
-    Present { identity: FileIdentity },
-    Absent,
 }
 
 #[derive(Debug)]
 struct MutationError {
     message: String,
-    publication: Option<Publication>,
+    publication: Option<FileIdentity>,
 }
 
 impl MutationError {
@@ -233,7 +230,7 @@ impl MutationError {
         }
     }
 
-    fn after_publication(message: String, publication: Publication) -> Self {
+    fn after_publication(message: String, publication: FileIdentity) -> Self {
         Self {
             message,
             publication: Some(publication),
@@ -311,7 +308,6 @@ impl ProjectFs {
             project_root: project.project_root.clone(),
             root_identity: file_identity(&metadata),
         };
-        after_project_root_opened();
         Ok(project_fs)
     }
 
@@ -439,20 +435,13 @@ impl ResolvedTarget {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|error| io_error(&self.display, error))?;
-        let metadata = file
-            .metadata()
-            .map_err(|error| io_error(&self.display, error))?;
-        Ok(Some(TargetSnapshot {
-            identity: file_identity(&metadata),
-            bytes,
-        }))
+        Ok(Some(TargetSnapshot { bytes }))
     }
 
-    fn publish_write(
-        &self,
-        bytes: &[u8],
-        expected: Option<FileIdentity>,
-    ) -> Result<Publication, MutationError> {
+    /// Publishes only a new final entry. POSIX has no inode-and-bytes
+    /// conditional replacement or unlink primitive, so this writer never
+    /// replaces or removes an existing bridge path.
+    fn publish_creation(&self, bytes: &[u8]) -> Result<FileIdentity, MutationError> {
         let temp_name = CString::new(format!(
             ".{}.{}.tmp",
             self.name.to_string_lossy(),
@@ -472,7 +461,7 @@ impl ResolvedTarget {
         };
         let mut temp = owned_file_descriptor(descriptor, &self.display)
             .map_err(MutationError::before_publication)?;
-        let result = (|| -> Result<Publication, MutationError> {
+        let result = (|| -> Result<FileIdentity, MutationError> {
             temp.write_all(bytes).map_err(|error| {
                 MutationError::before_publication(io_error(&self.display, error))
             })?;
@@ -482,31 +471,24 @@ impl ResolvedTarget {
             let metadata = temp.metadata().map_err(|error| {
                 MutationError::before_publication(io_error(&self.display, error))
             })?;
-            let publication = Publication::Present {
-                identity: file_identity(&metadata),
-            };
+            let publication = file_identity(&metadata);
             drop(temp);
-            self.ensure_entry_identity(expected)
+            self.ensure_entry_absent()
                 .map_err(MutationError::before_publication)?;
+            // `linkat` below is create-only. This test hook is deliberately
+            // after the final absence check so an adversarial replacement is
+            // exercised at the only publication operation, not before it.
+            after_final_target_validation();
             let status = unsafe {
-                if expected.is_none() {
-                    // SAFETY: both names are relative to the same retained parent descriptor.
-                    libc::linkat(
-                        self.parent.as_raw_fd(),
-                        temp_name.as_ptr(),
-                        self.parent.as_raw_fd(),
-                        self.name.as_ptr(),
-                        0,
-                    )
-                } else {
-                    // SAFETY: both names are relative to the same retained parent descriptor.
-                    libc::renameat(
-                        self.parent.as_raw_fd(),
-                        temp_name.as_ptr(),
-                        self.parent.as_raw_fd(),
-                        self.name.as_ptr(),
-                    )
-                }
+                // SAFETY: both names are relative to the same retained parent descriptor.
+                // `linkat` fails with EEXIST instead of replacing a concurrent final entry.
+                libc::linkat(
+                    self.parent.as_raw_fd(),
+                    temp_name.as_ptr(),
+                    self.parent.as_raw_fd(),
+                    self.name.as_ptr(),
+                    0,
+                )
             };
             if status != 0 {
                 return Err(MutationError::before_publication(io_error(
@@ -514,10 +496,8 @@ impl ResolvedTarget {
                     std::io::Error::last_os_error(),
                 )));
             }
-            if expected.is_none() {
-                if let Err(error) = unlink_at_if_present(&self.parent, &temp_name, &self.display) {
-                    return Err(MutationError::after_publication(error, publication));
-                }
+            if let Err(error) = unlink_at_if_present(&self.parent, &temp_name, &self.display) {
+                return Err(MutationError::after_publication(error, publication));
             }
             Ok(publication)
         })();
@@ -527,25 +507,16 @@ impl ResolvedTarget {
         result
     }
 
-    fn publish_removal(&self, expected: FileIdentity) -> Result<Publication, MutationError> {
-        self.ensure_entry_identity(Some(expected))
-            .map_err(MutationError::before_publication)?;
-        unlink_at(&self.parent, &self.name, &self.display)
-            .map_err(MutationError::before_publication)?;
-        Ok(Publication::Absent)
-    }
-
     fn sync_parent(&self) -> Result<(), String> {
         sync_directory(&self.parent, &self.display)
     }
 
-    fn ensure_entry_identity(&self, expected: Option<FileIdentity>) -> Result<(), String> {
-        let current = self.entry_identity_optional()?;
-        if current == expected {
+    fn ensure_entry_absent(&self) -> Result<(), String> {
+        if self.entry_identity_optional()?.is_none() {
             Ok(())
         } else {
             Err(format!(
-                "bridge target changed after validation: {}",
+                "bridge target already exists and cannot be safely replaced: {}",
                 self.display.display()
             ))
         }
@@ -579,17 +550,6 @@ impl ResolvedTarget {
             device: stat.st_dev as u64,
             inode: stat.st_ino as u64,
         }))
-    }
-
-    #[cfg(test)]
-    fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
-        let current = self.snapshot_optional()?;
-        if create_only != current.is_none() {
-            return Err("test write creation mode did not match the target state".to_string());
-        }
-        self.publish_write(bytes, current.as_ref().map(|snapshot| snapshot.identity))
-            .map_err(|error| error.message)?;
-        self.sync_parent()
     }
 }
 
@@ -685,19 +645,6 @@ fn owned_file_descriptor(descriptor: libc::c_int, path: &Path) -> Result<File, S
 }
 
 #[cfg(unix)]
-fn unlink_at(parent: &File, name: &CStr, display: &Path) -> Result<(), String> {
-    let status = unsafe {
-        // SAFETY: parent owns a live descriptor and name is one child component.
-        libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0)
-    };
-    if status == 0 {
-        Ok(())
-    } else {
-        Err(io_error(display, std::io::Error::last_os_error()))
-    }
-}
-
-#[cfg(unix)]
 fn unlink_at_if_present(parent: &File, name: &CStr, display: &Path) -> Result<(), String> {
     let status = unsafe {
         // SAFETY: parent owns a live descriptor and name is one child component.
@@ -782,17 +729,7 @@ impl ResolvedTarget {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn publish_write(
-        &self,
-        _bytes: &[u8],
-        _expected: Option<FileIdentity>,
-    ) -> Result<Publication, MutationError> {
-        Err(MutationError::before_publication(
-            "bridge mutation requires descriptor-relative no-follow filesystem support".to_string(),
-        ))
-    }
-
-    fn publish_removal(&self, _expected: FileIdentity) -> Result<Publication, MutationError> {
+    fn publish_creation(&self, _bytes: &[u8]) -> Result<FileIdentity, MutationError> {
         Err(MutationError::before_publication(
             "bridge mutation requires descriptor-relative no-follow filesystem support".to_string(),
         ))
@@ -855,6 +792,9 @@ pub fn apply_bridge_plan(
         next_manifest
             .harnesses
             .insert(plan.harness_id.clone(), activation);
+        if manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest) {
+            return Ok(creation_only_review_result(&plan.harness_id));
+        }
         commit_files_and_manifest(
             &project_fs,
             manifest,
@@ -887,11 +827,24 @@ pub fn apply_bridge_plan(
         .harnesses
         .insert(plan.harness_id.clone(), activation);
     validate_manifest(&next_manifest)?;
+    if files_require_existing_entry_mutation(&files)
+        || manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest)
+    {
+        return Ok(creation_only_review_result(&plan.harness_id));
+    }
     let changed_paths = files
         .iter()
         .filter(|file| file.before != file.after)
         .map(|file| file.relative.clone())
         .collect::<Vec<_>>();
+    if changed_paths.is_empty() && next_manifest == current_manifest {
+        *manifest = current_manifest;
+        return Ok(BridgePlanResult {
+            state: applied_state(&plan.harness_id, plan.state),
+            changed_paths,
+            next_step: plan.next_step,
+        });
+    }
     commit_files_and_manifest(
         &project_fs,
         manifest,
@@ -920,6 +873,7 @@ pub fn preview_bridge_plan(
     validate_manifest(manifest)?;
     validate_plan(&plan)?;
     let project_fs = ProjectFs::open(project)?;
+    let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
     if matches!(
         plan.state,
         ActivationState::NeedsPlugin | ActivationState::Unsupported
@@ -930,27 +884,58 @@ pub fn preview_bridge_plan(
                 plan.harness_id, plan.state
             ));
         }
+        let mut next_manifest = current_manifest.clone();
+        let mut activation = next_manifest
+            .harnesses
+            .get(&plan.harness_id)
+            .cloned()
+            .unwrap_or(HarnessActivation {
+                state: plan.state,
+                adapter_capability: capability_for(&plan.harness_id)?,
+                bridge_path: None,
+                owned_files: Vec::new(),
+                managed_blocks: Vec::new(),
+            });
+        activation.state = plan.state;
+        activation.adapter_capability = capability_for(&plan.harness_id)?;
+        next_manifest
+            .harnesses
+            .insert(plan.harness_id.clone(), activation);
+        if manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest) {
+            return Ok(creation_only_review_result(&plan.harness_id));
+        }
         return Ok(BridgePlanResult {
             state: plan.state,
             changed_paths: Vec::new(),
             next_step: plan.next_step,
         });
     }
-    match prepare_apply(&project_fs, manifest, &plan, accept_managed_block)? {
+    match prepare_apply(&project_fs, &current_manifest, &plan, accept_managed_block)? {
         Preparation::Review { next_step } => Ok(BridgePlanResult {
             state: ActivationState::NeedsUserReview,
             changed_paths: Vec::new(),
             next_step,
         }),
-        Preparation::Ready { files, .. } => Ok(BridgePlanResult {
-            state: applied_state(&plan.harness_id, plan.state),
-            changed_paths: files
-                .into_iter()
-                .filter(|file| file.before != file.after)
-                .map(|file| file.relative)
-                .collect(),
-            next_step: plan.next_step,
-        }),
+        Preparation::Ready { files, activation } => {
+            let mut next_manifest = current_manifest.clone();
+            next_manifest
+                .harnesses
+                .insert(plan.harness_id.clone(), activation);
+            if files_require_existing_entry_mutation(&files)
+                || manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest)
+            {
+                return Ok(creation_only_review_result(&plan.harness_id));
+            }
+            Ok(BridgePlanResult {
+                state: applied_state(&plan.harness_id, plan.state),
+                changed_paths: files
+                    .into_iter()
+                    .filter(|file| file.before != file.after)
+                    .map(|file| file.relative)
+                    .collect(),
+                next_step: plan.next_step,
+            })
+        }
     }
 }
 
@@ -1053,6 +1038,11 @@ pub fn deactivate_bridge_plan(
         next.bridge_path = Some(first);
     }
 
+    if files_require_existing_entry_mutation(&files)
+        || manifest_update_requires_replacement(expected_persisted.as_ref(), &next_manifest)
+    {
+        return Ok(creation_only_review_result(harness_id));
+    }
     let changed_paths = files
         .iter()
         .filter(|file| file.before != file.after)
@@ -1853,6 +1843,16 @@ fn persist_manifest(
             "activation manifest changed concurrently; bridge update was not committed".to_string(),
         ));
     }
+    if before.is_some() {
+        if current.as_ref() == Some(manifest) {
+            // Preserve an already-valid manifest byte-for-byte. In particular,
+            // do not rewrite a user-formatted but semantically unchanged file.
+            return Ok(None);
+        }
+        return Err(CommitPreparedError::before_publication(
+            "activation manifest already exists and cannot be safely replaced".to_string(),
+        ));
+    }
     let prepared = PreparedFile {
         relative,
         before,
@@ -1871,6 +1871,18 @@ fn commit_files_and_manifest(
 ) -> Result<(), String> {
     project_fs.ensure_root_binding()?;
     ensure_expected_manifest(project_fs, expected_persisted)?;
+    if files_require_existing_entry_mutation(files) {
+        return Err(
+            "bridge writer will not replace or remove an existing final entry; explicit review is required"
+                .to_string(),
+        );
+    }
+    if manifest_update_requires_replacement(expected_persisted, &next_manifest) {
+        return Err(
+            "activation manifest already exists and cannot be safely replaced; explicit review is required"
+                .to_string(),
+        );
+    }
     let mut applied = Vec::new();
     for file in files.iter().filter(|file| file.before != file.after) {
         match commit_prepared_file(project_fs, file) {
@@ -1880,35 +1892,67 @@ fn commit_files_and_manifest(
                 if let Some(applied_file) = error.applied {
                     applied.push(*applied_file);
                 }
-                rollback_files(&applied);
-                *manifest = original_manifest.clone();
-                return Err(error.message);
+                if applied.is_empty() {
+                    *manifest = original_manifest.clone();
+                    return Err(error.message);
+                }
+                return Err(indeterminate_commit_error(
+                    manifest,
+                    original_manifest,
+                    &next_manifest,
+                    error.message,
+                    &applied,
+                ));
             }
         }
     }
     if let Err(error) = project_fs.ensure_root_binding() {
-        rollback_files(&applied);
-        *manifest = original_manifest.clone();
-        return Err(error);
+        if applied.is_empty() {
+            *manifest = original_manifest.clone();
+            return Err(error);
+        }
+        return Err(indeterminate_commit_error(
+            manifest,
+            original_manifest,
+            &next_manifest,
+            error,
+            &applied,
+        ));
     }
     let manifest_applied = match persist_manifest(project_fs, expected_persisted, &next_manifest) {
         Ok(applied_file) => applied_file,
         Err(error) => {
             if let Some(applied_file) = error.applied {
-                rollback_file(&applied_file);
+                applied.push(*applied_file);
             }
-            rollback_files(&applied);
-            *manifest = original_manifest.clone();
-            return Err(error.message);
+            if applied.is_empty() {
+                *manifest = original_manifest.clone();
+                return Err(error.message);
+            }
+            return Err(indeterminate_commit_error(
+                manifest,
+                original_manifest,
+                &next_manifest,
+                error.message,
+                &applied,
+            ));
         }
     };
     if let Err(error) = project_fs.ensure_root_binding() {
-        if let Some(applied_file) = &manifest_applied {
-            rollback_file(applied_file);
+        if let Some(applied_file) = manifest_applied {
+            applied.push(applied_file);
         }
-        rollback_files(&applied);
-        *manifest = original_manifest.clone();
-        return Err(error);
+        if applied.is_empty() {
+            *manifest = original_manifest.clone();
+            return Err(error);
+        }
+        return Err(indeterminate_commit_error(
+            manifest,
+            original_manifest,
+            &next_manifest,
+            error,
+            &applied,
+        ));
     }
     *manifest = next_manifest;
     Ok(())
@@ -1921,6 +1965,12 @@ fn commit_prepared_file(
     if file.before == file.after {
         return Ok(None);
     }
+    if file.before.is_some() || file.after.is_none() {
+        return Err(CommitPreparedError::before_publication(format!(
+            "bridge writer will not replace or remove an existing final entry: {}",
+            file.relative.display()
+        )));
+    }
     project_fs
         .ensure_root_binding()
         .map_err(CommitPreparedError::before_publication)?;
@@ -1930,31 +1980,28 @@ fn commit_prepared_file(
     let current = target
         .snapshot_optional()
         .map_err(CommitPreparedError::before_publication)?;
-    if current.as_ref().map(|snapshot| &snapshot.bytes) != file.before.as_ref() {
+    if current.is_some() {
         return Err(CommitPreparedError::before_publication(format!(
-            "bridge target changed after validation: {}",
+            "bridge target already exists and cannot be safely replaced: {}",
             file.relative.display()
         )));
     }
-    let expected = current.as_ref().map(|snapshot| snapshot.identity);
-    after_target_snapshot();
-    let publication = match &file.after {
-        Some(bytes) => target.publish_write(bytes, expected),
-        None => {
-            let expected = expected.ok_or_else(|| {
-                CommitPreparedError::before_publication(format!(
-                    "bridge target disappeared before removal: {}",
-                    file.relative.display()
-                ))
-            })?;
-            target.publish_removal(expected)
-        }
-    };
+    project_fs
+        .ensure_root_binding()
+        .map_err(CommitPreparedError::before_publication)?;
+    after_final_root_binding();
+    project_fs
+        .ensure_root_binding()
+        .map_err(CommitPreparedError::before_publication)?;
+    let bytes = file
+        .after
+        .as_deref()
+        .expect("creation-only file has desired bytes");
+    let publication = target.publish_creation(bytes);
     let publication = match publication {
         Ok(publication) => publication,
         Err(error) => {
             let applied = error.publication.map(|publication| AppliedFile {
-                prepared: file.clone(),
                 target,
                 publication,
             });
@@ -1965,7 +2012,6 @@ fn commit_prepared_file(
         }
     };
     let applied = AppliedFile {
-        prepared: file.clone(),
         target,
         publication,
     };
@@ -1975,46 +2021,59 @@ fn commit_prepared_file(
     Ok(Some(applied))
 }
 
-fn rollback_files(files: &[AppliedFile]) {
-    for file in files.iter().rev() {
-        rollback_file(file);
+/// Never roll a published path back: no POSIX primitive can condition that
+/// remove/replace on the exact published inode and bytes. A second directory
+/// sync is non-destructive and lets us surface a separate recovery durability
+/// failure without pretending the original in-memory manifest still matches
+/// disk.
+fn preserve_published_files(files: &[AppliedFile]) -> Result<(), String> {
+    let failures = files
+        .iter()
+        .rev()
+        .filter_map(|file| {
+            file.target.sync_parent().err().map(|error| {
+                format!(
+                    "{} (published inode {}:{})",
+                    error, file.publication.device, file.publication.inode
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
     }
 }
 
-fn rollback_file(file: &AppliedFile) {
-    let should_restore = match file.publication {
-        Publication::Present { identity } => file
-            .target
-            .snapshot_optional()
-            .map(|current| {
-                current.is_some_and(|current| {
-                    current.identity == identity
-                        && file.prepared.after.as_deref() == Some(current.bytes.as_slice())
-                })
-            })
-            .unwrap_or(false),
-        Publication::Absent => file
-            .target
-            .snapshot_optional()
-            .map(|current| current.is_none())
-            .unwrap_or(false),
-    };
-    if !should_restore {
-        return;
+fn indeterminate_manifest(
+    original: &ActivationManifest,
+    next: &ActivationManifest,
+) -> ActivationManifest {
+    let mut indeterminate = next.clone();
+    for (harness_id, activation) in &mut indeterminate.harnesses {
+        if original.harnesses.get(harness_id) != Some(activation) {
+            activation.state = ActivationState::NeedsUserReview;
+        }
     }
-    let expected = match file.publication {
-        Publication::Present { identity } => Some(identity),
-        Publication::Absent => None,
-    };
-    let restored = match &file.prepared.before {
-        Some(bytes) => file.target.publish_write(bytes, expected),
-        None => match expected {
-            Some(identity) => file.target.publish_removal(identity),
-            None => return,
-        },
-    };
-    if restored.is_ok() {
-        let _ = file.target.sync_parent();
+    indeterminate
+}
+
+fn indeterminate_commit_error(
+    manifest: &mut ActivationManifest,
+    original: &ActivationManifest,
+    next: &ActivationManifest,
+    primary_error: String,
+    applied: &[AppliedFile],
+) -> String {
+    *manifest = indeterminate_manifest(original, next);
+    match preserve_published_files(applied) {
+        Ok(()) => format!(
+            "{primary_error}; published bridge material was preserved because safe rollback is unavailable; bridge state is indeterminate and requires user review"
+        ),
+        Err(reconciliation_error) => format!(
+            "{primary_error}; recovery durability check also failed: {reconciliation_error}; published bridge material was preserved and bridge state is indeterminate"
+        ),
     }
 }
 
@@ -2054,6 +2113,34 @@ fn review_step(harness_id: &str) -> String {
         CODEX_RETRY.to_string()
     } else {
         format!("Review the existing {harness_id} bridge configuration before retrying activation.")
+    }
+}
+
+/// There is no portable POSIX operation that says "replace/remove this final
+/// pathname only if it is still this exact inode with these exact bytes".
+/// Keep the bridge writer creation-only until such a primitive is available.
+fn files_require_existing_entry_mutation(files: &[PreparedFile]) -> bool {
+    files
+        .iter()
+        .any(|file| file.before != file.after && (file.before.is_some() || file.after.is_none()))
+}
+
+/// The activation manifest is also a final entry. Treat its replacement with
+/// the same fail-closed boundary as a bridge file.
+fn manifest_update_requires_replacement(
+    persisted: Option<&ActivationManifest>,
+    next: &ActivationManifest,
+) -> bool {
+    persisted.is_some_and(|current| current != next)
+}
+
+fn creation_only_review_result(harness_id: &str) -> BridgePlanResult {
+    BridgePlanResult {
+        state: ActivationState::NeedsUserReview,
+        changed_paths: Vec::new(),
+        next_step: format!(
+            "Tree Ring will not replace or remove an existing {harness_id} bridge entry; review and reconcile it before retrying."
+        ),
     }
 }
 
@@ -2119,22 +2206,26 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
-    fn after_project_root_opened_for_test(action: impl FnOnce() + 'static) {
+    fn after_final_root_binding_for_test(action: impl FnOnce() + 'static) {
         TEST_MUTATION_HOOKS.with(|hooks| {
-            hooks.borrow_mut().after_project_root_opened = Some(Box::new(action));
+            hooks.borrow_mut().after_final_root_binding = Some(Box::new(action));
         });
     }
 
-    fn after_target_snapshot_for_test(action: impl FnOnce() + 'static) {
+    fn after_final_target_validation_for_test(action: impl FnOnce() + 'static) {
         TEST_MUTATION_HOOKS.with(|hooks| {
-            hooks.borrow_mut().after_target_snapshot = Some(Box::new(action));
+            hooks.borrow_mut().after_final_target_validation = Some(Box::new(action));
         });
     }
 
     fn fail_directory_sync_at_for_test(number: usize) {
+        fail_directory_syncs_at_for_test(&[number]);
+    }
+
+    fn fail_directory_syncs_at_for_test(numbers: &[usize]) {
         TEST_MUTATION_HOOKS.with(|hooks| {
             let mut hooks = hooks.borrow_mut();
-            hooks.fail_directory_sync_at = Some(number);
+            hooks.fail_directory_sync_at = numbers.to_vec();
             hooks.directory_syncs = 0;
         });
     }
@@ -2217,25 +2308,19 @@ mod tests {
     }
 
     #[test]
-    fn accepted_agents_block_preserves_unrelated_text_and_records_exact_block_id() {
+    fn accepted_agents_block_requires_review_when_the_final_file_already_exists() {
         let (_temp, project, mut manifest) = fixture();
         write(project.project_root.join("AGENTS.md"), "# Team contract\n");
 
-        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
-        let agents = read(project.project_root.join("AGENTS.md"));
-        let serialized = serde_json::to_value(&manifest).unwrap();
-        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
+        let result =
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
 
-        assert!(agents.starts_with("# Team contract\n"));
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert_eq!(
-            agents.matches("<!-- tree-ring:begin codex v1 -->").count(),
-            1
+            read(project.project_root.join("AGENTS.md")),
+            "# Team contract\n"
         );
-        assert_eq!(agents.matches("<!-- tree-ring:end codex -->").count(), 1);
-        assert_eq!(
-            serialized["harnesses"]["codex"]["managed_blocks"][0]["block_id"],
-            "codex"
-        );
+        assert!(manifest.harnesses.is_empty());
     }
 
     #[test]
@@ -2255,7 +2340,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_settings_merge_preserves_every_unrelated_json_value_exactly() {
+    fn claude_settings_merge_is_planned_but_existing_json_is_never_replaced() {
         let (_temp, project, mut manifest) = fixture();
         let settings_path = project.project_root.join(".claude/settings.json");
         let original = json!({
@@ -2268,16 +2353,7 @@ mod tests {
             &serde_json::to_string_pretty(&original).unwrap(),
         );
 
-        apply_bridge_plan(
-            &project,
-            &mut manifest,
-            plan("claude-code", &project),
-            false,
-        )
-        .unwrap();
-        let merged: Value = serde_json::from_str(&read(&settings_path)).unwrap();
-        let first_bytes = read(&settings_path);
-        let retry = apply_bridge_plan(
+        let result = apply_bridge_plan(
             &project,
             &mut manifest,
             plan("claude-code", &project),
@@ -2285,24 +2361,15 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(merged["permissions"], original["permissions"]);
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert_eq!(
-            merged["hooks"]["PreToolUse"],
-            original["hooks"]["PreToolUse"]
+            serde_json::from_str::<Value>(&read(&settings_path)).unwrap(),
+            original
         );
-        assert_eq!(merged["custom"], original["custom"]);
-        let session_hooks = merged["hooks"]["SessionStart"].as_array().unwrap();
-        assert_eq!(session_hooks.len(), 1);
-        assert_eq!(
-            session_hooks[0]["hooks"][0]["description"],
-            "Tree Ring Memory managed preflight v1"
-        );
-        assert_eq!(
-            session_hooks[0]["hooks"][0]["command"],
-            "tree-ring --root .tree-ring integrations preflight --harness claude-code --input-json-stdin --context-format claude-session-start"
-        );
-        assert!(retry.changed_paths.is_empty());
-        assert_eq!(read(settings_path), first_bytes);
+        assert!(!project
+            .project_root
+            .join(".claude/skills/tree-ring-memory/SKILL.md")
+            .exists());
     }
 
     #[test]
@@ -2395,6 +2462,7 @@ mod tests {
             .join(".tree-ring/activation/agent-zero.json")
             .exists());
 
+        let (_temp, project, mut manifest) = fixture();
         apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
         let binding: Value = serde_json::from_str(&read(
             project
@@ -2413,18 +2481,18 @@ mod tests {
     }
 
     #[test]
-    fn deactivation_preserves_non_tree_ring_text_canonical_store_and_receipts() {
+    fn creation_only_review_preserves_non_tree_ring_text_canonical_store_and_receipts() {
         let (_temp, project, mut manifest) = fixture();
         write(project.project_root.join("AGENTS.md"), "# Team contract\n");
-        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
         let receipt_path = project
             .memory_root
             .join("activation/receipts/codex/worker/receipt.json");
         write(&receipt_path, "{}\n");
 
-        let result = deactivate_bridge_plan(&project, &mut manifest, "codex").unwrap();
+        let result =
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
 
-        assert_eq!(result.state, ActivationState::ConfiguredAwaitingProof);
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert_eq!(
             read(project.project_root.join("AGENTS.md")),
             "# Team contract\n"
@@ -2433,12 +2501,12 @@ mod tests {
         assert!(project.memory_root.join("AGENTS.md").exists());
         assert!(project.memory_root.join("SKILL.md").exists());
         assert!(project.memory_root.join("CLI.md").exists());
-        assert!(project.memory_root.join("activation.json").exists());
+        assert!(!project.memory_root.join("activation.json").exists());
         assert!(!project
             .project_root
             .join(".agents/skills/tree-ring-memory/SKILL.md")
             .exists());
-        assert!(manifest.harnesses.contains_key("codex"));
+        assert!(manifest.harnesses.is_empty());
     }
 
     #[test]
@@ -2476,20 +2544,19 @@ mod tests {
     }
 
     #[test]
-    fn shared_skill_file_survives_deactivation_of_one_recorded_owner() {
+    fn creation_only_deactivation_preserves_recorded_bridge_material_for_review() {
         let (_temp, project, mut manifest) = fixture();
         apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
-        apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap();
 
         let result = deactivate_bridge_plan(&project, &mut manifest, "codex").unwrap();
 
-        assert_eq!(result.state, ActivationState::ConfiguredAwaitingProof);
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert!(project
             .project_root
             .join(".agents/skills/tree-ring-memory/SKILL.md")
             .exists());
-        assert!(!project.project_root.join("AGENTS.md").exists());
-        assert!(manifest.harnesses["codex"].owned_files.is_empty());
+        assert!(project.project_root.join("AGENTS.md").exists());
+        assert!(!manifest.harnesses["codex"].owned_files.is_empty());
     }
 
     #[test]
@@ -2618,7 +2685,8 @@ mod tests {
     }
 
     #[test]
-    fn agent_zero_missing_plugin_preserves_the_owned_binding_for_safe_deactivation() {
+    fn agent_zero_missing_plugin_preserves_the_owned_binding_when_manifest_replacement_is_refused()
+    {
         let (_temp, project, mut manifest) = fixture();
         apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
         let binding = project
@@ -2630,7 +2698,7 @@ mod tests {
             apply_bridge_plan(&project, &mut manifest, plan("agent-zero", &project), false)
                 .unwrap();
 
-        assert_eq!(result.state, ActivationState::NeedsPlugin);
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert!(binding.exists());
         assert_eq!(manifest.harnesses["agent-zero"].owned_files, ownership);
         assert_eq!(
@@ -2643,15 +2711,6 @@ mod tests {
     fn missing_formerly_owned_agents_and_claude_settings_require_review_without_recreation() {
         let (_temp, project, mut manifest) = fixture();
         apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
-        fs::remove_file(project.project_root.join("AGENTS.md")).unwrap();
-        let result =
-            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
-        assert_eq!(result.state, ActivationState::NeedsUserReview);
-        assert!(!project.project_root.join("AGENTS.md").exists());
-
-        let (_temp, project, mut manifest) = fixture();
-        write(project.project_root.join("AGENTS.md"), "# Team\n");
-        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
         fs::remove_file(project.project_root.join("AGENTS.md")).unwrap();
         let result =
             apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
@@ -2676,31 +2735,10 @@ mod tests {
         .unwrap();
         assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert!(!project.project_root.join(".claude/settings.json").exists());
-
-        let (_temp, project, mut manifest) = fixture();
-        let settings = project.project_root.join(".claude/settings.json");
-        write(&settings, "{\"permissions\": {\"allow\": [\"Read\"]}}");
-        apply_bridge_plan(
-            &project,
-            &mut manifest,
-            plan("claude-code", &project),
-            false,
-        )
-        .unwrap();
-        fs::remove_file(&settings).unwrap();
-        let result = apply_bridge_plan(
-            &project,
-            &mut manifest,
-            plan("claude-code", &project),
-            false,
-        )
-        .unwrap();
-        assert_eq!(result.state, ActivationState::NeedsUserReview);
-        assert!(!settings.exists());
     }
 
     #[test]
-    fn claude_only_recognizes_handlers_in_the_exact_session_start_hook_location() {
+    fn claude_only_plans_handlers_in_the_exact_session_start_hook_location() {
         let (_temp, project, mut manifest) = fixture();
         let settings = project.project_root.join(".claude/settings.json");
         write(
@@ -2712,7 +2750,7 @@ mod tests {
             .unwrap(),
         );
 
-        apply_bridge_plan(
+        let result = apply_bridge_plan(
             &project,
             &mut manifest,
             plan("claude-code", &project),
@@ -2721,8 +2759,9 @@ mod tests {
         .unwrap();
         let merged: Value = serde_json::from_str(&read(&settings)).unwrap();
 
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
         assert_eq!(merged["custom"], claude_handler());
-        assert_eq!(merged["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+        assert_eq!(merged["hooks"]["SessionStart"].as_array().unwrap().len(), 0);
 
         let (_temp, project, mut manifest) = fixture();
         let settings = project.project_root.join(".claude/settings.json");
@@ -2744,7 +2783,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_disjoint_activations_merge_both_manifest_records() {
+    fn concurrent_disjoint_activations_preserve_the_published_manifest_and_review_the_second() {
         let (_temp, project, manifest) = fixture();
         let barrier = Arc::new(Barrier::new(2));
         let mut workers = Vec::new();
@@ -2755,39 +2794,37 @@ mod tests {
             workers.push(thread::spawn(move || {
                 let adapter_plan = plan(harness, &project);
                 barrier.wait();
-                apply_bridge_plan(&project, &mut worker_manifest, adapter_plan, false).unwrap();
+                apply_bridge_plan(&project, &mut worker_manifest, adapter_plan, false).unwrap()
             }));
         }
-        for worker in workers {
-            worker.join().unwrap();
-        }
+        let states = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().state)
+            .collect::<Vec<_>>();
 
         let persisted = crate::activation::load_manifest(&project.memory_root).unwrap();
-        assert!(persisted.harnesses.contains_key("codex"));
-        assert!(persisted.harnesses.contains_key("pi"));
+        assert_eq!(persisted.harnesses.len(), 1);
+        assert!(states.contains(&ActivationState::NeedsUserReview));
     }
 
     #[cfg(unix)]
     #[test]
-    fn descriptor_relative_commit_and_rollback_ignore_a_replaced_parent_path() {
+    fn creation_only_publication_stays_on_the_retained_parent_descriptor() {
         use std::os::unix::fs::symlink;
 
         let (_temp, project, _manifest) = fixture();
-        let target_path = project
-            .project_root
-            .join(".agents/skills/tree-ring-memory/SKILL.md");
-        write(&target_path, "before\n");
+        fs::create_dir_all(project.project_root.join(".agents/skills/tree-ring-memory")).unwrap();
         let project_fs = ProjectFs::open(&project).unwrap();
         let target = project_fs
             .resolve_target(Path::new(".agents/skills/tree-ring-memory/SKILL.md"), false)
             .unwrap();
-        target.atomic_write(b"committed\n", false).unwrap();
-
         let parked = project.project_root.join(".agents-parked");
         fs::rename(project.project_root.join(".agents"), &parked).unwrap();
         let outside = tempfile::tempdir().unwrap();
         symlink(outside.path(), project.project_root.join(".agents")).unwrap();
-        target.atomic_write(b"before\n", false).unwrap();
+
+        target.publish_creation(b"tree-ring\n").unwrap();
+        target.sync_parent().unwrap();
 
         assert!(!outside
             .path()
@@ -2795,62 +2832,64 @@ mod tests {
             .exists());
         assert_eq!(
             read(parked.join("skills/tree-ring-memory/SKILL.md")),
-            "before\n"
+            "tree-ring\n"
         );
     }
 
     #[test]
-    fn pi_deactivation_and_no_record_state_remain_needs_trust() {
+    fn pi_deactivation_keeps_needs_trust_when_creation_only_safety_requires_review() {
         let (_temp, project, mut manifest) = fixture();
         let absent = deactivate_bridge_plan(&project, &mut manifest, "pi").unwrap();
         assert_eq!(absent.state, ActivationState::NeedsTrust);
 
         apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap();
         let deactivated = deactivate_bridge_plan(&project, &mut manifest, "pi").unwrap();
-        assert_eq!(deactivated.state, ActivationState::NeedsTrust);
+        assert_eq!(deactivated.state, ActivationState::NeedsUserReview);
         assert_eq!(manifest.harnesses["pi"].state, ActivationState::NeedsTrust);
     }
 
     #[test]
-    fn codex_deactivation_preserves_preexisting_trailing_blank_lines_exactly() {
+    fn codex_block_removal_keeps_preexisting_trailing_blank_lines_exactly() {
         for original in ["# Team\n", "# Team\n\n", "# Team\n\n\n"] {
-            let (_temp, project, mut manifest) = fixture();
-            write(project.project_root.join("AGENTS.md"), original);
-            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
-
-            deactivate_bridge_plan(&project, &mut manifest, "codex").unwrap();
-
-            assert_eq!(read(project.project_root.join("AGENTS.md")), original);
+            let block = markdown_block("codex");
+            let (with_block, separator) = append_markdown_block(original, &block);
+            let removed = remove_markdown_block(
+                with_block.as_bytes(),
+                "codex",
+                &sha256(block.as_bytes()),
+                &separator,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(String::from_utf8(removed).unwrap(), original);
         }
     }
 
     #[cfg(unix)]
     #[test]
-    fn final_entry_replacement_after_snapshot_is_never_followed_or_overwritten() {
+    fn final_entry_replacement_at_create_publication_is_never_followed_or_overwritten() {
         use std::os::unix::fs::symlink;
 
         let (_temp, project, _manifest) = fixture();
         let target_path = project.project_root.join("managed-target");
-        write(&target_path, "before\n");
         let outside = tempfile::tempdir().unwrap();
         let outside_marker = outside.path().join("must-not-change");
         write(&outside_marker, "outside\n");
         let project_fs = ProjectFs::open(&project).unwrap();
         let prepared = PreparedFile {
             relative: PathBuf::from("managed-target"),
-            before: Some(b"before\n".to_vec()),
+            before: None,
             after: Some(b"tree-ring\n".to_vec()),
         };
         let replacement = target_path.clone();
-        let outside_path = outside.path().to_path_buf();
-        after_target_snapshot_for_test(move || {
-            fs::remove_file(&replacement).unwrap();
+        let outside_path = outside_marker.clone();
+        after_final_target_validation_for_test(move || {
             symlink(&outside_path, &replacement).unwrap();
         });
 
         let error = commit_prepared_file(&project_fs, &prepared).unwrap_err();
 
-        assert!(error.message.contains("changed") || error.message.contains("regular file"));
+        assert!(error.message.contains("File exists"));
         assert!(fs::symlink_metadata(&target_path)
             .unwrap()
             .file_type()
@@ -2858,46 +2897,33 @@ mod tests {
         assert_eq!(read(outside_marker), "outside\n");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn final_entry_replacement_after_snapshot_is_never_removed() {
-        use std::os::unix::fs::symlink;
-
+    fn existing_entry_replacement_and_removal_are_refused_before_publication() {
         let (_temp, project, _manifest) = fixture();
         let target_path = project.project_root.join("managed-target");
         write(&target_path, "before\n");
-        let outside = tempfile::tempdir().unwrap();
-        let outside_marker = outside.path().join("must-not-change");
-        write(&outside_marker, "outside\n");
         let project_fs = ProjectFs::open(&project).unwrap();
-        let prepared = PreparedFile {
-            relative: PathBuf::from("managed-target"),
-            before: Some(b"before\n".to_vec()),
-            after: None,
-        };
-        let replacement = target_path.clone();
-        let outside_path = outside.path().to_path_buf();
-        after_target_snapshot_for_test(move || {
-            fs::remove_file(&replacement).unwrap();
-            symlink(&outside_path, &replacement).unwrap();
-        });
-
-        let error = commit_prepared_file(&project_fs, &prepared).unwrap_err();
-
-        assert!(error.message.contains("changed") || error.message.contains("regular file"));
-        assert!(fs::symlink_metadata(&target_path)
-            .unwrap()
-            .file_type()
-            .is_symlink());
-        assert_eq!(read(outside_marker), "outside\n");
+        for after in [Some(b"tree-ring\n".to_vec()), None] {
+            let error = commit_prepared_file(
+                &project_fs,
+                &PreparedFile {
+                    relative: PathBuf::from("managed-target"),
+                    before: Some(b"before\n".to_vec()),
+                    after,
+                },
+            )
+            .unwrap_err();
+            assert!(error.message.contains("will not replace or remove"));
+            assert_eq!(read(&target_path), "before\n");
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn root_swap_after_open_is_rejected_without_following_the_replacement() {
+    fn root_swap_after_final_binding_aborts_before_create_publication() {
         use std::os::unix::fs::symlink;
 
-        let (_temp, project, mut manifest) = fixture();
+        let (_temp, project, _manifest) = fixture();
         let root = project.project_root.clone();
         let parked = root
             .parent()
@@ -2906,133 +2932,110 @@ mod tests {
         let parked_for_hook = parked.clone();
         let outside = tempfile::tempdir().unwrap();
         let outside_path = outside.path().to_path_buf();
-        after_project_root_opened_for_test(move || {
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let prepared = PreparedFile {
+            relative: PathBuf::from("root-race-target"),
+            before: None,
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        after_final_root_binding_for_test(move || {
             fs::rename(&root, &parked_for_hook).unwrap();
             symlink(&outside_path, &root).unwrap();
         });
 
-        let error =
-            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap_err();
+        let error = commit_prepared_file(&project_fs, &prepared).unwrap_err();
 
-        assert!(error.contains("project root changed"));
-        assert!(!outside.path().join(".agents").exists());
-        assert!(!outside.path().join("AGENTS.md").exists());
-        assert!(!outside.path().join(".tree-ring/activation.json").exists());
+        assert!(error.message.contains("project root changed"));
+        assert!(!outside.path().join("root-race-target").exists());
+        assert!(!parked.join("root-race-target").exists());
         fs::remove_file(&project.project_root).unwrap();
         fs::remove_dir_all(parked).unwrap();
     }
 
     #[test]
-    fn rollback_preserves_a_user_edit_after_tree_ring_publication() {
+    fn preservation_after_publication_never_overwrites_a_user_edit() {
         let (_temp, project, _manifest) = fixture();
-        let target_path = project.project_root.join("managed-target");
-        write(&target_path, "before\n");
+        let target_path = project.project_root.join("created-target");
         let project_fs = ProjectFs::open(&project).unwrap();
         let prepared = PreparedFile {
-            relative: PathBuf::from("managed-target"),
-            before: Some(b"before\n".to_vec()),
+            relative: PathBuf::from("created-target"),
+            before: None,
             after: Some(b"tree-ring\n".to_vec()),
         };
         let applied = commit_prepared_file(&project_fs, &prepared)
             .unwrap()
-            .expect("the file changed");
+            .expect("the file was created");
         write(&target_path, "user edit\n");
 
-        rollback_files(&[applied]);
+        preserve_published_files(&[applied]).unwrap();
 
         assert_eq!(read(target_path), "user edit\n");
     }
 
     #[test]
-    fn linkat_publication_with_failed_directory_sync_is_rolled_back() {
+    fn bridge_sync_failure_preserves_publication_and_marks_manifest_indeterminate() {
         let (_temp, project, mut manifest) = fixture();
-        let project_fs = ProjectFs::open(&project).unwrap();
-        let original = manifest.clone();
-        let file = PreparedFile {
-            relative: PathBuf::from("sync-link-target"),
-            before: None,
-            after: Some(b"tree-ring\n".to_vec()),
-        };
         fail_directory_sync_at_for_test(1);
 
-        let error = commit_files_and_manifest(
-            &project_fs,
-            &mut manifest,
-            &original,
-            None,
-            original.clone(),
-            &[file],
-        )
-        .unwrap_err();
+        let error =
+            apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap_err();
 
         assert!(error.contains("injected directory sync failure"));
-        assert!(!project.project_root.join("sync-link-target").exists());
+        assert!(error.contains("indeterminate"));
+        assert!(project
+            .project_root
+            .join(".agents/skills/tree-ring-memory/SKILL.md")
+            .exists());
+        assert_eq!(
+            manifest.harnesses["pi"].state,
+            ActivationState::NeedsUserReview
+        );
         assert!(!project.memory_root.join("activation.json").exists());
-        assert_eq!(manifest, original);
     }
 
     #[test]
-    fn renameat_publication_with_failed_directory_sync_is_rolled_back() {
+    fn bridge_sync_and_recovery_sync_failures_are_both_reported_without_resetting_manifest() {
         let (_temp, project, mut manifest) = fixture();
-        let target_path = project.project_root.join("sync-rename-target");
-        write(&target_path, "before\n");
-        let project_fs = ProjectFs::open(&project).unwrap();
-        let original = manifest.clone();
-        let file = PreparedFile {
-            relative: PathBuf::from("sync-rename-target"),
-            before: Some(b"before\n".to_vec()),
-            after: Some(b"tree-ring\n".to_vec()),
-        };
-        fail_directory_sync_at_for_test(1);
+        fail_directory_syncs_at_for_test(&[1, 2]);
 
-        let error = commit_files_and_manifest(
-            &project_fs,
-            &mut manifest,
-            &original,
-            None,
-            original.clone(),
-            &[file],
-        )
-        .unwrap_err();
+        let error =
+            apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap_err();
 
-        assert!(error.contains("injected directory sync failure"));
-        assert_eq!(read(target_path), "before\n");
-        assert!(!project.memory_root.join("activation.json").exists());
-        assert_eq!(manifest, original);
+        assert_eq!(error.matches("injected directory sync failure").count(), 2);
+        assert!(error.contains("recovery durability check also failed"));
+        assert!(project
+            .project_root
+            .join(".agents/skills/tree-ring-memory/SKILL.md")
+            .exists());
+        assert_eq!(
+            manifest.harnesses["pi"].state,
+            ActivationState::NeedsUserReview
+        );
     }
 
     #[test]
-    fn unlinkat_publication_with_failed_directory_sync_is_rolled_back() {
+    fn manifest_sync_and_recovery_sync_failures_preserve_published_manifest_and_mark_memory_review()
+    {
         let (_temp, project, mut manifest) = fixture();
-        let target_path = project.project_root.join("sync-unlink-target");
-        write(&target_path, "before\n");
-        let project_fs = ProjectFs::open(&project).unwrap();
-        let original = manifest.clone();
-        let file = PreparedFile {
-            relative: PathBuf::from("sync-unlink-target"),
-            before: Some(b"before\n".to_vec()),
-            after: None,
-        };
-        fail_directory_sync_at_for_test(1);
+        // Pi publishes two bridge entries before the activation manifest.
+        fail_directory_syncs_at_for_test(&[3, 4]);
 
-        let error = commit_files_and_manifest(
-            &project_fs,
-            &mut manifest,
-            &original,
-            None,
-            original.clone(),
-            &[file],
-        )
-        .unwrap_err();
+        let error =
+            apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap_err();
 
-        assert!(error.contains("injected directory sync failure"));
-        assert_eq!(read(target_path), "before\n");
-        assert!(!project.memory_root.join("activation.json").exists());
-        assert_eq!(manifest, original);
+        assert_eq!(error.matches("injected directory sync failure").count(), 2);
+        assert!(error.contains("recovery durability check also failed"));
+        assert!(project.memory_root.join("activation.json").exists());
+        assert_eq!(
+            manifest.harnesses["pi"].state,
+            ActivationState::NeedsUserReview
+        );
+        let on_disk = crate::activation::load_manifest(&project.memory_root).unwrap();
+        assert_eq!(on_disk.harnesses["pi"].state, ActivationState::NeedsTrust);
     }
 
     #[test]
-    fn late_manifest_sync_failure_restores_published_manifest_and_bridge_file() {
+    fn existing_manifest_replacement_is_refused_without_changing_disk_or_memory() {
         let (_temp, project, mut manifest) = fixture();
         let original = manifest.clone();
         let original_bytes = serde_json::to_vec_pretty(&original).unwrap();
@@ -3040,12 +3043,6 @@ mod tests {
         let project_fs = ProjectFs::open(&project).unwrap();
         let mut next = original.clone();
         next.cli_version = "0.14.0-test".to_string();
-        let file = PreparedFile {
-            relative: PathBuf::from("sync-manifest-target"),
-            before: None,
-            after: Some(b"tree-ring\n".to_vec()),
-        };
-        fail_directory_sync_at_for_test(2);
 
         let error = commit_files_and_manifest(
             &project_fs,
@@ -3053,12 +3050,11 @@ mod tests {
             &original,
             Some(&original),
             next,
-            &[file],
+            &[],
         )
         .unwrap_err();
 
-        assert!(error.contains("injected directory sync failure"));
-        assert!(!project.project_root.join("sync-manifest-target").exists());
+        assert!(error.contains("cannot be safely replaced"));
         assert_eq!(
             fs::read(project.memory_root.join("activation.json")).unwrap(),
             original_bytes
