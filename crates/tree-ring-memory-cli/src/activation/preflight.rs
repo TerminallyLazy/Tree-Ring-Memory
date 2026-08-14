@@ -1,5 +1,8 @@
 use super::{
-    adapters::{adapter_capability, adapter_version, ActivationProject},
+    adapters::{
+        adapter_capability, adapter_version, agent_zero_plugin_manifest_for_project,
+        ActivationProject,
+    },
     bridge::ProjectFs,
     manifest::{
         bridge_fingerprint, fingerprint, fingerprint_path,
@@ -329,7 +332,11 @@ fn prepare_preflight_contract(
 ) -> Result<PreflightSnapshot, ActivationError> {
     let _manifest_lock = project_fs.lock_manifest().map_err(storage_error)?;
     let persisted = load_manifest_locked(project_fs).map_err(storage_error)?;
-    let contract = current_activation_contract(&persisted, &request.harness_id)?;
+    let contract = current_activation_contract(
+        &persisted,
+        &request.harness_id,
+        verified_agent_zero_plugin(project, request),
+    )?;
     invalidate_current_receipts(project_fs, &persisted, &request.harness_id, &contract)?;
     ensure_current_and_eligible(project_fs, &request.harness_id, &contract)?;
     let state = match preflight_state(project, &persisted) {
@@ -369,7 +376,11 @@ fn commit_receipt(
     let _manifest_lock = project_fs.lock_manifest().map_err(storage_error)?;
     let persisted = load_manifest_locked(project_fs).map_err(storage_error)?;
     ensure_store_path_matches(store, project)?;
-    let contract = current_activation_contract(&persisted, &request.harness_id)?;
+    let contract = current_activation_contract(
+        &persisted,
+        &request.harness_id,
+        verified_agent_zero_plugin(project, request),
+    )?;
     invalidate_current_receipts(project_fs, &persisted, &request.harness_id, &contract)?;
     ensure_current_and_eligible(project_fs, &request.harness_id, &contract)?;
     let state = match preflight_state(project, &persisted) {
@@ -407,6 +418,7 @@ fn commit_receipt(
 fn current_activation_contract(
     manifest: &ActivationManifest,
     harness_id: &str,
+    verified_agent_zero_plugin: bool,
 ) -> Result<CurrentActivationContract, ActivationError> {
     let activation = manifest
         .harnesses
@@ -425,17 +437,44 @@ fn current_activation_contract(
         manifest_matches_registry: activation.adapter_capability == adapter_capability
             && activation.adapter_version == adapter_version
             && activation.bridge_fingerprint == bridge_fingerprint,
-        eligible_for_preflight: matches!(
-            activation.state,
-            ActivationState::ConfiguredAwaitingProof
-                | ActivationState::NeedsTrust
-                | ActivationState::Active
-                | ActivationState::ActiveIsolated
-        ),
+        eligible_for_preflight: if harness_id == "agent-zero" {
+            // Agent Zero cannot inherit eligibility from a historical
+            // configured record. Its separately installed plugin must be
+            // presently verifiable, and only the passive core-owned binding
+            // may cross this bootstrap boundary.
+            verified_agent_zero_plugin && passive_agent_zero_activation(harness_id, activation)
+        } else {
+            matches!(
+                activation.state,
+                ActivationState::ConfiguredAwaitingProof
+                    | ActivationState::NeedsTrust
+                    | ActivationState::Active
+                    | ActivationState::ActiveIsolated
+            )
+        },
         adapter_capability,
         adapter_version,
         bridge_fingerprint,
     })
+}
+
+fn verified_agent_zero_plugin(project: &ActivationProject, request: &PreflightRequest) -> bool {
+    request.harness_id == "agent-zero"
+        && agent_zero_plugin_manifest_for_project(&project.project_root).is_some()
+}
+
+fn passive_agent_zero_activation(
+    harness_id: &str,
+    activation: &crate::activation::manifest::HarnessActivation,
+) -> bool {
+    harness_id == "agent-zero"
+        && activation.state == ActivationState::NeedsPlugin
+        && activation.bridge_path.as_deref() == Some(".tree-ring/activation/agent-zero.json")
+        && activation.managed_blocks.is_empty()
+        && matches!(
+            activation.owned_files.as_slice(),
+            [owned] if owned.path == ".tree-ring/activation/agent-zero.json"
+        )
 }
 
 fn invalidate_current_receipts(
@@ -1369,7 +1408,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let mounted_root = temp.path().join("mounted-project");
         fs::create_dir_all(&mounted_root).unwrap();
-        let isolated_project_root = temp.path().join("agent-zero-store");
+        let isolated_project_root = temp.path().join("pi-store");
         let memory_root = isolated_project_root.join(".tree-ring");
         fs::create_dir_all(&memory_root).unwrap();
         let project = ActivationProject {
@@ -1377,44 +1416,44 @@ mod tests {
             memory_root: memory_root.clone(),
         };
         let mut activation = HarnessActivation {
-            state: ActivationState::ConfiguredAwaitingProof,
+            state: ActivationState::NeedsTrust,
             adapter_capability: AdapterCapability::NativePreflight,
             adapter_version: "1".to_string(),
             bridge_fingerprint: String::new(),
-            bridge_path: Some(".tree-ring/activation/agent-zero.json".to_string()),
+            bridge_path: Some(".pi/extensions/tree-ring-memory.ts".to_string()),
             owned_files: vec![OwnedBridgeFile {
-                path: ".tree-ring/activation/agent-zero.json".to_string(),
+                path: ".pi/extensions/tree-ring-memory.ts".to_string(),
                 sha256: "e".repeat(64),
             }],
             managed_blocks: Vec::new(),
         };
-        activation.bridge_fingerprint = bridge_fingerprint("agent-zero", &activation);
+        activation.bridge_fingerprint = bridge_fingerprint("pi", &activation);
         let manifest = ActivationManifest {
             schema_version: ACTIVATION_SCHEMA_VERSION,
             protocol_version: ACTIVATION_PROTOCOL_VERSION,
             store_id: "isolated-store".to_string(),
             project_root_fingerprint: project_fingerprint(&isolated_project_root),
             cli_version: env!("CARGO_PKG_VERSION").to_string(),
-            harnesses: BTreeMap::from([("agent-zero".to_string(), activation)]),
+            harnesses: BTreeMap::from([("pi".to_string(), activation)]),
         };
         save_manifest(&memory_root, &manifest).unwrap();
         let mut store = SQLiteMemoryStore::open(memory_root.join("memory.sqlite")).unwrap();
         let mut local = MemoryEvent::new("isolated local startup constraint", "lesson").unwrap();
-        local.project = Some("agent-zero-store".to_string());
-        local.agent_profile = Some("agent-zero".to_string());
+        local.project = Some("pi-store".to_string());
+        local.agent_profile = Some("pi".to_string());
         local.workflow_id = Some("workflow-1".to_string());
         local.session_id = Some("session-1".to_string());
         local.scope = "agent".to_string();
         store.put(&local).unwrap();
         let request = PreflightRequest::adapter_stdin(
-            "agent-zero",
+            "pi",
             SessionIdentity {
-                agent_profile: "agent-zero".to_string(),
+                agent_profile: "pi".to_string(),
                 workflow_id: "workflow-1".to_string(),
                 session_id: "session-1".to_string(),
             },
             None,
-            PreflightContextFormat::Json,
+            PreflightContextFormat::PiBeforeAgentStart,
         );
 
         let response = run_preflight(&store, &project, &manifest, request).unwrap();

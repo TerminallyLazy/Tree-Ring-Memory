@@ -235,6 +235,23 @@ fn init_preflight_status_and_certify_prove_same_store_workers_without_private_re
     assert_manifest_contracts(&root);
     let before_proof_status = integration_status(&root, &project, &empty_path);
     assert_status_state(&before_proof_status, "agent-zero", "needs-plugin");
+    let no_plugin_agent_zero = json!({
+        "agent_profile": "agent-zero-worker",
+        "workflow_id": WORKFLOW_ID,
+        "session_id": "agent-zero-session"
+    });
+    let no_plugin_preflight = adapter_preflight_output(
+        &root,
+        &project,
+        &empty_path,
+        "agent-zero",
+        "json",
+        &no_plugin_agent_zero,
+    );
+    assert!(!no_plugin_preflight.status.success());
+    assert!(String::from_utf8_lossy(&no_plugin_preflight.stderr)
+        .contains("harness activation state is not eligible"));
+    assert!(receipt_documents(&root).is_empty());
 
     seed_for_identity(
         &root,
@@ -416,6 +433,82 @@ fn init_preflight_status_and_certify_prove_same_store_workers_without_private_re
 }
 
 #[test]
+fn agent_zero_plugin_descriptor_bootstraps_passive_binding_then_receipt_backed_active_status() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("agent-zero-project");
+    let empty_path = temp.path().join("empty-path");
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir_all(&empty_path).unwrap();
+    let descriptor = install_agent_zero_plugin(temp.path());
+    let root = project.join(".tree-ring");
+
+    let init = tree_ring(&root, &project, &empty_path)
+        .env("TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST", &descriptor)
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_success("Agent Zero descriptor init", &init);
+    let init = output_json("Agent Zero descriptor init", &init);
+    assert_eq!(
+        record_by_id(&init["integrations"], "agent-zero")["state"],
+        "configured-awaiting-proof"
+    );
+
+    let activation = &manifest(&root)["harnesses"]["agent-zero"];
+    assert_eq!(activation["state"], "needs-plugin");
+    assert_eq!(
+        activation["bridge_path"],
+        ".tree-ring/activation/agent-zero.json"
+    );
+    assert!(root.join("activation/agent-zero.json").is_file());
+
+    // Re-running init is a no-replacement operation over the owned passive
+    // binding, so an already initialized project remains usable.
+    let repeat_init = tree_ring(&root, &project, &empty_path)
+        .env("TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST", &descriptor)
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_success("repeat Agent Zero descriptor init", &repeat_init);
+    assert_eq!(
+        record_by_id(
+            &output_json("repeat Agent Zero descriptor init", &repeat_init)["integrations"],
+            "agent-zero"
+        )["state"],
+        "configured-awaiting-proof"
+    );
+
+    let configured =
+        integration_status_with_agent_zero_plugin(&root, &project, &empty_path, &descriptor);
+    assert_status_state(&configured, "agent-zero", "configured-awaiting-proof");
+
+    let input = json!({
+        "agent_profile": "agent-zero-worker",
+        "workflow_id": "agent-zero-flow",
+        "session_id": "agent-zero-session"
+    });
+    let preflight =
+        agent_zero_preflight_with_plugin(&root, &project, &empty_path, &descriptor, &input);
+    assert_eq!(preflight["state"], "active");
+
+    let active =
+        integration_status_with_agent_zero_plugin(&root, &project, &empty_path, &descriptor);
+    assert_status_state(&active, "agent-zero", "active");
+
+    // A receipt cannot keep Agent Zero active after the separately installed
+    // plugin is disabled: status must return to the passive needs-plugin
+    // state until a live compatible descriptor is available again.
+    fs::write(
+        &descriptor,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.14.0","minor":"0.14"},"enabled":false}"#,
+    )
+    .unwrap();
+    let disabled =
+        integration_status_with_agent_zero_plugin(&root, &project, &empty_path, &descriptor);
+    assert_status_state(&disabled, "agent-zero", "needs-plugin");
+}
+
+#[test]
 fn alternate_memory_root_is_active_isolated_without_copying_or_mutating_canonical_store() {
     let temp = tempdir().unwrap();
     let project = temp.path().join(PROJECT_NAME);
@@ -588,9 +681,6 @@ fn install_fixture_markers(project: &Path) {
 fn assert_initial_states(integrations: &Value) {
     for fixture in fixtures().into_values() {
         let id = fixture["harness_id"].as_str().unwrap();
-        if fixture["marker_paths"].as_array().unwrap().is_empty() {
-            continue;
-        }
         let integration = record_by_id(integrations, id);
         assert_eq!(
             integration["state"], fixture["expected_activation_state_before_proof"],
@@ -603,14 +693,9 @@ fn assert_manifest_contracts(root: &Path) {
     let manifest = manifest(root);
     for fixture in fixtures().into_values() {
         let id = fixture["harness_id"].as_str().unwrap();
-        let Some(activation) = manifest["harnesses"].get(id) else {
-            assert_eq!(id, "agent-zero", "missing manifest contract for {id}");
-            assert_eq!(
-                fixture["expected_activation_state_before_proof"],
-                "needs-plugin"
-            );
-            continue;
-        };
+        let activation = manifest["harnesses"]
+            .get(id)
+            .unwrap_or_else(|| panic!("missing manifest contract for {id}"));
         assert_eq!(
             activation["adapter_version"], fixture["adapter_version"],
             "{id}"
@@ -775,6 +860,74 @@ fn integration_status(root: &Path, project: &Path, path: &Path) -> Value {
         .unwrap();
     assert_success("integration status", &output);
     output_json("integration status", &output)
+}
+
+fn integration_status_with_agent_zero_plugin(
+    root: &Path,
+    project: &Path,
+    path: &Path,
+    descriptor: &Path,
+) -> Value {
+    let output = tree_ring(root, project, path)
+        .env("TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST", descriptor)
+        .arg("integrations")
+        .arg("status")
+        .arg("--source-root")
+        .arg(project)
+        .arg("--verbose")
+        .output()
+        .unwrap();
+    assert_success("Agent Zero descriptor status", &output);
+    output_json("Agent Zero descriptor status", &output)
+}
+
+fn agent_zero_preflight_with_plugin(
+    root: &Path,
+    project: &Path,
+    path: &Path,
+    descriptor: &Path,
+    input: &Value,
+) -> Value {
+    let mut command = tree_ring(root, project, path);
+    command
+        .env("TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST", descriptor)
+        .arg("integrations")
+        .arg("preflight")
+        .arg("--harness")
+        .arg("agent-zero")
+        .arg("--input-json-stdin")
+        .arg("--context-format")
+        .arg("json")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(serde_json::to_string(input).unwrap().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_success("Agent Zero descriptor preflight", &output);
+    output_json("Agent Zero descriptor preflight", &output)
+}
+
+fn install_agent_zero_plugin(base: &Path) -> PathBuf {
+    let plugin = base.join("installed-agent-zero-plugin");
+    fs::create_dir_all(&plugin).unwrap();
+    fs::write(
+        plugin.join("plugin.yaml"),
+        "name: tree_ring_memory\nversion: 3.1.0\n",
+    )
+    .unwrap();
+    let descriptor = plugin.join("activation-capability.json");
+    fs::write(
+        &descriptor,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.14.0","minor":"0.14"},"enabled":true}"#,
+    )
+    .unwrap();
+    descriptor
 }
 
 fn assert_status_state(status: &Value, harness: &str, expected: &str) {

@@ -1226,10 +1226,7 @@ pub fn apply_bridge_plan(
     let _manifest_lock = project_fs.lock_manifest()?;
     let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
 
-    if matches!(
-        plan.state,
-        ActivationState::NeedsPlugin | ActivationState::Unsupported
-    ) {
+    if is_non_writing_blocked_plan(&plan) {
         if !plan.writes.is_empty() {
             return Err(format!(
                 "{} plan cannot write while in state {:?}",
@@ -1344,10 +1341,7 @@ pub fn apply_bridge_plans_create_only(
     let mut outcomes = Vec::with_capacity(plans.len());
 
     for plan in plans {
-        if matches!(
-            plan.state,
-            ActivationState::NeedsPlugin | ActivationState::Unsupported
-        ) {
+        if is_non_writing_blocked_plan(&plan) {
             if !plan.writes.is_empty() {
                 return Err(format!(
                     "{} plan cannot write while in state {:?}",
@@ -1523,10 +1517,7 @@ pub fn preview_bridge_plan(
     validate_plan(&plan)?;
     let project_fs = ProjectFs::open(project)?;
     let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
-    if matches!(
-        plan.state,
-        ActivationState::NeedsPlugin | ActivationState::Unsupported
-    ) {
+    if is_non_writing_blocked_plan(&plan) {
         if !plan.writes.is_empty() {
             return Err(format!(
                 "{} plan cannot write while in state {:?}",
@@ -1786,8 +1777,19 @@ fn prepare_apply(
         .map(|owned| owned.path.clone())
         .or_else(|| managed_blocks.first().map(|owned| owned.path.clone()));
     let (adapter_capability, adapter_version) = adapter_contract(&plan.harness_id)?;
+    let state = if is_passive_agent_zero_plan(plan) {
+        // A previous compatible version may already have recorded the same
+        // binding as configured. Creation-only init must neither replace that
+        // manifest entry nor widen its state; live status overlays the
+        // currently verified plugin capability instead.
+        existing
+            .map(|activation| activation.state)
+            .unwrap_or(ActivationState::NeedsPlugin)
+    } else {
+        applied_state(&plan.harness_id, plan.state)
+    };
     let mut activation = HarnessActivation {
-        state: applied_state(&plan.harness_id, plan.state),
+        state,
         adapter_capability,
         adapter_version: adapter_version.to_string(),
         bridge_fingerprint: String::new(),
@@ -2062,7 +2064,9 @@ fn render_complete_file(
 }
 
 fn validate_plan(plan: &AdapterPlan) -> Result<(), String> {
-    let expected = if matches!(
+    let expected = if is_passive_agent_zero_plan(plan) {
+        vec![("file", ".tree-ring/activation/agent-zero.json", "")]
+    } else if matches!(
         plan.state,
         ActivationState::NeedsPlugin | ActivationState::Unsupported
     ) {
@@ -2104,6 +2108,21 @@ fn validate_plan(plan: &AdapterPlan) -> Result<(), String> {
         return Err(format!("unexpected bridge writes for {}", plan.harness_id));
     }
     Ok(())
+}
+
+/// Agent Zero's first-run binding is deliberately passive: it records only
+/// Tree Ring's owned bridge and a NeedsPlugin state. The separate plugin must
+/// later present its capability descriptor before this record is eligible for
+/// preflight. No other blocked plan may write files.
+fn is_passive_agent_zero_plan(plan: &AdapterPlan) -> bool {
+    plan.harness_id == "agent-zero" && plan.state == ActivationState::NeedsPlugin
+}
+
+fn is_non_writing_blocked_plan(plan: &AdapterPlan) -> bool {
+    matches!(
+        plan.state,
+        ActivationState::NeedsPlugin | ActivationState::Unsupported
+    ) && !is_passive_agent_zero_plan(plan)
 }
 
 fn validate_project_shape(project: &ActivationProject) -> Result<(), String> {
@@ -3331,30 +3350,26 @@ mod tests {
     }
 
     #[test]
-    fn agent_zero_requires_verified_plugin_plan_and_writes_only_protocol_binding() {
+    fn agent_zero_passive_binding_writes_only_the_protocol_binding() {
         let (_temp, project, mut manifest) = fixture();
-        let blocked = plan("agent-zero", &project);
+        let passive = plan("agent-zero", &project);
 
-        let blocked_result = apply_bridge_plan(&project, &mut manifest, blocked, false).unwrap();
-        assert_eq!(blocked_result.state, ActivationState::NeedsPlugin);
-        assert!(blocked_result.changed_paths.is_empty());
-        let blocked_activation = manifest.harnesses.get("agent-zero").unwrap();
+        let result = apply_bridge_plan(&project, &mut manifest, passive, false).unwrap();
+        assert_eq!(result.state, ActivationState::NeedsPlugin);
         assert_eq!(
-            blocked_activation.adapter_capability,
+            result.changed_paths,
+            vec![PathBuf::from(".tree-ring/activation/agent-zero.json")]
+        );
+        let activation = manifest.harnesses.get("agent-zero").unwrap();
+        assert_eq!(activation.state, ActivationState::NeedsPlugin);
+        assert_eq!(
+            activation.adapter_capability,
             adapter_capability("agent-zero").unwrap()
         );
         assert_eq!(
-            blocked_activation.adapter_version,
+            activation.adapter_version,
             adapter_version("agent-zero").unwrap()
         );
-        assert!(!project
-            .project_root
-            .join(".tree-ring/activation/agent-zero.json")
-            .exists());
-
-        let (_temp, project, mut manifest) = fixture();
-        apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
-        let activation = manifest.harnesses.get("agent-zero").unwrap();
         assert_eq!(activation.adapter_version, "1");
         assert_eq!(
             activation.bridge_fingerprint,
@@ -3585,8 +3600,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_zero_missing_plugin_preserves_the_owned_binding_when_manifest_replacement_is_refused()
-    {
+    fn agent_zero_passive_plan_preserves_a_preexisting_configured_binding_without_replacement() {
         let (_temp, project, mut manifest) = fixture();
         apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
         let binding = project
@@ -3598,9 +3612,13 @@ mod tests {
             apply_bridge_plan(&project, &mut manifest, plan("agent-zero", &project), false)
                 .unwrap();
 
-        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert_eq!(result.state, ActivationState::NeedsPlugin);
         assert!(binding.exists());
         assert_eq!(manifest.harnesses["agent-zero"].owned_files, ownership);
+        assert_eq!(
+            manifest.harnesses["agent-zero"].state,
+            ActivationState::ConfiguredAwaitingProof
+        );
         assert_eq!(
             manifest.harnesses["agent-zero"].bridge_path.as_deref(),
             Some(".tree-ring/activation/agent-zero.json")

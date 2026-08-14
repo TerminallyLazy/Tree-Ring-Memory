@@ -8,7 +8,7 @@ use tree_ring_memory_cli::activation::{
     self,
     adapters::{scan_integrations, ActivationProject, IntegrationScanReport},
     bridge::{apply_bridge_plan, deactivate_bridge_plan},
-    manifest::{bridge_fingerprint, ActivationManifest, ActivationReceipt},
+    manifest::{bridge_fingerprint, ActivationManifest, ActivationReceipt, HarnessActivation},
     preflight::{project_fingerprint, read_receipt_candidates},
     ActivationState, AdapterCapability, PreflightContextFormat, PreflightRequest, SessionIdentity,
     ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION, RECEIPT_RETENTION_DAYS,
@@ -135,11 +135,34 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                         .then_some(verification.receipt)
                         .flatten()
                 });
-            let state = receipt
-                .as_ref()
-                .map(|receipt| receipt.state)
-                .or_else(|| activation.map(|activation| activation.state))
-                .unwrap_or(detected.state);
+            // Agent Zero's persisted binding remains deliberately passive.
+            // A currently verified external plugin capability is required
+            // before either a historical receipt or the configured state may
+            // be reported. This prevents a stale receipt from outliving a
+            // removed/disabled plugin descriptor.
+            let state = if detected.id == "agent-zero" {
+                if detected.state == ActivationState::NeedsPlugin {
+                    ActivationState::NeedsPlugin
+                } else if activation
+                    .is_some_and(|activation| !is_passive_agent_zero_activation(activation))
+                {
+                    // Existing non-passive records are intentionally not
+                    // migrated by init. They cannot represent the approved
+                    // descriptor-gated bootstrap contract automatically.
+                    ActivationState::NeedsUserReview
+                } else {
+                    receipt
+                        .as_ref()
+                        .map(|receipt| receipt.state)
+                        .unwrap_or(detected.state)
+                }
+            } else {
+                receipt
+                    .as_ref()
+                    .map(|receipt| receipt.state)
+                    .or_else(|| activation.map(|activation| activation.state))
+                    .unwrap_or(detected.state)
+            };
             let managed_paths = if request.verbose {
                 activation
                     .map(|activation| {
@@ -186,6 +209,16 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
         store_id: manifest.map(|manifest| manifest.store_id),
         integrations,
     })
+}
+
+fn is_passive_agent_zero_activation(activation: &HarnessActivation) -> bool {
+    activation.state == ActivationState::NeedsPlugin
+        && activation.bridge_path.as_deref() == Some(".tree-ring/activation/agent-zero.json")
+        && activation.managed_blocks.is_empty()
+        && matches!(
+            activation.owned_files.as_slice(),
+            [owned] if owned.path == ".tree-ring/activation/agent-zero.json"
+        )
 }
 
 /// Applies a single adapter plan, or reports its validated read-only dry-run.

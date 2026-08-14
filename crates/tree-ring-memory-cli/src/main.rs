@@ -531,7 +531,7 @@ fn run_launch_command(cli: &Cli) -> Option<Result<i32, String>> {
         }
         let project = activation::adapters::ActivationProject::from_memory_root(cli.root.clone())?;
         let manifest = activation::load_manifest(&cli.root)?;
-        ensure_manifest_preflight_ready(&manifest, harness)?;
+        ensure_manifest_preflight_ready(&manifest, harness, false)?;
         let store = SQLiteMemoryStore::open_read_only(cli.root.join("memory.sqlite"))
             .map_err(|error| error.to_string())?;
         activation::launcher::launch_with_preflight(
@@ -761,7 +761,10 @@ fn run(cli: Cli) -> Result<(), String> {
         } else {
             activation::load_manifest(&cli.root)?
         };
-        ensure_manifest_preflight_ready(&manifest, harness)?;
+        let verified_agent_zero_plugin = harness == "agent-zero"
+            && activation::adapters::agent_zero_plugin_manifest_for_project(&project.project_root)
+                .is_some();
+        ensure_manifest_preflight_ready(&manifest, harness, verified_agent_zero_plugin)?;
         let store = SQLiteMemoryStore::open_read_only(&db_path).map_err(|error| {
             if canonical_project_root.is_some() {
                 "isolated preflight storage unavailable".to_string()
@@ -1235,13 +1238,24 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
     let scan = integration_scan_action(IntegrationScanRequest {
         source_root: project.project_root.clone(),
     });
-    let candidates = scan
+    let mut candidates = scan
         .report
         .integrations
         .iter()
         .filter(|integration| integration.is_candidate())
         .cloned()
         .collect::<Vec<_>>();
+    // Agent Zero never trusts a generic project marker, but init must still
+    // publish the passive core-owned binding so its separately installed
+    // plugin can later prove capability and complete preflight.
+    if !candidates
+        .iter()
+        .any(|candidate| candidate.id == "agent-zero")
+    {
+        if let Some(agent_zero) = scan.report.by_id("agent-zero").cloned() {
+            candidates.push(agent_zero);
+        }
+    }
 
     if dry_run {
         let reports = candidates
@@ -1249,7 +1263,7 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
             .map(
                 |detection| actions::integrations::IntegrationLifecycleActionReport {
                     harness_id: detection.id,
-                    state: detection.plan.state,
+                    state: detection.state,
                     changed_paths: detection
                         .plan
                         .writes
@@ -1322,9 +1336,11 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
         }
     }
     status.integrations.retain(|entry| {
-        scan.report
-            .by_id(&entry.id)
-            .is_some_and(|item| item.is_candidate())
+        entry.id == "agent-zero"
+            || scan
+                .report
+                .by_id(&entry.id)
+                .is_some_and(|item| item.is_candidate())
     });
 
     if json_output {
@@ -1373,17 +1389,24 @@ fn activation_context_format(
 fn ensure_manifest_preflight_ready(
     manifest: &activation::ActivationManifest,
     harness_id: &str,
+    verified_agent_zero_plugin: bool,
 ) -> Result<(), String> {
     let activation = manifest.harnesses.get(harness_id).ok_or_else(|| {
         "harness has no activation record; run `tree-ring init` first".to_string()
     })?;
-    if !matches!(
+    let normally_eligible = matches!(
         activation.state,
         activation::ActivationState::ConfiguredAwaitingProof
             | activation::ActivationState::NeedsTrust
             | activation::ActivationState::Active
             | activation::ActivationState::ActiveIsolated
-    ) {
+    );
+    let eligible = if harness_id == "agent-zero" {
+        verified_agent_zero_plugin && activation.state == activation::ActivationState::NeedsPlugin
+    } else {
+        normally_eligible
+    };
+    if !eligible {
         return Err("harness activation state is not eligible for preflight".to_string());
     }
     Ok(())

@@ -1,9 +1,24 @@
 use super::{ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION};
-use serde::Serialize;
-use std::path::{Component, Path, PathBuf};
+use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::process::Command;
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 pub const AGENT_ZERO_PLUGIN_ID: &str = "tree_ring_memory";
+pub const AGENT_ZERO_PLUGIN_MANIFEST_ENV: &str = "TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST";
+
+const AGENT_ZERO_CAPABILITY_FILE: &str = "activation-capability.json";
+const AGENT_ZERO_CAPABILITY_KIND: &str = "tree-ring-agent-zero-plugin-capability";
+const AGENT_ZERO_PLUGIN_VERSION: &str = "3.1.0";
+const AGENT_ZERO_TREE_RING_MIN_VERSION: &str = "0.14.0";
+const AGENT_ZERO_TREE_RING_MINOR_VERSION: &str = "0.14";
+const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
 /// Project paths used by activation. Adapter plans always target this root.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +98,143 @@ impl AgentZeroPluginManifest {
             && self.plugin_id == AGENT_ZERO_PLUGIN_ID
             && self.protocol_version == ACTIVATION_PROTOCOL_VERSION
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentZeroCapabilityDocument {
+    schema_version: u16,
+    kind: String,
+    plugin_id: String,
+    plugin_version: String,
+    activation_protocol_version: u16,
+    tree_ring_version: AgentZeroTreeRingVersion,
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentZeroTreeRingVersion {
+    min: String,
+    minor: String,
+}
+
+/// Reads the capability that the separately installed Agent Zero plugin
+/// explicitly presents to a Tree Ring child process. It never scans project
+/// markers or generic Agent Zero paths: only the plugin-owned, absolute,
+/// no-follow descriptor named by the environment is considered.
+pub fn agent_zero_plugin_manifest_for_project(
+    project_root: &Path,
+) -> Option<AgentZeroPluginManifest> {
+    let descriptor = std::env::var_os(AGENT_ZERO_PLUGIN_MANIFEST_ENV).map(PathBuf::from)?;
+    read_agent_zero_plugin_manifest(project_root, &descriptor)
+}
+
+fn read_agent_zero_plugin_manifest(
+    project_root: &Path,
+    descriptor: &Path,
+) -> Option<AgentZeroPluginManifest> {
+    if !descriptor.is_absolute()
+        || descriptor.file_name().and_then(|name| name.to_str()) != Some(AGENT_ZERO_CAPABILITY_FILE)
+    {
+        return None;
+    }
+
+    // Reject a descriptor symlink before canonicalizing. Canonicalization is
+    // then used only to compare the resolved external plugin location with
+    // the project root and to find its sibling plugin.yaml.
+    let metadata = fs::symlink_metadata(descriptor).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_AGENT_ZERO_CAPABILITY_BYTES {
+        return None;
+    }
+    let descriptor = fs::canonicalize(descriptor).ok()?;
+    if descriptor.file_name().and_then(|name| name.to_str()) != Some(AGENT_ZERO_CAPABILITY_FILE) {
+        return None;
+    }
+    let project_root = fs::canonicalize(project_root).ok()?;
+    if descriptor.starts_with(&project_root) {
+        return None;
+    }
+
+    let capability = serde_json::from_slice::<AgentZeroCapabilityDocument>(
+        &read_regular_file_no_follow(&descriptor)?,
+    )
+    .ok()?;
+    if capability.schema_version != 1
+        || capability.kind != AGENT_ZERO_CAPABILITY_KIND
+        || capability.plugin_id != AGENT_ZERO_PLUGIN_ID
+        || capability.plugin_version != AGENT_ZERO_PLUGIN_VERSION
+        || capability.activation_protocol_version != ACTIVATION_PROTOCOL_VERSION
+        || capability.tree_ring_version.min != AGENT_ZERO_TREE_RING_MIN_VERSION
+        || capability.tree_ring_version.minor != AGENT_ZERO_TREE_RING_MINOR_VERSION
+        || !capability.enabled
+    {
+        return None;
+    }
+
+    let plugin_yaml = descriptor.parent()?.join("plugin.yaml");
+    let plugin_yaml = read_regular_file_no_follow(&plugin_yaml)?;
+    plugin_yaml_matches_capability(std::str::from_utf8(&plugin_yaml).ok()?)
+        .then_some(AgentZeroPluginManifest::compatible())
+}
+
+/// Opens one regular capability file without following its final path entry.
+/// Non-Unix platforms fail closed because the rest of activation persistence
+/// already requires descriptor-relative no-follow support there as well.
+#[cfg(unix)]
+fn read_regular_file_no_follow(path: &Path) -> Option<Vec<u8>> {
+    let before = fs::symlink_metadata(path).ok()?;
+    if !before.file_type().is_file() || before.len() > MAX_AGENT_ZERO_CAPABILITY_BYTES {
+        return None;
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .ok()?;
+    let after = file.metadata().ok()?;
+    if !after.file_type().is_file()
+        || after.len() > MAX_AGENT_ZERO_CAPABILITY_BYTES
+        || before.dev() != after.dev()
+        || before.ino() != after.ino()
+    {
+        return None;
+    }
+    let mut contents = Vec::with_capacity(usize::try_from(after.len()).ok()?);
+    file.take(MAX_AGENT_ZERO_CAPABILITY_BYTES + 1)
+        .read_to_end(&mut contents)
+        .ok()?;
+    (contents.len() as u64 <= MAX_AGENT_ZERO_CAPABILITY_BYTES).then_some(contents)
+}
+
+#[cfg(not(unix))]
+fn read_regular_file_no_follow(_path: &Path) -> Option<Vec<u8>> {
+    None
+}
+
+fn plugin_yaml_matches_capability(plugin_yaml: &str) -> bool {
+    let mut name = None;
+    let mut version = None;
+    for line in plugin_yaml.lines() {
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim().trim_matches(['\'', '"']);
+        match key.trim() {
+            "name" if name.replace(value).is_none() => {}
+            "version" if version.replace(value).is_none() => {}
+            "name" | "version" => return false,
+            _ => {}
+        }
+    }
+    name == Some(AGENT_ZERO_PLUGIN_ID) && version == Some(AGENT_ZERO_PLUGIN_VERSION)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -256,7 +408,10 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         display_name: "Agent Zero / A0",
         command: "agent-zero",
         capability: AdapterCapability::NativePreflight,
-        markers: &[".a0", "agent-zero", "a0"],
+        // Project `.a0`-style paths are not evidence that the separate
+        // tree_ring_memory plugin is installed or enabled. The plugin may
+        // prove its capability only through the explicit descriptor below.
+        markers: &[],
         support: AdapterSupport::AgentZero,
     },
     DeclarativeAdapter {
@@ -472,13 +627,27 @@ impl HarnessAdapter for DeclarativeAdapter {
     }
 
     fn plan(&self, _project: &ActivationProject, detection: &AdapterDetection) -> AdapterPlan {
-        let writes = match detection.state {
-            ActivationState::Unsupported | ActivationState::NeedsPlugin => Vec::new(),
+        // Agent Zero receives a passive, core-owned project binding even
+        // before its separate plugin proves availability. Keeping the
+        // persisted record at NeedsPlugin makes this creation-only bootstrap
+        // inert; a verified plugin descriptor is required later for
+        // configured status and receipt-producing preflight.
+        let state = if self.support == AdapterSupport::AgentZero {
+            ActivationState::NeedsPlugin
+        } else {
+            detection.state
+        };
+        let writes = match state {
+            ActivationState::Unsupported | ActivationState::NeedsPlugin
+                if self.support != AdapterSupport::AgentZero =>
+            {
+                Vec::new()
+            }
             _ => adapter_writes(self),
         };
         AdapterPlan {
             harness_id: self.id.to_string(),
-            state: detection.state,
+            state,
             writes,
             next_step: next_step(self.support, detection.state).to_string(),
         }
@@ -610,17 +779,21 @@ impl HarnessEnvironment for LocalHarnessEnvironment {
     }
 
     fn agent_zero_plugin_manifest(&self) -> Option<AgentZeroPluginManifest> {
-        // Core does not infer a plugin manifest from a generic project marker.
-        // The separate plugin supplies this capability through a future runtime
-        // environment; until then scan must remain conservatively needs-plugin.
-        None
+        agent_zero_plugin_manifest_for_project(&self.project_root)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs,
+    };
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     #[derive(Default)]
     struct FakeEnvironment {
@@ -687,11 +860,18 @@ mod tests {
     }
 
     #[test]
-    fn missing_agent_zero_plugin_requires_the_separate_plugin_without_core_mutation() {
-        let detection = detect_adapters(&project(), &FakeEnvironment::default());
+    fn missing_agent_zero_plugin_requires_the_separate_plugin_but_plans_a_passive_binding() {
+        let mut env = FakeEnvironment::default();
+        env.paths.insert(PathBuf::from(".a0"));
+        let detection = detect_adapters(&project(), &env);
         let agent_zero = detection.by_id("agent-zero").unwrap();
         assert_eq!(agent_zero.state, ActivationState::NeedsPlugin);
-        assert!(agent_zero.plan.writes.is_empty());
+        assert!(agent_zero.markers.is_empty());
+        assert_eq!(agent_zero.status, IntegrationStatus::Available);
+        assert_eq!(
+            agent_zero.plan.writes,
+            vec![bridge_write(".tree-ring/activation/agent-zero.json")]
+        );
     }
 
     #[test]
@@ -705,6 +885,7 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(agent_zero.state, ActivationState::ConfiguredAwaitingProof);
+        assert_eq!(agent_zero.plan.state, ActivationState::NeedsPlugin);
         assert_eq!(
             agent_zero.plan.writes,
             vec![bridge_write(".tree-ring/activation/agent-zero.json")]
@@ -821,11 +1002,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_agent_zero_plugin_blocks_deactivation_without_operations() {
+    fn missing_agent_zero_plugin_retains_ownership_for_passive_binding_deactivation() {
         let plan = plan_deactivation("agent-zero", &project()).unwrap();
 
         assert_eq!(plan.state, ActivationState::NeedsPlugin);
-        assert!(plan.operations.is_empty());
+        assert_eq!(
+            plan.operations,
+            vec![DeactivationOperation::BridgeWrite(BridgeWrite {
+                path: PathBuf::from(".tree-ring/activation/agent-zero.json"),
+            })]
+        );
     }
 
     #[test]
@@ -843,5 +1029,84 @@ mod tests {
                 path: PathBuf::from(".tree-ring/activation/agent-zero.json"),
             })]
         );
+    }
+
+    #[test]
+    fn agent_zero_capability_descriptor_is_external_exact_and_no_follow() {
+        let temp = tempdir().unwrap();
+        let project = temp.path().join("project");
+        let plugin = temp.path().join("plugin");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(&plugin).unwrap();
+
+        let descriptor = write_capability_descriptor(&plugin, true);
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(&descriptor, capability_document(false)).unwrap();
+        assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
+
+        fs::write(
+            &descriptor,
+            capability_document(true).replace("\"schema_version\":1", "\"schema_version\":2"),
+        )
+        .unwrap();
+        assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
+
+        fs::write(&descriptor, capability_document(true)).unwrap();
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.0.1\n",
+        )
+        .unwrap();
+        assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.1.0\n",
+        )
+        .unwrap();
+        assert!(
+            read_agent_zero_plugin_manifest(&project, Path::new(AGENT_ZERO_CAPABILITY_FILE))
+                .is_none()
+        );
+
+        let inside_project = project.join("plugin");
+        fs::create_dir_all(&inside_project).unwrap();
+        let inside_descriptor = write_capability_descriptor(&inside_project, true);
+        assert!(read_agent_zero_plugin_manifest(&project, &inside_descriptor).is_none());
+
+        #[cfg(unix)]
+        {
+            fs::write(&descriptor, capability_document(true)).unwrap();
+            let symlink_parent = temp.path().join("symlink-plugin");
+            fs::create_dir_all(&symlink_parent).unwrap();
+            fs::write(
+                symlink_parent.join("plugin.yaml"),
+                "name: tree_ring_memory\nversion: 3.1.0\n",
+            )
+            .unwrap();
+            let symlink_descriptor = symlink_parent.join(AGENT_ZERO_CAPABILITY_FILE);
+            symlink(&descriptor, &symlink_descriptor).unwrap();
+            assert!(read_agent_zero_plugin_manifest(&project, &symlink_descriptor).is_none());
+        }
+    }
+
+    fn write_capability_descriptor(plugin: &Path, enabled: bool) -> PathBuf {
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.1.0\n",
+        )
+        .unwrap();
+        let descriptor = plugin.join(AGENT_ZERO_CAPABILITY_FILE);
+        fs::write(&descriptor, capability_document(enabled)).unwrap();
+        descriptor
+    }
+
+    fn capability_document(enabled: bool) -> String {
+        format!(
+            r#"{{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{{"min":"0.14.0","minor":"0.14"}},"enabled":{enabled}}}"#
+        )
     }
 }
