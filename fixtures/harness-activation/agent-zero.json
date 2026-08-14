@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "harness_id": "agent-zero",
+  "adapter_version": "1",
+  "marker_paths": [],
+  "expected_bridge_paths": [
+    ".tree-ring/activation/agent-zero.json"
+  ],
+  "expected_activation_state_before_proof": "needs-plugin",
+  "preflight": {
+    "mode": "adapter-stdin",
+    "context_format": "json"
+  },
+  "seeded_memory": {
+    "summary": "fixture project startup constraints require deterministic source safe evidence",
+    "source_ref": "fixture://harness-activation/agent-zero"
+  },
+  "live_executable_env": "TREE_RING_LIVE_AGENT_ZERO_EXECUTABLE"
+}

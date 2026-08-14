@@ -1,5 +1,7 @@
 use std::{
-    path::Path,
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
@@ -43,11 +45,75 @@ impl WriteSpec {
 fn real_cli_processes_preserve_multi_agent_isolation_and_idempotency() {
     let temp = tempdir().unwrap();
     let root = temp.path().join(".tree-ring");
+    fs::create_dir_all(temp.path().join(".codex")).unwrap();
 
     let init = base_command(&root).arg("init").output().unwrap();
     assert_success("init", &init);
     let init_json = parse_json("init", &init);
     assert_eq!(init_json["ok"], true);
+
+    let mut response_receipt_ids = BTreeSet::new();
+    let mut response_store_ids = BTreeSet::new();
+    for index in 0..WORKER_COUNT {
+        let agent_profile = format!("worker-{index}");
+        let session_id = format!("preflight-session-{index}");
+        let output = base_command(&root)
+            .arg("integrations")
+            .arg("preflight")
+            .arg("--harness")
+            .arg("codex")
+            .arg("--agent-profile")
+            .arg(&agent_profile)
+            .arg("--workflow-id")
+            .arg(WORKFLOW)
+            .arg("--session-id")
+            .arg(&session_id)
+            .output()
+            .unwrap();
+        assert_success(&format!("preflight {agent_profile}"), &output);
+        let response = parse_json(&format!("preflight {agent_profile}"), &output);
+        assert_eq!(response["state"], "active");
+        response_receipt_ids.insert(
+            response["receipt"]["receipt_id"]
+                .as_str()
+                .expect("preflight response must carry a receipt id")
+                .to_string(),
+        );
+        response_store_ids.insert(
+            response["receipt"]["store_id"]
+                .as_str()
+                .expect("preflight response must carry a store id")
+                .to_string(),
+        );
+    }
+    assert_eq!(response_receipt_ids.len(), WORKER_COUNT);
+    assert_eq!(response_store_ids.len(), 1);
+
+    let persisted_receipts = activation_receipts(&root);
+    assert_eq!(persisted_receipts.len(), WORKER_COUNT);
+    assert_eq!(
+        persisted_receipts
+            .iter()
+            .map(|receipt| receipt["session"]["agent_profile"].as_str().unwrap())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        WORKER_COUNT
+    );
+    assert_eq!(
+        persisted_receipts
+            .iter()
+            .map(|receipt| receipt["session"]["session_id"].as_str().unwrap())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        WORKER_COUNT
+    );
+    assert!(persisted_receipts.iter().all(|receipt| {
+        receipt["harness_id"] == "codex"
+            && receipt["store_id"].as_str() == response_store_ids.first().map(String::as_str)
+    }));
+    let serialized_receipts = serde_json::to_string(&persisted_receipts).unwrap();
+    assert!(!serialized_receipts.contains(QUERY_TOKEN));
+    assert!(!serialized_receipts.contains(COORDINATOR_TOKEN_ENV));
 
     let worker_specs = (0..WORKER_COUNT).map(WriteSpec::worker).collect::<Vec<_>>();
     let lock_holder = rusqlite::Connection::open(root.join("memory.sqlite")).unwrap();
@@ -454,6 +520,7 @@ fn coordinated_policy_guards_shared_mutations_across_real_cli_processes() {
 fn base_command(root: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_tree-ring"));
     command
+        .env("PATH", "")
         .env_remove("TREE_RING_AGENT_PROFILE")
         .env_remove("TREE_RING_WORKFLOW_ID")
         .env_remove("TREE_RING_SESSION_ID")
@@ -462,6 +529,30 @@ fn base_command(root: &Path) -> Command {
         .arg(root)
         .arg("--json");
     command
+}
+
+fn activation_receipts(root: &Path) -> Vec<Value> {
+    fn collect(directory: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                collect(&path, files);
+            } else if path.extension().and_then(|value| value.to_str()) == Some("json") {
+                files.push(path);
+            }
+        }
+    }
+
+    let mut files = Vec::new();
+    collect(&root.join("activation/receipts"), &mut files);
+    files.sort();
+    files
+        .into_iter()
+        .map(|path| serde_json::from_slice(&fs::read(path).unwrap()).unwrap())
+        .collect()
 }
 
 fn remember_command(root: &Path, spec: &WriteSpec) -> Command {
