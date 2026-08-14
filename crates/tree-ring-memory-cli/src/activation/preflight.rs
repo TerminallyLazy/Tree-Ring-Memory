@@ -12,7 +12,12 @@ use super::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{ffi::OsStr, fmt, path::Path, time::Instant};
+use std::{
+    ffi::OsStr,
+    fmt,
+    path::Path,
+    time::{Duration as StdDuration, Instant},
+};
 use tree_ring_memory_core::SensitivityGuard;
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallOptions, RecallResult, SQLiteMemoryStore};
 use uuid::Uuid;
@@ -180,6 +185,22 @@ pub(crate) fn prepare_preflight(
     manifest: &ActivationManifest,
     request: PreflightRequest,
 ) -> Result<PreparedPreflight, ActivationError> {
+    prepare_preflight_with_timeout(
+        store,
+        project,
+        manifest,
+        request,
+        StdDuration::from_millis(PREFLIGHT_TIMEOUT_MS),
+    )
+}
+
+fn prepare_preflight_with_timeout(
+    store: &SQLiteMemoryStore,
+    project: &ActivationProject,
+    manifest: &ActivationManifest,
+    request: PreflightRequest,
+    timeout: StdDuration,
+) -> Result<PreparedPreflight, ActivationError> {
     validate_request_contract(&request)?;
     validate_identity(&request.identity)?;
     validate_manifest(manifest)
@@ -193,29 +214,34 @@ pub(crate) fn prepare_preflight(
 
     let started = Instant::now();
     let (query, query_class) = safe_query(request.task_hint.as_deref());
-    let results = MemoryRetriever::new(store)
-        .recall_with_options(
-            query,
-            &RecallOptions {
-                project: Some(&snapshot.project_name),
-                agent_profile: Some(&request.identity.agent_profile),
-                workflow_id: Some(&request.identity.workflow_id),
-                session_id: Some(&request.identity.session_id),
-                scope: None,
-                rings: None,
-                event_types: None,
-                include_sensitive: false,
-                include_superseded: false,
-                limit: MAX_RESULTS,
-                explain_ranking: false,
-            },
-        )
-        .map_err(|_| ActivationError::new("scoped recall failed"))?;
+    let results = match MemoryRetriever::new(store).recall_with_options_timeout(
+        query,
+        &RecallOptions {
+            project: Some(&snapshot.project_name),
+            agent_profile: Some(&request.identity.agent_profile),
+            workflow_id: Some(&request.identity.workflow_id),
+            session_id: Some(&request.identity.session_id),
+            scope: None,
+            rings: None,
+            event_types: None,
+            include_sensitive: false,
+            include_superseded: false,
+            limit: MAX_RESULTS,
+            explain_ranking: false,
+        },
+        timeout,
+    ) {
+        Ok(results) => results,
+        Err(_) if started.elapsed() >= timeout => {
+            return Err(ActivationError::new("preflight timeout"));
+        }
+        Err(_) => return Err(ActivationError::new("scoped recall failed")),
+    };
     let safe_results = safe_results(results);
     let context = render_safe_recall_context(&safe_results)?;
     let selected_memory_ids_sha256 = selected_memory_ids_digest(&safe_results);
     let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    if duration_ms > PREFLIGHT_TIMEOUT_MS {
+    if started.elapsed() >= timeout {
         return Err(ActivationError::new("preflight timeout"));
     }
 
@@ -637,6 +663,44 @@ fn ensure_store_path_matches(
     Ok(())
 }
 
+/// Enumerates receipt candidates through the pinned, descriptor-relative
+/// activation filesystem. The fixed two-level layout prevents recursive
+/// traversal and every directory/file open rejects symlinks.
+pub fn read_receipt_candidates(
+    memory_root: &Path,
+    harness_id: &str,
+) -> Result<Vec<Vec<u8>>, String> {
+    let receipt_project = ActivationProject::from_memory_root(memory_root.to_path_buf())?;
+    let project_fs = ProjectFs::open(&receipt_project)?;
+    let harness_directory =
+        std::path::PathBuf::from(".tree-ring/activation/receipts").join(harness_id);
+    let Some(workers) = project_fs.directory_entries(&harness_directory)? else {
+        return Ok(Vec::new());
+    };
+    let mut candidates = Vec::new();
+    for worker in workers {
+        let worker_directory = harness_directory.join(worker);
+        let Some(entries) = project_fs.directory_entries(&worker_directory)? else {
+            continue;
+        };
+        for name in entries {
+            if Path::new(&name)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                != Some("json")
+            {
+                continue;
+            }
+            candidates.push(
+                project_fs
+                    .read_optional(&worker_directory.join(name))?
+                    .unwrap_or_default(),
+            );
+        }
+    }
+    Ok(candidates)
+}
+
 fn preflight_state(
     project: &ActivationProject,
     manifest: &ActivationManifest,
@@ -811,8 +875,7 @@ fn install_pre_commit_hook(session_id: impl Into<String>, hook: impl FnOnce() + 
         .expect("pre-commit hook mutex poisoned") = Some((session_id.into(), Box::new(hook)));
 }
 
-#[cfg(test)]
-pub(crate) fn project_fingerprint(project_root: &Path) -> String {
+pub fn project_fingerprint(project_root: &Path) -> String {
     fingerprint_path(project_root)
 }
 
@@ -1095,6 +1158,41 @@ mod tests {
         let error = run_preflight(&store, &project, &manifest, fixture_request()).unwrap_err();
 
         assert!(error.to_string().contains("context"));
+        assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[test]
+    fn delayed_sqlite_recall_is_interrupted_at_the_preflight_deadline() {
+        let (_temp, project, store, manifest) = fixture();
+        let database = project.memory_root.join("memory.sqlite");
+        drop(store);
+
+        let journal = rusqlite::Connection::open(&database).unwrap();
+        let mode: String = journal
+            .query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(mode, "delete");
+        drop(journal);
+
+        let store = SQLiteMemoryStore::open_read_only(&database).unwrap();
+        let locker = rusqlite::Connection::open(&database).unwrap();
+        locker.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let started = Instant::now();
+
+        let error = prepare_preflight_with_timeout(
+            &store,
+            &project,
+            &manifest,
+            fixture_request(),
+            StdDuration::from_millis(50),
+        )
+        .err()
+        .expect("locked recall must time out");
+        let elapsed = started.elapsed();
+        locker.execute_batch("ROLLBACK").unwrap();
+
+        assert_eq!(error.to_string(), "preflight timeout");
+        assert!(elapsed < StdDuration::from_secs(2), "elapsed: {elapsed:?}");
         assert!(receipt_files(&project.memory_root).is_empty());
     }
 

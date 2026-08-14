@@ -1,7 +1,6 @@
 use chrono::{Duration, Utc};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +9,7 @@ use tree_ring_memory_cli::activation::{
     adapters::{scan_integrations, ActivationProject, IntegrationScanReport},
     bridge::{apply_bridge_plan, deactivate_bridge_plan},
     manifest::{bridge_fingerprint, ActivationManifest, ActivationReceipt},
+    preflight::{project_fingerprint, read_receipt_candidates},
     ActivationState, AdapterCapability, PreflightContextFormat, PreflightRequest, SessionIdentity,
     ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION, RECEIPT_RETENTION_DAYS,
 };
@@ -107,7 +107,7 @@ pub fn scan(request: IntegrationScanRequest) -> IntegrationScanActionReport {
 pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActionReport, String> {
     let scan = scan_integrations(&request.source_root);
     let manifest = optional_manifest(&request.memory_root)?.filter(|manifest| {
-        manifest.project_root_fingerprint == path_fingerprint(&request.source_root)
+        manifest.project_root_fingerprint == project_fingerprint(&request.source_root)
     });
     let now = Utc::now();
     let integrations = scan
@@ -263,7 +263,7 @@ pub fn new_manifest(project_root: &Path) -> ActivationManifest {
         schema_version: ACTIVATION_SCHEMA_VERSION,
         protocol_version: ACTIVATION_PROTOCOL_VERSION,
         store_id: Uuid::new_v4().hyphenated().to_string(),
-        project_root_fingerprint: path_fingerprint(project_root),
+        project_root_fingerprint: project_fingerprint(project_root),
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
         harnesses: Default::default(),
     }
@@ -494,7 +494,7 @@ fn ensure_manifest_project(
     manifest: &ActivationManifest,
     source_root: &Path,
 ) -> Result<(), String> {
-    if manifest.project_root_fingerprint != path_fingerprint(source_root) {
+    if manifest.project_root_fingerprint != project_fingerprint(source_root) {
         return Err("activation manifest does not belong to the requested project".to_string());
     }
     Ok(())
@@ -519,30 +519,15 @@ fn verify_activation_receipts_at(
     if harness.bridge_fingerprint != bridge_fingerprint(harness_id, harness) {
         return invalid_receipt(None, "bridge fingerprint does not match adapter contract");
     }
-    let mut pending = vec![memory_root.join("activation/receipts").join(harness_id)];
     let mut receipts = Vec::new();
-    let mut found_json = false;
-    while let Some(path) = pending.pop() {
-        let entries = match fs::read_dir(path) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(_) => return invalid_receipt(None, "activation receipt directory is unreadable"),
-        };
-        for entry in entries {
-            let Ok(entry) = entry else {
-                return invalid_receipt(None, "activation receipt directory is unreadable");
-            };
-            let path = entry.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if path.extension().and_then(|value| value.to_str()) == Some("json") {
-                found_json = true;
-                if let Ok(bytes) = fs::read(&path) {
-                    if let Ok(receipt) = serde_json::from_slice::<ActivationReceipt>(&bytes) {
-                        receipts.push(receipt);
-                    }
-                }
-            }
+    let candidates = match read_receipt_candidates(memory_root, harness_id) {
+        Ok(candidates) => candidates,
+        Err(_) => return invalid_receipt(None, "activation receipt directory is unreadable"),
+    };
+    let found_json = !candidates.is_empty();
+    for bytes in candidates {
+        if let Ok(receipt) = serde_json::from_slice::<ActivationReceipt>(&bytes) {
+            receipts.push(receipt);
         }
     }
 
@@ -697,21 +682,67 @@ fn relative_path(path: &Path) -> Result<String, String> {
         .ok_or_else(|| "activation report path must be UTF-8".to_string())
 }
 
-fn path_fingerprint(path: &Path) -> String {
-    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let mut hasher = Sha256::new();
-    hasher.update(path.to_string_lossy().as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
 pub(crate) fn project_root_fingerprint(path: &Path) -> String {
-    path_fingerprint(path)
+    project_fingerprint(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use tempfile::tempdir;
+
+    fn receipt_fixture() -> (
+        tempfile::TempDir,
+        ActivationProject,
+        ActivationManifest,
+        activation::HarnessActivation,
+        ActivationReceipt,
+    ) {
+        let temp = tempdir().unwrap();
+        let project_root = temp.path().join("project");
+        fs::create_dir_all(&project_root).unwrap();
+        let project = ActivationProject::from_project_root(&project_root);
+        fs::create_dir_all(&project.memory_root).unwrap();
+        let mut harness = activation::HarnessActivation {
+            state: ActivationState::ConfiguredAwaitingProof,
+            adapter_capability: AdapterCapability::NativePreflight,
+            adapter_version: "1".to_string(),
+            bridge_fingerprint: String::new(),
+            bridge_path: Some(".agents/skills/tree-ring-memory/SKILL.md".to_string()),
+            owned_files: Vec::new(),
+            managed_blocks: Vec::new(),
+        };
+        harness.bridge_fingerprint = bridge_fingerprint("pi", &harness);
+        let mut manifest = new_manifest(&project_root);
+        manifest.store_id = "store-test".to_string();
+        manifest.harnesses.insert("pi".to_string(), harness.clone());
+        let receipt = ActivationReceipt {
+            schema_version: ACTIVATION_SCHEMA_VERSION,
+            protocol_version: ACTIVATION_PROTOCOL_VERSION,
+            receipt_id: "receipt-test".to_string(),
+            harness_id: "pi".to_string(),
+            adapter_version: harness.adapter_version.clone(),
+            bridge_fingerprint: harness.bridge_fingerprint.clone(),
+            store_id: manifest.store_id.clone(),
+            project_root_fingerprint: manifest.project_root_fingerprint.clone(),
+            worker_key_fingerprint: "a".repeat(64),
+            session: SessionIdentity {
+                agent_profile: "pi".to_string(),
+                workflow_id: "workflow".to_string(),
+                session_id: "session".to_string(),
+            },
+            state: ActivationState::Active,
+            query_class: "startup_fallback".to_string(),
+            result_count: 0,
+            selected_memory_ids_sha256: "b".repeat(64),
+            duration_ms: 1,
+            status: "success".to_string(),
+            recorded_at: Utc::now(),
+        };
+        (temp, project, manifest, harness, receipt)
+    }
 
     #[test]
     fn integration_action_scans_project_markers() {
@@ -770,5 +801,47 @@ mod tests {
             PreflightContextFormat::ClaudeSessionStart,
         )
         .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipt_discovery_rejects_a_symlinked_json_file_without_following_it() {
+        let (temp, project, manifest, harness, receipt) = receipt_fixture();
+        let worker = project
+            .memory_root
+            .join("activation/receipts/pi")
+            .join(&receipt.worker_key_fingerprint);
+        fs::create_dir_all(&worker).unwrap();
+        let outside = temp.path().join("outside-receipt.json");
+        fs::write(&outside, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        symlink(&outside, worker.join("receipt-test.json")).unwrap();
+
+        let verification =
+            verify_activation_receipts(&project.memory_root, "pi", &manifest, &harness);
+
+        assert_eq!(verification.status, ReceiptVerificationStatus::Invalid);
+        assert_eq!(
+            verification.diagnostic,
+            "activation receipt directory is unreadable"
+        );
+        assert!(verification.receipt.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipt_discovery_rejects_a_symlink_directory_cycle() {
+        let (_temp, project, manifest, harness, _receipt) = receipt_fixture();
+        let harness_directory = project.memory_root.join("activation/receipts/pi");
+        fs::create_dir_all(&harness_directory).unwrap();
+        symlink(".", harness_directory.join("cycle")).unwrap();
+
+        let verification =
+            verify_activation_receipts(&project.memory_root, "pi", &manifest, &harness);
+
+        assert_eq!(verification.status, ReceiptVerificationStatus::Invalid);
+        assert_eq!(
+            verification.diagnostic,
+            "activation receipt directory is unreadable"
+        );
     }
 }
