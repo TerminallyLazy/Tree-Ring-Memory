@@ -96,6 +96,49 @@ as a pointer only. Read the project-local `.tree-ring/SKILL.md` and
 Do not assume a global Tree Ring setup applies to the current repo unless the
 user explicitly configured it.
 
+## Harness Activation
+
+For a new project, begin with the safe, project-local default:
+
+```bash
+tree-ring init
+tree-ring integrations status
+```
+
+Do not ask the user to copy a bridge or run `integrations link` for ordinary
+setup. `init` configures only safe project-local adapter material by creating
+absent final bridge and manifest paths. It never replaces or removes an existing
+entry, including during deactivation; contested entries stay untouched and
+report `needs-user-review`. A bridge, marker, generated skill, or successful
+`init` is not activation proof: `active` requires a fresh, matching receipt from
+a new session's scoped recall and safe context injection.
+Treat `configured-awaiting-proof`, `active-isolated`, `needs-trust`,
+`needs-project-mount`, `needs-plugin`, `needs-user-review`, `unsupported`,
+and `failed` as their exact non-active outcomes. Never say Hermes or another
+unverified runtime is active.
+
+If publication durability becomes indeterminate, do not delete or rewrite the
+published path. Preserve disk material, keep changed harnesses marked
+`needs-user-review` in the returned in-memory manifest, and leave any activation
+manifest already published on disk intact for explicit reconciliation.
+
+Pi trust is the user's decision: report `needs-trust` rather than changing
+global trust. Agent Zero is separate: the existing `tree_ring_memory` plugin
+must be installed/enabled and able to mount the canonical `.tree-ring` root.
+Never treat a generic marker as its adapter, modify Agent Zero core, or call a
+different plugin store shared. A different reachable store is
+`active-isolated`; an unavailable root is `needs-project-mount`.
+
+Receipts prove a privacy-safe preflight check, not durable memory creation or a
+security boundary. They exclude raw prompts, recalled content, secrets,
+sensitive values, paths, and coordinator capabilities. Shared-store claims are
+limited to same-host local-filesystem processes whose receipts match the
+canonical project `store_id`; they do not apply across hosts or network
+filesystems. For diagnostics use `tree-ring integrations status --verbose`;
+for advanced controlled work use `integrations activate --harness <id>
+--dry-run`, `integrations certify`, or `integrations deactivate --harness
+<id>`.
+
 Evidence outcome mapping:
 
 - `promoted`: durable heartwood from supported evidence
