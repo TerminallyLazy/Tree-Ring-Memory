@@ -4,6 +4,7 @@ use rusqlite::{
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
@@ -1163,6 +1164,65 @@ impl<'a> MemoryRetriever<'a> {
         query: &str,
         options: &RecallOptions<'_>,
     ) -> TreeRingResult<Vec<RecallResult>> {
+        self.recall_with_options_until(query, options, None)
+    }
+
+    /// Runs recall under a wall-clock deadline and interrupts an in-flight
+    /// SQLite statement when the deadline expires.
+    pub fn recall_with_options_timeout(
+        &self,
+        query: &str,
+        options: &RecallOptions<'_>,
+        timeout: Duration,
+    ) -> TreeRingResult<Vec<RecallResult>> {
+        let started = Instant::now();
+        let deadline = started.checked_add(timeout).unwrap_or(started);
+        let previous_busy_timeout_ms: u64 = self
+            .store
+            .connection
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .map_err(sqlite_error_from_rusqlite)?;
+        self.store
+            .connection
+            .busy_timeout(timeout)
+            .map_err(sqlite_error_from_rusqlite)?;
+        let interrupt = self.store.connection.get_interrupt_handle();
+        let (cancel, cancelled) = std::sync::mpsc::channel();
+        let watchdog = std::thread::spawn(move || {
+            if matches!(
+                cancelled.recv_timeout(timeout),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                interrupt.interrupt();
+                true
+            } else {
+                false
+            }
+        });
+
+        let result = self.recall_with_options_until(query, options, Some(deadline));
+        let _ = cancel.send(());
+        let timed_out = watchdog.join().unwrap_or(true) || started.elapsed() >= timeout;
+        let restore_result = self
+            .store
+            .connection
+            .busy_timeout(Duration::from_millis(previous_busy_timeout_ms))
+            .map_err(sqlite_error_from_rusqlite);
+        if timed_out {
+            return Err(tree_ring_memory_core::TreeRingError::Validation(
+                "recall deadline exceeded".to_string(),
+            ));
+        }
+        restore_result?;
+        result
+    }
+
+    fn recall_with_options_until(
+        &self,
+        query: &str,
+        options: &RecallOptions<'_>,
+        deadline: Option<Instant>,
+    ) -> TreeRingResult<Vec<RecallResult>> {
         if query.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -1171,6 +1231,7 @@ impl<'a> MemoryRetriever<'a> {
         let mut seen_queries = HashSet::new();
         let candidate_limit = Some(options.limit.saturating_mul(128).clamp(256, 2048));
         for search_query in search_queries(query) {
+            ensure_recall_deadline(deadline)?;
             if !seen_queries.insert(search_query.clone()) {
                 continue;
             }
@@ -1192,6 +1253,7 @@ impl<'a> MemoryRetriever<'a> {
             }
         }
         if candidates.is_empty() {
+            ensure_recall_deadline(deadline)?;
             if let Some(fts_query) = format_plain_text_fts_or_query(query) {
                 candidates = self.store.search_fts_filtered_limited(
                     &fts_query,
@@ -1209,38 +1271,47 @@ impl<'a> MemoryRetriever<'a> {
             }
         }
 
-        let mut results: Vec<RecallResult> = candidates
-            .into_iter()
-            .filter(|event| {
-                matches_filters(
-                    event,
-                    options.project,
-                    options.agent_profile,
-                    options.workflow_id,
-                    options.session_id,
-                    options.scope,
-                    options.rings,
-                    options.event_types,
-                    options.include_sensitive,
-                )
-            })
-            .map(|memory| {
-                let scored = RecallScorer::score(&memory, query);
-                RecallResult {
-                    memory,
-                    score: scored.score,
-                    ranking: if options.explain_ranking {
-                        scored.ranking.factors
-                    } else {
-                        Default::default()
-                    },
-                }
-            })
-            .collect();
+        let mut results = Vec::new();
+        for memory in candidates {
+            ensure_recall_deadline(deadline)?;
+            if !matches_filters(
+                &memory,
+                options.project,
+                options.agent_profile,
+                options.workflow_id,
+                options.session_id,
+                options.scope,
+                options.rings,
+                options.event_types,
+                options.include_sensitive,
+            ) {
+                continue;
+            }
+            let scored = RecallScorer::score(&memory, query);
+            results.push(RecallResult {
+                memory,
+                score: scored.score,
+                ranking: if options.explain_ranking {
+                    scored.ranking.factors
+                } else {
+                    Default::default()
+                },
+            });
+        }
+        ensure_recall_deadline(deadline)?;
         results.sort_by(|left, right| right.score.total_cmp(&left.score));
         results.truncate(options.limit);
         Ok(results)
     }
+}
+
+fn ensure_recall_deadline(deadline: Option<Instant>) -> TreeRingResult<()> {
+    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        return Err(tree_ring_memory_core::TreeRingError::Validation(
+            "recall deadline exceeded".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2796,6 +2867,44 @@ mod tests {
         assert!(!results
             .iter()
             .any(|result| result.memory.sensitivity == "financial"));
+    }
+
+    #[test]
+    fn recall_deadline_restores_the_configured_busy_timeout_on_all_paths() {
+        let dir = tempdir().unwrap();
+        let store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let configured: u64 = store
+            .connection_for_testing()
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        let retriever = MemoryRetriever::new(&store);
+
+        let error = retriever
+            .recall_with_options_timeout(
+                "startup constraints",
+                &RecallOptions::default(),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "recall deadline exceeded");
+        let after_timeout: u64 = store
+            .connection_for_testing()
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(after_timeout, configured);
+
+        retriever
+            .recall_with_options_timeout(
+                "startup constraints",
+                &RecallOptions::default(),
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        let after_success: u64 = store
+            .connection_for_testing()
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(after_success, configured);
     }
 
     #[test]
