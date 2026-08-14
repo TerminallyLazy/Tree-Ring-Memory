@@ -688,11 +688,13 @@ See [agent workflow proof](docs/integrations/agent-workflow-proof.md) for the
 controlled command, retained artifacts, exact structured-outcome checks, and
 interpretation limits.
 
-`scripts/package-release.sh` builds the Rust CLI in release mode, creates a
-platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
-run the release artifact workflow for Linux and macOS. Linux x86_64 artifacts
-are built and executed on Debian Bookworm (glibc 2.36); older glibc systems
-must build from source.
+`scripts/package-release.sh` builds the Rust CLI in release mode, verifies its
+version and archive layout, then creates a platform tarball under `dist/` with
+a SHA-256 checksum file. A matching `v<version>` tag builds the Linux x86_64
+and macOS ARM64 archives, verifies both, and attaches them to that GitHub
+Release; a manually dispatched run remains artifact-only. Linux x86_64
+artifacts are built and executed on Debian Bookworm (glibc 2.36); older glibc
+systems must build from source.
 
 ## Design Docs
 

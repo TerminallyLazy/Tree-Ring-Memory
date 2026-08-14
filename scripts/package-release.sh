@@ -7,6 +7,12 @@ VERSION=${TREE_RING_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | 
   exit 1
 }
 
+RELEASE_TAG=${TREE_RING_RELEASE_TAG:-""}
+if [ "$RELEASE_TAG" != "" ] && [ "$RELEASE_TAG" != "v$VERSION" ]; then
+  printf '%s\n' "Release tag $RELEASE_TAG does not match Cargo version $VERSION" >&2
+  exit 1
+fi
+
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | tr '[:upper:]' '[:lower:]')
 NAME="tree-ring-memory-$VERSION-$OS-$ARCH"
@@ -22,7 +28,28 @@ cargo build --release -p tree-ring-memory-cli --locked
 cp target/release/tree-ring "$WORK_DIR/tree-ring"
 cp README.md LICENSE install.sh "$WORK_DIR/"
 
+binary_version=$("$WORK_DIR/tree-ring" --version)
+[ "$binary_version" = "tree-ring $VERSION" ] || {
+  printf '%s\n' "Packaged binary version $binary_version does not match $VERSION" >&2
+  exit 1
+}
+
 tar -C "$DIST_DIR" -czf "$DIST_DIR/$ARCHIVE" "$NAME"
+
+for packaged_path in \
+  "$NAME/" \
+  "$NAME/tree-ring" \
+  "$NAME/README.md" \
+  "$NAME/LICENSE" \
+  "$NAME/install.sh"; do
+  tar -tzf "$DIST_DIR/$ARCHIVE" | grep -F -x "$packaged_path" > /dev/null
+done
+
+archive_entry_count=$(tar -tzf "$DIST_DIR/$ARCHIVE" | wc -l | tr -d '[:space:]')
+[ "$archive_entry_count" = "5" ] || {
+  printf '%s\n' "Release archive has unexpected contents" >&2
+  exit 1
+}
 
 if command -v shasum >/dev/null 2>&1; then
   (
