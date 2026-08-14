@@ -141,6 +141,25 @@ fingerprint without recording the project root.
 zero-result receipt has `result_count: 0` and a digest of the empty selected-ID
 set; it is still valid only after the adapter successfully injects safe context.
 
+### Claude Code SessionStart input
+
+The managed Claude command consumes only this privacy-safe projection of the
+host's SessionStart event:
+
+```json
+{
+  "session_id": "session-01",
+  "cwd": ".",
+  "agent_type": "claude-code"
+}
+```
+
+`session_id` and `cwd` are required; `agent_type` is optional and defaults
+to `claude-code`. `cwd` is resolved by the running hook and is not copied into
+a receipt. Claude may include `transcript_path` in its original event, but Tree
+Ring ignores it completely: it is not read, forwarded, logged, persisted, or
+included in recall. No other event field is part of the preflight request.
+
 ### Claude Code SessionStart output
 
 Claude's managed `SessionStart` command reads its event input from stdin and
@@ -159,6 +178,55 @@ writes exactly this JSON object to stdout on successful preflight:
 session. It must not echo hook input, task prompts, receipt JSON, capabilities,
 or unredacted recalled content. The command fails without emitting a successful
 SessionStart object if receipt verification fails.
+
+### Pi JSON stdin request
+
+Pi's `before_agent_start` extension sends local runtime identity to the CLI on
+stdin only:
+
+```json
+{
+  "agent_profile": "pi",
+  "workflow_id": "workflow-01",
+  "session_id": "session-01",
+  "task_hint": "project startup constraints"
+}
+```
+
+`agent_profile`, `workflow_id`, and `session_id` come from Pi's local
+session manager, not model text. `task_hint` is optional; when supplied it is
+sent only on stdin for the current preflight, subject to sensitivity rejection
+and fallback to `project startup constraints`. The raw value is never written
+to a receipt, log, memory, bridge, or response.
+
+### Agent Zero JSON stdin request
+
+The separate `tree_ring_memory` plugin derives Agent Zero identity on the
+server and sends only this request to the project-local command:
+
+```json
+{
+  "agent_profile": "agent-zero-worker",
+  "workflow_id": "workflow-01",
+  "session_id": "session-01"
+}
+```
+
+Agent Zero does not send a task hint, prompt, coordinator capability, token, or
+model-supplied identity. The plugin reads the relative project binding and
+derives the three identity fields before invoking the command.
+
+### Input validation and handling
+
+Each adapter validates the field whitelist above before preflight. Benign host
+metadata outside that whitelist is ignored and never forwarded. Unknown
+capability-bearing fields (including `capability`, `token`,
+`authorization`, `coordinator_capability`, or
+`TREE_RING_COORDINATOR_TOKEN`) are rejected rather than ignored. Inputs that
+claim a store, root, bridge fingerprint, harness identity, or receipt state are
+also rejected; those values come only from the local manifest and adapter.
+Raw stdin and SessionStart input are transient: Tree Ring does not persist or
+log them, regardless of whether validation succeeds.
 
 ### Pi and Agent Zero JSON preflight responses
 
