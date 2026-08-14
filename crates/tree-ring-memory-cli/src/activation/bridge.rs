@@ -8,19 +8,24 @@ use super::{
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::{
-    ffi::{CStr, CString, OsStr},
-    fs::{self, File},
-    io::{Read, Write},
-    path::{Component, Path, PathBuf},
-};
-use uuid::Uuid;
+use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+use std::cell::RefCell;
 
 #[cfg(unix)]
-use std::os::{
-    fd::{AsRawFd, FromRawFd},
-    unix::ffi::OsStrExt,
+use std::{
+    ffi::{CStr, CString, OsStr},
+    fs::File,
+    io::{Read, Write},
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::{ffi::OsStrExt, fs::MetadataExt},
+    },
+    path::Component,
 };
+#[cfg(unix)]
+use uuid::Uuid;
 
 const CODEX_RETRY: &str = "tree-ring integrations activate --harness codex --accept-managed-block";
 const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed preflight v1";
@@ -119,6 +124,62 @@ export default function treeRingMemory(pi: ExtensionAPI) {
 }
 "#;
 
+#[cfg(test)]
+#[derive(Default)]
+struct TestMutationHooks {
+    after_project_root_opened: Option<Box<dyn FnOnce()>>,
+    after_target_snapshot: Option<Box<dyn FnOnce()>>,
+    fail_directory_sync_at: Option<usize>,
+    directory_syncs: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_MUTATION_HOOKS: RefCell<TestMutationHooks> = RefCell::new(TestMutationHooks::default());
+}
+
+#[cfg(test)]
+fn after_project_root_opened() {
+    let action =
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_project_root_opened.take());
+    if let Some(action) = action {
+        action();
+    }
+}
+
+#[cfg(not(test))]
+fn after_project_root_opened() {}
+
+#[cfg(test)]
+fn after_target_snapshot() {
+    let action = TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().after_target_snapshot.take());
+    if let Some(action) = action {
+        action();
+    }
+}
+
+#[cfg(not(test))]
+fn after_target_snapshot() {}
+
+#[cfg(test)]
+fn fail_directory_sync_now() -> bool {
+    TEST_MUTATION_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        hooks.directory_syncs += 1;
+        if hooks.fail_directory_sync_at == Some(hooks.directory_syncs) {
+            hooks.fail_directory_sync_at = None;
+            true
+        } else {
+            false
+        }
+    })
+}
+
+#[cfg(not(test))]
+fn fail_directory_sync_now() -> bool {
+    false
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgePlanResult {
     pub state: ActivationState,
@@ -133,17 +194,81 @@ struct PreparedFile {
     after: Option<Vec<u8>>,
 }
 
-#[cfg(unix)]
 #[derive(Debug)]
 struct AppliedFile {
     prepared: PreparedFile,
     target: ResolvedTarget,
+    publication: Publication,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[derive(Debug)]
+struct TargetSnapshot {
+    identity: FileIdentity,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Publication {
+    Present { identity: FileIdentity },
+    Absent,
+}
+
+#[derive(Debug)]
+struct MutationError {
+    message: String,
+    publication: Option<Publication>,
+}
+
+impl MutationError {
+    fn before_publication(message: String) -> Self {
+        Self {
+            message,
+            publication: None,
+        }
+    }
+
+    fn after_publication(message: String, publication: Publication) -> Self {
+        Self {
+            message,
+            publication: Some(publication),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CommitPreparedError {
+    message: String,
+    applied: Option<Box<AppliedFile>>,
+}
+
+impl CommitPreparedError {
+    fn before_publication(message: String) -> Self {
+        Self {
+            message,
+            applied: None,
+        }
+    }
+
+    fn after_publication(message: String, applied: AppliedFile) -> Self {
+        Self {
+            message,
+            applied: Some(Box::new(applied)),
+        }
+    }
 }
 
 #[cfg(unix)]
 #[derive(Debug)]
 struct ProjectFs {
     root: File,
+    project_root: PathBuf,
+    root_identity: FileIdentity,
 }
 
 #[cfg(unix)]
@@ -174,15 +299,20 @@ impl Drop for ManifestLock {
 impl ProjectFs {
     fn open(project: &ActivationProject) -> Result<Self, String> {
         validate_project_shape(project)?;
-        let metadata = fs::symlink_metadata(&project.project_root)
+        let root = open_project_root_no_follow(&project.project_root)?;
+        let metadata = root
+            .metadata()
             .map_err(|error| io_error(&project.project_root, error))?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        if !metadata.is_dir() {
             return Err("project root must be a real directory, not a symlink".to_string());
         }
-        let physical_root = fs::canonicalize(&project.project_root)
-            .map_err(|error| io_error(&project.project_root, error))?;
-        let root = open_directory_path_no_follow(&physical_root)?;
-        Ok(Self { root })
+        let project_fs = Self {
+            root,
+            project_root: project.project_root.clone(),
+            root_identity: file_identity(&metadata),
+        };
+        after_project_root_opened();
+        Ok(project_fs)
     }
 
     fn lock_manifest(&self) -> Result<ManifestLock, String> {
@@ -206,6 +336,18 @@ impl ProjectFs {
             return Ok(None);
         };
         target.read_optional()
+    }
+
+    fn ensure_root_binding(&self) -> Result<(), String> {
+        let current = open_project_root_no_follow(&self.project_root)
+            .map_err(|_| "activation project root changed during bridge update".to_string())?;
+        let metadata = current
+            .metadata()
+            .map_err(|error| io_error(&self.project_root, error))?;
+        if !metadata.is_dir() || file_identity(&metadata) != self.root_identity {
+            return Err("activation project root changed during bridge update".to_string());
+        }
+        Ok(())
     }
 
     fn resolve_target(
@@ -264,6 +406,10 @@ impl ProjectFs {
 #[cfg(unix)]
 impl ResolvedTarget {
     fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.snapshot_optional()?.map(|snapshot| snapshot.bytes))
+    }
+
+    fn snapshot_optional(&self) -> Result<Option<TargetSnapshot>, String> {
         let descriptor = unsafe {
             // SAFETY: the parent descriptor and single-component name are valid for this call.
             libc::openat(
@@ -293,16 +439,28 @@ impl ResolvedTarget {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|error| io_error(&self.display, error))?;
-        Ok(Some(bytes))
+        let metadata = file
+            .metadata()
+            .map_err(|error| io_error(&self.display, error))?;
+        Ok(Some(TargetSnapshot {
+            identity: file_identity(&metadata),
+            bytes,
+        }))
     }
 
-    fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
+    fn publish_write(
+        &self,
+        bytes: &[u8],
+        expected: Option<FileIdentity>,
+    ) -> Result<Publication, MutationError> {
         let temp_name = CString::new(format!(
             ".{}.{}.tmp",
             self.name.to_string_lossy(),
             Uuid::new_v4()
         ))
-        .map_err(|_| "temporary bridge name contains NUL".to_string())?;
+        .map_err(|_| {
+            MutationError::before_publication("temporary bridge name contains NUL".to_string())
+        })?;
         let descriptor = unsafe {
             // SAFETY: parent and temp name are valid; O_EXCL creates one owned temp file.
             libc::openat(
@@ -312,15 +470,26 @@ impl ResolvedTarget {
                 0o600,
             )
         };
-        let mut temp = owned_file_descriptor(descriptor, &self.display)?;
-        let result = (|| {
-            temp.write_all(bytes)
-                .map_err(|error| io_error(&self.display, error))?;
-            temp.sync_all()
-                .map_err(|error| io_error(&self.display, error))?;
+        let mut temp = owned_file_descriptor(descriptor, &self.display)
+            .map_err(MutationError::before_publication)?;
+        let result = (|| -> Result<Publication, MutationError> {
+            temp.write_all(bytes).map_err(|error| {
+                MutationError::before_publication(io_error(&self.display, error))
+            })?;
+            temp.sync_all().map_err(|error| {
+                MutationError::before_publication(io_error(&self.display, error))
+            })?;
+            let metadata = temp.metadata().map_err(|error| {
+                MutationError::before_publication(io_error(&self.display, error))
+            })?;
+            let publication = Publication::Present {
+                identity: file_identity(&metadata),
+            };
             drop(temp);
+            self.ensure_entry_identity(expected)
+                .map_err(MutationError::before_publication)?;
             let status = unsafe {
-                if create_only {
+                if expected.is_none() {
                     // SAFETY: both names are relative to the same retained parent descriptor.
                     libc::linkat(
                         self.parent.as_raw_fd(),
@@ -340,36 +509,103 @@ impl ResolvedTarget {
                 }
             };
             if status != 0 {
-                return Err(io_error(&self.display, std::io::Error::last_os_error()));
+                return Err(MutationError::before_publication(io_error(
+                    &self.display,
+                    std::io::Error::last_os_error(),
+                )));
             }
-            if create_only {
-                unlink_at(&self.parent, &temp_name, &self.display)?;
+            if expected.is_none() {
+                if let Err(error) = unlink_at_if_present(&self.parent, &temp_name, &self.display) {
+                    return Err(MutationError::after_publication(error, publication));
+                }
             }
-            sync_directory(&self.parent, &self.display)
+            Ok(publication)
         })();
         if result.is_err() {
-            let _ = unlink_at(&self.parent, &temp_name, &self.display);
+            let _ = unlink_at_if_present(&self.parent, &temp_name, &self.display);
         }
         result
     }
 
-    fn remove_file(&self) -> Result<(), String> {
-        unlink_at(&self.parent, &self.name, &self.display)?;
+    fn publish_removal(&self, expected: FileIdentity) -> Result<Publication, MutationError> {
+        self.ensure_entry_identity(Some(expected))
+            .map_err(MutationError::before_publication)?;
+        unlink_at(&self.parent, &self.name, &self.display)
+            .map_err(MutationError::before_publication)?;
+        Ok(Publication::Absent)
+    }
+
+    fn sync_parent(&self) -> Result<(), String> {
         sync_directory(&self.parent, &self.display)
+    }
+
+    fn ensure_entry_identity(&self, expected: Option<FileIdentity>) -> Result<(), String> {
+        let current = self.entry_identity_optional()?;
+        if current == expected {
+            Ok(())
+        } else {
+            Err(format!(
+                "bridge target changed after validation: {}",
+                self.display.display()
+            ))
+        }
+    }
+
+    fn entry_identity_optional(&self) -> Result<Option<FileIdentity>, String> {
+        let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+        let status = unsafe {
+            // SAFETY: parent descriptor and one-component name remain valid for the call.
+            libc::fstatat(
+                self.parent.as_raw_fd(),
+                self.name.as_ptr(),
+                &mut stat,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if status != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            return Err(io_error(&self.display, error));
+        }
+        if stat.st_mode & libc::S_IFMT != libc::S_IFREG {
+            return Err(format!(
+                "bridge target is not a regular file: {}",
+                self.display.display()
+            ));
+        }
+        Ok(Some(FileIdentity {
+            device: stat.st_dev as u64,
+            inode: stat.st_ino as u64,
+        }))
+    }
+
+    #[cfg(test)]
+    fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
+        let current = self.snapshot_optional()?;
+        if create_only != current.is_none() {
+            return Err("test write creation mode did not match the target state".to_string());
+        }
+        self.publish_write(bytes, current.as_ref().map(|snapshot| snapshot.identity))
+            .map_err(|error| error.message)?;
+        self.sync_parent()
     }
 }
 
 #[cfg(unix)]
-fn open_directory_path_no_follow(path: &Path) -> Result<File, String> {
+fn open_project_root_no_follow(path: &Path) -> Result<File, String> {
     if path.as_os_str().is_empty() {
         return Err("project root is empty".to_string());
     }
-    let absolute = path.is_absolute();
-    let anchor = CString::new(if absolute { "/" } else { "." }).expect("static anchor");
+    let display = path.to_path_buf();
+    let path = CString::new(display.as_os_str().as_bytes())
+        .map_err(|_| "project root contains NUL".to_string())?;
     let descriptor = unsafe {
-        // SAFETY: anchor is a valid static C string and the descriptor is immediately owned.
+        // SAFETY: the full project-root path is NUL-free and O_NOFOLLOW protects its final
+        // component while the returned descriptor pins the directory identity.
         libc::open(
-            anchor.as_ptr(),
+            path.as_ptr(),
             libc::O_RDONLY
                 | libc::O_CLOEXEC
                 | libc::O_DIRECTORY
@@ -377,19 +613,15 @@ fn open_directory_path_no_follow(path: &Path) -> Result<File, String> {
                 | libc::O_NONBLOCK,
         )
     };
-    let mut directory = owned_file_descriptor(descriptor, path)?;
-    for component in path.components() {
-        match component {
-            Component::RootDir if absolute => {}
-            Component::CurDir => {}
-            Component::Normal(segment) => {
-                directory = open_child_directory(&directory, segment)
-                    .map_err(|error| io_error(path, error))?;
-            }
-            _ => return Err("project root must not contain parent traversal".to_string()),
-        }
+    owned_file_descriptor(descriptor, &display)
+}
+
+#[cfg(unix)]
+fn file_identity(metadata: &std::fs::Metadata) -> FileIdentity {
+    FileIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
     }
-    Ok(directory)
 }
 
 #[cfg(unix)]
@@ -461,17 +693,35 @@ fn unlink_at(parent: &File, name: &CStr, display: &Path) -> Result<(), String> {
     if status == 0 {
         Ok(())
     } else {
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::NotFound {
-            Ok(())
-        } else {
-            Err(io_error(display, error))
-        }
+        Err(io_error(display, std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(unix)]
+fn unlink_at_if_present(parent: &File, name: &CStr, display: &Path) -> Result<(), String> {
+    let status = unsafe {
+        // SAFETY: parent owns a live descriptor and name is one child component.
+        libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0)
+    };
+    if status == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Ok(())
+    } else {
+        Err(io_error(display, error))
     }
 }
 
 #[cfg(unix)]
 fn sync_directory(directory: &File, display: &Path) -> Result<(), String> {
+    if fail_directory_sync_now() {
+        return Err(format!(
+            "{}: injected directory sync failure",
+            display.display()
+        ));
+    }
     let status = unsafe {
         // SAFETY: directory owns a live directory descriptor.
         libc::fsync(directory.as_raw_fd())
@@ -496,13 +746,6 @@ struct ResolvedTarget;
 struct ManifestLock;
 
 #[cfg(not(unix))]
-#[derive(Debug)]
-struct AppliedFile {
-    prepared: PreparedFile,
-    target: ResolvedTarget,
-}
-
-#[cfg(not(unix))]
 impl ProjectFs {
     fn open(_project: &ActivationProject) -> Result<Self, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
@@ -514,6 +757,10 @@ impl ProjectFs {
 
     fn read_optional(&self, _relative: &Path) -> Result<Option<Vec<u8>>, String> {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn ensure_root_binding(&self) -> Result<(), String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
     fn resolve_target(
@@ -531,11 +778,27 @@ impl ResolvedTarget {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn atomic_write(&self, _bytes: &[u8], _create_only: bool) -> Result<(), String> {
-        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    fn snapshot_optional(&self) -> Result<Option<TargetSnapshot>, String> {
+        Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn remove_file(&self) -> Result<(), String> {
+    fn publish_write(
+        &self,
+        _bytes: &[u8],
+        _expected: Option<FileIdentity>,
+    ) -> Result<Publication, MutationError> {
+        Err(MutationError::before_publication(
+            "bridge mutation requires descriptor-relative no-follow filesystem support".to_string(),
+        ))
+    }
+
+    fn publish_removal(&self, _expected: FileIdentity) -> Result<Publication, MutationError> {
+        Err(MutationError::before_publication(
+            "bridge mutation requires descriptor-relative no-follow filesystem support".to_string(),
+        ))
+    }
+
+    fn sync_parent(&self) -> Result<(), String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 }
@@ -1566,13 +1829,36 @@ fn persist_manifest(
     project_fs: &ProjectFs,
     expected: Option<&ActivationManifest>,
     manifest: &ActivationManifest,
-) -> Result<(), String> {
-    validate_manifest(manifest)?;
-    ensure_expected_manifest(project_fs, expected)?;
-    let bytes = serde_json::to_vec_pretty(manifest)
-        .map_err(|error| format!("failed to serialize activation JSON: {error}"))?;
-    let target = project_fs.resolve_target(Path::new(".tree-ring/activation.json"), true)?;
-    target.atomic_write(&bytes, expected.is_none())
+) -> Result<Option<AppliedFile>, CommitPreparedError> {
+    validate_manifest(manifest).map_err(CommitPreparedError::before_publication)?;
+    let bytes = serde_json::to_vec_pretty(manifest).map_err(|error| {
+        CommitPreparedError::before_publication(format!(
+            "failed to serialize activation JSON: {error}"
+        ))
+    })?;
+    let relative = PathBuf::from(".tree-ring/activation.json");
+    let before = project_fs
+        .read_optional(&relative)
+        .map_err(CommitPreparedError::before_publication)?;
+    let current = match before.as_deref() {
+        Some(bytes) => Some(serde_json::from_slice::<ActivationManifest>(bytes).map_err(
+            |error| {
+                CommitPreparedError::before_publication(format!("invalid activation JSON: {error}"))
+            },
+        )?),
+        None => None,
+    };
+    if current.as_ref() != expected {
+        return Err(CommitPreparedError::before_publication(
+            "activation manifest changed concurrently; bridge update was not committed".to_string(),
+        ));
+    }
+    let prepared = PreparedFile {
+        relative,
+        before,
+        after: Some(bytes),
+    };
+    commit_prepared_file(project_fs, &prepared)
 }
 
 fn commit_files_and_manifest(
@@ -1583,18 +1869,43 @@ fn commit_files_and_manifest(
     next_manifest: ActivationManifest,
     files: &[PreparedFile],
 ) -> Result<(), String> {
+    project_fs.ensure_root_binding()?;
     ensure_expected_manifest(project_fs, expected_persisted)?;
     let mut applied = Vec::new();
     for file in files.iter().filter(|file| file.before != file.after) {
         match commit_prepared_file(project_fs, file) {
-            Ok(applied_file) => applied.push(applied_file),
+            Ok(Some(applied_file)) => applied.push(applied_file),
+            Ok(None) => {}
             Err(error) => {
+                if let Some(applied_file) = error.applied {
+                    applied.push(*applied_file);
+                }
                 rollback_files(&applied);
-                return Err(error);
+                *manifest = original_manifest.clone();
+                return Err(error.message);
             }
         }
     }
-    if let Err(error) = persist_manifest(project_fs, expected_persisted, &next_manifest) {
+    if let Err(error) = project_fs.ensure_root_binding() {
+        rollback_files(&applied);
+        *manifest = original_manifest.clone();
+        return Err(error);
+    }
+    let manifest_applied = match persist_manifest(project_fs, expected_persisted, &next_manifest) {
+        Ok(applied_file) => applied_file,
+        Err(error) => {
+            if let Some(applied_file) = error.applied {
+                rollback_file(&applied_file);
+            }
+            rollback_files(&applied);
+            *manifest = original_manifest.clone();
+            return Err(error.message);
+        }
+    };
+    if let Err(error) = project_fs.ensure_root_binding() {
+        if let Some(applied_file) = &manifest_applied {
+            rollback_file(applied_file);
+        }
         rollback_files(&applied);
         *manifest = original_manifest.clone();
         return Err(error);
@@ -1606,35 +1917,104 @@ fn commit_files_and_manifest(
 fn commit_prepared_file(
     project_fs: &ProjectFs,
     file: &PreparedFile,
-) -> Result<AppliedFile, String> {
-    let target = project_fs.resolve_target(&file.relative, file.after.is_some())?;
-    let current = target.read_optional()?;
-    if current != file.before {
-        return Err(format!(
+) -> Result<Option<AppliedFile>, CommitPreparedError> {
+    if file.before == file.after {
+        return Ok(None);
+    }
+    project_fs
+        .ensure_root_binding()
+        .map_err(CommitPreparedError::before_publication)?;
+    let target = project_fs
+        .resolve_target(&file.relative, file.after.is_some())
+        .map_err(CommitPreparedError::before_publication)?;
+    let current = target
+        .snapshot_optional()
+        .map_err(CommitPreparedError::before_publication)?;
+    if current.as_ref().map(|snapshot| &snapshot.bytes) != file.before.as_ref() {
+        return Err(CommitPreparedError::before_publication(format!(
             "bridge target changed after validation: {}",
             file.relative.display()
-        ));
+        )));
     }
-    match &file.after {
-        Some(bytes) => target.atomic_write(bytes, file.before.is_none())?,
-        None => target.remove_file()?,
+    let expected = current.as_ref().map(|snapshot| snapshot.identity);
+    after_target_snapshot();
+    let publication = match &file.after {
+        Some(bytes) => target.publish_write(bytes, expected),
+        None => {
+            let expected = expected.ok_or_else(|| {
+                CommitPreparedError::before_publication(format!(
+                    "bridge target disappeared before removal: {}",
+                    file.relative.display()
+                ))
+            })?;
+            target.publish_removal(expected)
+        }
     };
-    Ok(AppliedFile {
+    let publication = match publication {
+        Ok(publication) => publication,
+        Err(error) => {
+            let applied = error.publication.map(|publication| AppliedFile {
+                prepared: file.clone(),
+                target,
+                publication,
+            });
+            return Err(CommitPreparedError {
+                message: error.message,
+                applied: applied.map(Box::new),
+            });
+        }
+    };
+    let applied = AppliedFile {
         prepared: file.clone(),
         target,
-    })
+        publication,
+    };
+    if let Err(error) = applied.target.sync_parent() {
+        return Err(CommitPreparedError::after_publication(error, applied));
+    }
+    Ok(Some(applied))
 }
 
 fn rollback_files(files: &[AppliedFile]) {
     for file in files.iter().rev() {
-        match &file.prepared.before {
-            Some(bytes) => {
-                let _ = file.target.atomic_write(bytes, false);
-            }
-            None => {
-                let _ = file.target.remove_file();
-            }
-        }
+        rollback_file(file);
+    }
+}
+
+fn rollback_file(file: &AppliedFile) {
+    let should_restore = match file.publication {
+        Publication::Present { identity } => file
+            .target
+            .snapshot_optional()
+            .map(|current| {
+                current.is_some_and(|current| {
+                    current.identity == identity
+                        && file.prepared.after.as_deref() == Some(current.bytes.as_slice())
+                })
+            })
+            .unwrap_or(false),
+        Publication::Absent => file
+            .target
+            .snapshot_optional()
+            .map(|current| current.is_none())
+            .unwrap_or(false),
+    };
+    if !should_restore {
+        return;
+    }
+    let expected = match file.publication {
+        Publication::Present { identity } => Some(identity),
+        Publication::Absent => None,
+    };
+    let restored = match &file.prepared.before {
+        Some(bytes) => file.target.publish_write(bytes, expected),
+        None => match expected {
+            Some(identity) => file.target.publish_removal(identity),
+            None => return,
+        },
+    };
+    if restored.is_ok() {
+        let _ = file.target.sync_parent();
     }
 }
 
@@ -1737,6 +2117,26 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, content).unwrap();
+    }
+
+    fn after_project_root_opened_for_test(action: impl FnOnce() + 'static) {
+        TEST_MUTATION_HOOKS.with(|hooks| {
+            hooks.borrow_mut().after_project_root_opened = Some(Box::new(action));
+        });
+    }
+
+    fn after_target_snapshot_for_test(action: impl FnOnce() + 'static) {
+        TEST_MUTATION_HOOKS.with(|hooks| {
+            hooks.borrow_mut().after_target_snapshot = Some(Box::new(action));
+        });
+    }
+
+    fn fail_directory_sync_at_for_test(number: usize) {
+        TEST_MUTATION_HOOKS.with(|hooks| {
+            let mut hooks = hooks.borrow_mut();
+            hooks.fail_directory_sync_at = Some(number);
+            hooks.directory_syncs = 0;
+        });
     }
 
     fn plan(harness: &str, project: &ActivationProject) -> AdapterPlan {
@@ -2422,5 +2822,247 @@ mod tests {
 
             assert_eq!(read(project.project_root.join("AGENTS.md")), original);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn final_entry_replacement_after_snapshot_is_never_followed_or_overwritten() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp, project, _manifest) = fixture();
+        let target_path = project.project_root.join("managed-target");
+        write(&target_path, "before\n");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_marker = outside.path().join("must-not-change");
+        write(&outside_marker, "outside\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let prepared = PreparedFile {
+            relative: PathBuf::from("managed-target"),
+            before: Some(b"before\n".to_vec()),
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        let replacement = target_path.clone();
+        let outside_path = outside.path().to_path_buf();
+        after_target_snapshot_for_test(move || {
+            fs::remove_file(&replacement).unwrap();
+            symlink(&outside_path, &replacement).unwrap();
+        });
+
+        let error = commit_prepared_file(&project_fs, &prepared).unwrap_err();
+
+        assert!(error.message.contains("changed") || error.message.contains("regular file"));
+        assert!(fs::symlink_metadata(&target_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(read(outside_marker), "outside\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn final_entry_replacement_after_snapshot_is_never_removed() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp, project, _manifest) = fixture();
+        let target_path = project.project_root.join("managed-target");
+        write(&target_path, "before\n");
+        let outside = tempfile::tempdir().unwrap();
+        let outside_marker = outside.path().join("must-not-change");
+        write(&outside_marker, "outside\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let prepared = PreparedFile {
+            relative: PathBuf::from("managed-target"),
+            before: Some(b"before\n".to_vec()),
+            after: None,
+        };
+        let replacement = target_path.clone();
+        let outside_path = outside.path().to_path_buf();
+        after_target_snapshot_for_test(move || {
+            fs::remove_file(&replacement).unwrap();
+            symlink(&outside_path, &replacement).unwrap();
+        });
+
+        let error = commit_prepared_file(&project_fs, &prepared).unwrap_err();
+
+        assert!(error.message.contains("changed") || error.message.contains("regular file"));
+        assert!(fs::symlink_metadata(&target_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(read(outside_marker), "outside\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_swap_after_open_is_rejected_without_following_the_replacement() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp, project, mut manifest) = fixture();
+        let root = project.project_root.clone();
+        let parked = root
+            .parent()
+            .unwrap()
+            .join(format!("tree-ring-parked-{}", Uuid::new_v4()));
+        let parked_for_hook = parked.clone();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().to_path_buf();
+        after_project_root_opened_for_test(move || {
+            fs::rename(&root, &parked_for_hook).unwrap();
+            symlink(&outside_path, &root).unwrap();
+        });
+
+        let error =
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap_err();
+
+        assert!(error.contains("project root changed"));
+        assert!(!outside.path().join(".agents").exists());
+        assert!(!outside.path().join("AGENTS.md").exists());
+        assert!(!outside.path().join(".tree-ring/activation.json").exists());
+        fs::remove_file(&project.project_root).unwrap();
+        fs::remove_dir_all(parked).unwrap();
+    }
+
+    #[test]
+    fn rollback_preserves_a_user_edit_after_tree_ring_publication() {
+        let (_temp, project, _manifest) = fixture();
+        let target_path = project.project_root.join("managed-target");
+        write(&target_path, "before\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let prepared = PreparedFile {
+            relative: PathBuf::from("managed-target"),
+            before: Some(b"before\n".to_vec()),
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        let applied = commit_prepared_file(&project_fs, &prepared)
+            .unwrap()
+            .expect("the file changed");
+        write(&target_path, "user edit\n");
+
+        rollback_files(&[applied]);
+
+        assert_eq!(read(target_path), "user edit\n");
+    }
+
+    #[test]
+    fn linkat_publication_with_failed_directory_sync_is_rolled_back() {
+        let (_temp, project, mut manifest) = fixture();
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let original = manifest.clone();
+        let file = PreparedFile {
+            relative: PathBuf::from("sync-link-target"),
+            before: None,
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        fail_directory_sync_at_for_test(1);
+
+        let error = commit_files_and_manifest(
+            &project_fs,
+            &mut manifest,
+            &original,
+            None,
+            original.clone(),
+            &[file],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected directory sync failure"));
+        assert!(!project.project_root.join("sync-link-target").exists());
+        assert!(!project.memory_root.join("activation.json").exists());
+        assert_eq!(manifest, original);
+    }
+
+    #[test]
+    fn renameat_publication_with_failed_directory_sync_is_rolled_back() {
+        let (_temp, project, mut manifest) = fixture();
+        let target_path = project.project_root.join("sync-rename-target");
+        write(&target_path, "before\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let original = manifest.clone();
+        let file = PreparedFile {
+            relative: PathBuf::from("sync-rename-target"),
+            before: Some(b"before\n".to_vec()),
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        fail_directory_sync_at_for_test(1);
+
+        let error = commit_files_and_manifest(
+            &project_fs,
+            &mut manifest,
+            &original,
+            None,
+            original.clone(),
+            &[file],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected directory sync failure"));
+        assert_eq!(read(target_path), "before\n");
+        assert!(!project.memory_root.join("activation.json").exists());
+        assert_eq!(manifest, original);
+    }
+
+    #[test]
+    fn unlinkat_publication_with_failed_directory_sync_is_rolled_back() {
+        let (_temp, project, mut manifest) = fixture();
+        let target_path = project.project_root.join("sync-unlink-target");
+        write(&target_path, "before\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let original = manifest.clone();
+        let file = PreparedFile {
+            relative: PathBuf::from("sync-unlink-target"),
+            before: Some(b"before\n".to_vec()),
+            after: None,
+        };
+        fail_directory_sync_at_for_test(1);
+
+        let error = commit_files_and_manifest(
+            &project_fs,
+            &mut manifest,
+            &original,
+            None,
+            original.clone(),
+            &[file],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected directory sync failure"));
+        assert_eq!(read(target_path), "before\n");
+        assert!(!project.memory_root.join("activation.json").exists());
+        assert_eq!(manifest, original);
+    }
+
+    #[test]
+    fn late_manifest_sync_failure_restores_published_manifest_and_bridge_file() {
+        let (_temp, project, mut manifest) = fixture();
+        let original = manifest.clone();
+        let original_bytes = serde_json::to_vec_pretty(&original).unwrap();
+        fs::write(project.memory_root.join("activation.json"), &original_bytes).unwrap();
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let mut next = original.clone();
+        next.cli_version = "0.14.0-test".to_string();
+        let file = PreparedFile {
+            relative: PathBuf::from("sync-manifest-target"),
+            before: None,
+            after: Some(b"tree-ring\n".to_vec()),
+        };
+        fail_directory_sync_at_for_test(2);
+
+        let error = commit_files_and_manifest(
+            &project_fs,
+            &mut manifest,
+            &original,
+            Some(&original),
+            next,
+            &[file],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected directory sync failure"));
+        assert!(!project.project_root.join("sync-manifest-target").exists());
+        assert_eq!(
+            fs::read(project.memory_root.join("activation.json")).unwrap(),
+            original_bytes
+        );
+        assert_eq!(manifest, original);
     }
 }
