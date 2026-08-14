@@ -26,7 +26,7 @@ required for initialization.
 
 | State | Meaning |
 | --- | --- |
-| `active` | A maintained bridge has a fresh matching receipt for a new session's scoped recall and safe context injection. |
+| `active` | A maintained bridge has a fresh matching receipt for a new session's scoped recall and rendered safe context. |
 | `configured-awaiting-proof` | A safe bridge is installed, but no qualifying fresh receipt exists. |
 | `active-isolated` | Preflight succeeded against a store that does not match this project's canonical store. |
 | `needs-trust` | The runtime needs its own user approval before project resources load. |
@@ -49,11 +49,11 @@ and protocol versions, stable `store_id`, project-root fingerprint, CLI version,
 and adapter records with state, capability, bridge path, owned files, and managed
 blocks. Receipts live under `.tree-ring/activation/receipts/`; they contain
 version and harness IDs, fingerprinted worker identity, harness-derived
-agent/workflow/session IDs, state, timestamp, and optional query class, result
-count, memory-ID digest, duration, and matching-store evidence. They never retain
-raw prompts, recalled content, secrets, sensitive values, absolute paths, or
-coordinator capabilities. Keep at most 100 receipts per harness/worker and none
-older than 30 days.
+agent/workflow/session IDs, state, timestamp, query class, result count,
+selected-memory-ID digest, duration, success status, and matching-store
+evidence. They never retain raw prompts, recalled content, secrets, sensitive
+values, absolute paths, or coordinator capabilities. Keep at most 100 receipts
+per harness/worker and none older than 30 days.
 
 A receipt proves a privacy-safe preflight check, not durable memory creation or
 an adversarial security boundary. Durable writes remain explicit.
@@ -92,7 +92,6 @@ use synthetic IDs and no prompt, recalled context, capability, or absolute path.
     "claude-code": {
       "state": "configured-awaiting-proof",
       "adapter_version": "1",
-      "harness_version": "1.0.0",
       "adapter_capability": "native-preflight",
       "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "bridge_path": ".claude/settings.json",
@@ -114,9 +113,9 @@ use synthetic IDs and no prompt, recalled context, capability, or absolute path.
 }
 ```
 
-The adapter record is keyed by its canonical `harness_id`. `adapter_version`,
-`harness_version`, and `bridge_fingerprint` are required for receipt-backed
-activation. For a bridge with more than one owned file or managed block,
+The adapter record is keyed by its canonical `harness_id`. `adapter_version`
+and `bridge_fingerprint` are required for receipt-backed activation. For a
+bridge with more than one owned file or managed block,
 `bridge_fingerprint` is the SHA-256 of the UTF-8 canonical JSON array of its
 components. Each component has exactly `path`, `kind`, and `sha256`; sort
 the array by `path`, then `kind`, and serialize object keys in lexical order
@@ -132,30 +131,32 @@ fingerprint without recording the project root.
   "protocol_version": 1,
   "receipt_id": "receipt-01",
   "harness_id": "claude-code",
-  "harness_version": "1.0.0",
   "adapter_version": "1",
+  "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "store_id": "01234567-89ab-4def-8123-456789abcdef",
   "project_root_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "worker_key_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "session": {
     "agent_profile": "claude-code",
     "workflow_id": "workflow-01",
     "session_id": "session-01"
   },
-  "query_class": "project-startup-constraints",
-  "result_count": 0,
-  "selected_memory_ids_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-  "duration_ms": 18,
   "state": "active",
-  "recorded_at": "2026-08-13T12:00:00Z",
-  "expires_at": "2026-09-12T12:00:00Z"
+  "query_class": "startup_fallback",
+  "result_count": 0,
+  "selected_memory_ids_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "duration_ms": 18,
+  "status": "success",
+  "recorded_at": "2026-08-13T12:00:00Z"
 }
 ```
 
 `query_class` is an approved stable category, never a raw task hint. A
 zero-result receipt has `result_count: 0` and a digest of the empty selected-ID
-set; it is still valid only after the adapter successfully injects safe context.
+set; it is still valid only after preflight successfully renders safe context
+and persists the receipt.
+Receipt freshness is derived from `recorded_at` and the 30-day retention
+window; no expiry timestamp is serialized.
 
 ### Claude Code SessionStart input
 
@@ -185,7 +186,7 @@ writes exactly this JSON object to stdout on successful preflight:
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Tree Ring preflight completed; safe project context was injected."
+    "additionalContext": "Tree Ring Memory scoped preflight recall:\n- No safe memories matched this scoped query.\nProject source and instructions remain authoritative; verify recalled guidance against them."
   }
 }
 ```
@@ -253,30 +254,24 @@ JSON stdin and consume this response shape. Their harness ID and
 
 ```json
 {
-  "protocol_version": 1,
-  "status": "ok",
-  "context": "Tree Ring preflight completed; safe project context was injected.",
+  "context": "Tree Ring Memory scoped preflight recall:\n- No safe memories matched this scoped query.\nProject source and instructions remain authoritative; verify recalled guidance against them.",
+  "state": "active",
   "receipt": {
+    "schema_version": 1,
+    "protocol_version": 1,
     "receipt_id": "receipt-01",
     "harness_id": "pi",
-    "harness_version": "1.0.0",
     "adapter_version": "1",
+    "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "store_id": "01234567-89ab-4def-8123-456789abcdef",
     "project_root_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "worker_key_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    "session": {
-      "agent_profile": "pi",
-      "workflow_id": "workflow-01",
-      "session_id": "session-01"
-    },
-    "query_class": "project-startup-constraints",
+    "query_class": "startup_fallback",
     "result_count": 0,
-    "selected_memory_ids_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "selected_memory_ids_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "duration_ms": 18,
-    "state": "active",
-    "recorded_at": "2026-08-13T12:00:00Z",
-    "expires_at": "2026-09-12T12:00:00Z"
+    "status": "success",
+    "recorded_at": "2026-08-13T12:00:00Z"
   }
 }
 ```
@@ -285,39 +280,36 @@ Agent Zero returns this complete shape through its separate plugin:
 
 ```json
 {
-  "protocol_version": 1,
-  "status": "ok",
-  "context": "Tree Ring preflight completed; safe project context was injected.",
+  "context": "Tree Ring Memory scoped preflight recall:\n- No safe memories matched this scoped query.\nProject source and instructions remain authoritative; verify recalled guidance against them.",
+  "state": "active",
   "receipt": {
+    "schema_version": 1,
+    "protocol_version": 1,
     "receipt_id": "receipt-02",
     "harness_id": "agent-zero",
-    "harness_version": "1.0.0",
     "adapter_version": "1",
+    "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "store_id": "01234567-89ab-4def-8123-456789abcdef",
     "project_root_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "worker_key_fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    "session": {
-      "agent_profile": "agent-zero-worker",
-      "workflow_id": "workflow-01",
-      "session_id": "session-01"
-    },
-    "query_class": "project-startup-constraints",
+    "query_class": "startup_fallback",
     "result_count": 0,
-    "selected_memory_ids_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "selected_memory_ids_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "duration_ms": 18,
-    "state": "active",
-    "recorded_at": "2026-08-13T12:00:00Z",
-    "expires_at": "2026-09-12T12:00:00Z"
+    "status": "success",
+    "recorded_at": "2026-08-13T12:00:00Z"
   }
 }
 ```
 
-The plugin derives the Agent Zero identity server-side; it must not accept a
-model-supplied identity. Its binding carries the same protocol version,
-`store_id`, project-root fingerprint, relative `memory_root`, and JSON
-stdin/stdout command contract. An error response has `status: "error"`, a
-bounded `error_code`, and no `context` or `receipt`.
+The structured response exposes the serialized `ActivationReceiptSummary`,
+which deliberately omits the persisted receipt's session identity and receipt
+state. The top-level `state` reports the activation result. The plugin derives
+the Agent Zero identity server-side; it must not accept a model-supplied
+identity. Its binding carries the same protocol version, `store_id`,
+project-root fingerprint, relative `memory_root`, and JSON stdin/stdout command
+contract. A failed preflight emits no successful context or receipt and the
+command exits with an error.
 
 ## Receipt verification
 
@@ -325,20 +317,19 @@ An adapter may classify a harness as `active` only after it verifies the
 manifest, bridge, and receipt as one tuple. It must reject the receipt and
 report the exact non-active state if any of these equality requirements fail:
 
-1. `receipt.protocol_version == manifest.protocol_version == 1`.
-2. `receipt.harness_id` is exactly the adapter's canonical harness ID, and
-   `receipt.harness_version == manifest.harnesses[harness_id].harness_version`.
+1. `receipt.schema_version == 1` and
+   `receipt.protocol_version == manifest.protocol_version == 1`.
+2. `receipt.harness_id` is exactly the adapter's canonical harness ID.
 3. `receipt.adapter_version == manifest.harnesses[harness_id].adapter_version`.
 4. `receipt.store_id == manifest.store_id`.
 5. `receipt.project_root_fingerprint == manifest.project_root_fingerprint`.
 6. `receipt.bridge_fingerprint == manifest.harnesses[harness_id].bridge_fingerprint`,
    after recomputing that fingerprint from the installed owned material.
-7. `receipt.session.session_id` is the currently running harness session and
-   its recorded worker/workflow identity matches the adapter-derived identity.
-8. `receipt.state == "active"`, `recorded_at` is not in the future, and
-   `expires_at - recorded_at == 2,592,000 seconds` (30 days). The receipt is
-   fresh only while `recorded_at <= now < expires_at`; it is never reused for
-   a later session even if its TTL has not elapsed.
+7. `receipt.status == "success"` and `receipt.state` is `active` or
+   `active-isolated`.
+8. `recorded_at` is not in the future and is newer than the 30-day retention
+   cutoff. Freshness is calculated from `recorded_at`; the receipt has no
+   serialized expiry field.
 
 Any adapter, harness, root, or bridge change invalidates prior receipts. A
 matching receipt for another accessible store is `active-isolated`, never
