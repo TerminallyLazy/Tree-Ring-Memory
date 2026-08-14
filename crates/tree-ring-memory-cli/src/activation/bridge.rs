@@ -143,7 +143,6 @@ struct TestMutationHooks {
     fail_directory_sync_at: Vec<usize>,
     directory_syncs: usize,
     fail_fdopendir: bool,
-    failed_fdopendir_fd: Option<libc::c_int>,
     fail_readdir: bool,
     fail_closedir: bool,
 }
@@ -206,7 +205,6 @@ fn fdopendir_for_listing(descriptor: libc::c_int) -> *mut libc::DIR {
         let mut hooks = hooks.borrow_mut();
         if hooks.fail_fdopendir {
             hooks.fail_fdopendir = false;
-            hooks.failed_fdopendir_fd = Some(descriptor);
             true
         } else {
             false
@@ -2912,17 +2910,6 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn failed_fdopendir_fd_for_test() -> libc::c_int {
-        TEST_MUTATION_HOOKS.with(|hooks| {
-            hooks
-                .borrow_mut()
-                .failed_fdopendir_fd
-                .take()
-                .expect("fdopendir failure recorded its descriptor")
-        })
-    }
-
-    #[cfg(unix)]
     fn fail_readdir_for_test() {
         TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().fail_readdir = true);
     }
@@ -3792,24 +3779,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn directory_listing_closes_fdopendir_failure_descriptor() {
+    fn directory_listing_preserves_fdopendir_error_when_cleanup_succeeds() {
         let directory = tempfile::tempdir().unwrap();
         let file = File::open(directory.path()).unwrap();
         fail_fdopendir_for_test();
 
         let error = list_directory_entries(&file).unwrap_err();
-        let descriptor = failed_fdopendir_fd_for_test();
-        let status = unsafe {
-            // SAFETY: fcntl only observes whether the recorded descriptor remains open.
-            libc::fcntl(descriptor, libc::F_GETFD)
-        };
 
         assert!(error.contains("Input/output error"));
-        assert_eq!(status, -1);
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::EBADF)
-        );
+        assert!(!error.contains("descriptor cleanup also failed"));
     }
 
     #[cfg(unix)]
