@@ -404,6 +404,7 @@ impl HarnessAdapter for DeclarativeAdapter {
                 }
                 _ => ActivationState::NeedsPlugin,
             },
+            AdapterSupport::Maintained if self.id == "pi" => ActivationState::NeedsTrust,
             AdapterSupport::Maintained => ActivationState::ConfiguredAwaitingProof,
         };
         let status = if markers.is_empty() {

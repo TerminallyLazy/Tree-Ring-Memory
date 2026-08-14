@@ -37,6 +37,29 @@ pub struct HarnessActivation {
     pub adapter_capability: AdapterCapability,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bridge_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owned_files: Vec<OwnedBridgeFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub managed_blocks: Vec<OwnedManagedBlock>,
+}
+
+/// A complete project-local bridge file that Tree Ring may replace or remove
+/// only while its bytes still match this digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnedBridgeFile {
+    pub path: String,
+    pub sha256: String,
+}
+
+/// A bounded block inside an otherwise user-owned file. The block identifier
+/// selects the exact adapter-owned markers or structured JSON handler.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnedManagedBlock {
+    pub path: String,
+    pub block_id: String,
+    pub sha256: String,
 }
 
 /// A deliberately minimal, non-sensitive record that an activation occurred.
@@ -89,6 +112,17 @@ pub fn load_or_create_manifest(
         Err(_) if path.exists() => load_manifest(memory_root),
         Err(error) => Err(error),
     }
+}
+
+/// Atomically persists a validated activation manifest.
+pub fn save_manifest(memory_root: &Path, manifest: &ActivationManifest) -> Result<(), String> {
+    validate_memory_root(memory_root)?;
+    validate_manifest(manifest)?;
+    atomic_write_json(
+        &manifest_path(memory_root),
+        manifest,
+        AtomicWriteMode::Replace,
+    )
 }
 
 /// Writes a receipt beneath the store's activation receipt directory.
@@ -236,7 +270,7 @@ fn validate_memory_root(memory_root: &Path) -> Result<(), String> {
     }
 }
 
-fn validate_manifest(manifest: &ActivationManifest) -> Result<(), String> {
+pub(crate) fn validate_manifest(manifest: &ActivationManifest) -> Result<(), String> {
     if manifest.schema_version != ACTIVATION_SCHEMA_VERSION {
         return Err(format!(
             "unsupported activation schema version: {}",
@@ -258,6 +292,19 @@ fn validate_manifest(manifest: &ActivationManifest) -> Result<(), String> {
         validate_identifier("harness id", harness_id)?;
         if let Some(bridge_path) = &activation.bridge_path {
             validate_project_relative_path(bridge_path)?;
+        }
+        for owned in &activation.owned_files {
+            validate_project_relative_path(&owned.path)?;
+            if !is_sha256(&owned.sha256) {
+                return Err("owned bridge file digest must be a SHA-256 hex digest".to_string());
+            }
+        }
+        for owned in &activation.managed_blocks {
+            validate_project_relative_path(&owned.path)?;
+            validate_identifier("managed block id", &owned.block_id)?;
+            if !is_sha256(&owned.sha256) {
+                return Err("managed block digest must be a SHA-256 hex digest".to_string());
+            }
         }
     }
     Ok(())
@@ -311,7 +358,7 @@ fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_project_relative_path(value: &str) -> Result<(), String> {
+pub(crate) fn validate_project_relative_path(value: &str) -> Result<(), String> {
     if value.trim().is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
         return Err("invalid bridge path".to_string());
     }
@@ -519,6 +566,8 @@ mod tests {
                 state: ActivationState::Active,
                 adapter_capability: AdapterCapability::NativePreflight,
                 bridge_path: Some("bridges/codex.sh".to_string()),
+                owned_files: Vec::new(),
+                managed_blocks: Vec::new(),
             },
         );
         assert!(validate_manifest(&manifest).is_ok());

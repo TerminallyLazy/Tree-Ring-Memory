@@ -35,10 +35,11 @@ pub struct SessionIdentity {
 }
 
 pub mod adapters;
+pub mod bridge;
 pub mod manifest;
 
 #[allow(unused_imports)]
 pub use manifest::{
-    load_manifest, load_or_create_manifest, prune_receipts, write_receipt, ActivationManifest,
-    ActivationReceipt, HarnessActivation,
+    load_manifest, load_or_create_manifest, prune_receipts, save_manifest, write_receipt,
+    ActivationManifest, ActivationReceipt, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
 };
