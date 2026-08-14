@@ -17,7 +17,7 @@ framework-agnostic and does not replace either protocol.
 Tree Ring Memory is in protocol-preview status. Current launch links:
 
 - Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -39,6 +39,7 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
 - v0.11 made the repo fully Rust-native, wired TUI export/consolidation actions, added DOX/Revolve sync adapters, and added agent-framework discovery.
 - v0.12 adds a controlled, retained agent-workflow proof with explicit model identity and exact structured-output checks; it reports observed outcomes without claiming a universal memory advantage.
 - v0.13 adds same-host multi-agent identities and idempotency, opt-in coordinator authorization for shared writes, a protected-write audit, and a schema-v3 fence for old memory inserts, updates, and deletes.
+- v0.14 adds project-local harness activation with receipt-backed readiness, so configured bridges do not imply that an agent has used memory.
 
 </details>
 
@@ -153,8 +154,8 @@ Linux x86_64 prebuilt install (glibc 2.36 or newer):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
-  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.13.0/tree-ring-memory-0.13.0-linux-x86_64.tar.gz \
-  --archive-sha256 76966ec89990c0d10ab933733b1d0f601beec343cb90b64ee7f0655672b10a6a
+  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.14.0/tree-ring-memory-0.14.0-linux-x86_64.tar.gz \
+  --archive-sha256 c72191aca81f195472272a1962df354fe0af04a08b01a7472a1faf987cd177fa
 ```
 
 macOS ARM64 install with Homebrew:
@@ -224,7 +225,7 @@ sh install.sh --project --init
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
-sh install.sh --archive-url https://example/tree-ring-memory-0.13.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
+sh install.sh --archive-url https://example/tree-ring-memory-0.14.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
 After install, rerun onboarding anytime:

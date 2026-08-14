@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-07-23T20:26:15Z</updated>
+  <updated>2026-08-14T08:25:58Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory v0.14.0 adds receipt-backed harness activation</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0"/>
+    <updated>2026-08-14T08:25:58Z</updated>
+    <summary>Tree Ring Memory v0.14.0 adds project-local harness activation with adapter preflight and receipt-backed status, so configured bridges do not imply that an agent has used memory. Agent Zero remains passive until its separately installed plugin provides its capability and writes a fresh receipt.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory v0.13.0 adds same-host multi-agent guardrails</title>

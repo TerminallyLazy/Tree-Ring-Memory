@@ -5,14 +5,14 @@
 
 Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
-Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0
+Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0
 Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 Homebrew tap: https://github.com/TerminallyLazy/homebrew-tree-ring
 Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
 Feed: https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml
 License: MIT
 Status: protocol-preview
-Current version: 0.13.0
+Current version: 0.14.0
 
 ## Summary
 
@@ -33,6 +33,7 @@ ideas stay as seeds.
 - Controlled workflow-proof artifacts with explicit model identity and exact structured-output checks.
 - Same-host multi-agent identity, scoped recall, and exact-retry idempotency.
 - Optional coordinator authorization for shared writes and lifecycle mutations.
+- Project-local harness activation with receipt-backed readiness.
 - DOX and Revolve sync adapters.
 - Read-only agent-framework discovery.
 - Terminal onboarding and a Ratatui operator console.
@@ -47,8 +48,8 @@ Linux x86_64 prebuilt install (glibc 2.36 or newer):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
-  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.13.0/tree-ring-memory-0.13.0-linux-x86_64.tar.gz \
-  --archive-sha256 76966ec89990c0d10ab933733b1d0f601beec343cb90b64ee7f0655672b10a6a
+  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.14.0/tree-ring-memory-0.14.0-linux-x86_64.tar.gz \
+  --archive-sha256 c72191aca81f195472272a1962df354fe0af04a08b01a7472a1faf987cd177fa
 ```
 
 macOS ARM64 Homebrew install:
@@ -90,7 +91,7 @@ writes are explicit.
 - Rust article: https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md
 - Press kit: https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md
 - Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
-- Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.13.0
+- Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0
 - Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 - Homebrew tap: https://github.com/TerminallyLazy/homebrew-tree-ring
 - Feedback issue: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
