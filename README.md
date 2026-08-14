@@ -112,6 +112,11 @@ and generated guidance are never enough. See the [harness activation
 protocol](docs/protocol/harness-activation.md) for states, receipts, advanced
 commands, and runtime boundaries.
 
+Shared Tree Ring activation is supported only for concurrent processes on the
+same-host local filesystem with matching project-store identity. It does not
+claim safe SQLite sharing across hosts, NFS/network filesystems, or containers
+on different hosts.
+
 Source install (requires Rust and Cargo):
 
 ```bash
