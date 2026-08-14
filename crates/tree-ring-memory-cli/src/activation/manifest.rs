@@ -1,6 +1,7 @@
 use super::{
-    ActivationState, AdapterCapability, SessionIdentity, ACTIVATION_PROTOCOL_VERSION,
-    ACTIVATION_SCHEMA_VERSION, RECEIPT_RETENTION_DAYS, RECEIPT_RETENTION_PER_WORKER,
+    adapters::ActivationProject, bridge::ProjectFs, ActivationState, AdapterCapability,
+    SessionIdentity, ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
+    RECEIPT_RETENTION_DAYS, RECEIPT_RETENTION_PER_WORKER,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -146,16 +147,14 @@ pub fn save_manifest(memory_root: &Path, manifest: &ActivationManifest) -> Resul
 
 /// Writes a receipt beneath the store's activation receipt directory.
 pub fn write_receipt(memory_root: &Path, receipt: &ActivationReceipt) -> Result<PathBuf, String> {
-    validate_memory_root(memory_root)?;
     validate_receipt(receipt)?;
-    let path = receipt_path(
-        memory_root,
-        &receipt.harness_id,
-        &receipt.worker_key_fingerprint,
-    )
-    .join(format!("{}.json", receipt.receipt_id));
-    atomic_write_json(&path, receipt, AtomicWriteMode::Replace)?;
-    Ok(path)
+    let project_fs = open_receipt_store(memory_root)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    let relative = write_receipt_locked(&project_fs, receipt)?;
+    let suffix = relative
+        .strip_prefix(".tree-ring")
+        .expect("receipt relative paths are rooted at .tree-ring");
+    Ok(memory_root.join(suffix))
 }
 
 /// Removes expired receipts and keeps at most 100 receipts for a harness/worker pair.
@@ -165,45 +164,67 @@ pub fn prune_receipts(
     worker_key: &str,
     now: DateTime<Utc>,
 ) -> Result<usize, String> {
-    validate_memory_root(memory_root)?;
     validate_identifier("harness id", harness_id)?;
     validate_identifier("worker key", worker_key)?;
-    let directory = receipt_path(memory_root, harness_id, &fingerprint(worker_key));
-    if !directory.exists() {
+    let project_fs = open_receipt_store(memory_root)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    prune_receipts_locked(&project_fs, harness_id, worker_key, now)
+}
+
+/// Removes expired receipts while the caller holds the activation-contract
+/// lock. All receipt traversal remains descriptor-relative to the verified
+/// project root, so a replaced directory cannot redirect deletion.
+pub(crate) fn prune_receipts_locked(
+    project_fs: &ProjectFs,
+    harness_id: &str,
+    worker_key: &str,
+    now: DateTime<Utc>,
+) -> Result<usize, String> {
+    validate_identifier("harness id", harness_id)?;
+    validate_identifier("worker key", worker_key)?;
+    let directory = receipt_relative_directory(harness_id, &fingerprint(worker_key));
+    let Some(entries) = project_fs.directory_entries(&directory)? else {
         return Ok(0);
-    }
+    };
 
     let expiry = now - Duration::days(RECEIPT_RETENTION_DAYS);
     let mut retained = Vec::new();
     let mut removed = 0;
-    for entry in fs::read_dir(&directory).map_err(|err| io_error(&directory, err))? {
-        let entry = entry.map_err(|err| io_error(&directory, err))?;
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+    for name in entries {
+        let path = directory.join(&name);
+        if Path::new(&name)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("json")
+        {
             continue;
         }
-        let receipt: ActivationReceipt = match read_json(&path).and_then(|receipt| {
-            validate_receipt(&receipt)?;
-            Ok(receipt)
-        }) {
-            Ok(receipt) => receipt,
-            Err(_) => {
-                fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
-                removed += 1;
-                continue;
-            }
-        };
+        let receipt: ActivationReceipt =
+            match read_receipt_locked(project_fs, &path).and_then(|receipt| {
+                validate_receipt(&receipt)?;
+                Ok(receipt)
+            }) {
+                Ok(receipt) => receipt,
+                Err(_) => {
+                    if project_fs.remove_validated_regular_file(&path)? {
+                        removed += 1;
+                    }
+                    continue;
+                }
+            };
         if receipt.recorded_at < expiry {
-            fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
-            removed += 1;
+            if project_fs.remove_validated_regular_file(&path)? {
+                removed += 1;
+            }
         } else {
             retained.push((receipt.recorded_at, path));
         }
     }
     retained.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1)));
     for (_, path) in retained.into_iter().skip(RECEIPT_RETENTION_PER_WORKER) {
-        fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
-        removed += 1;
+        if project_fs.remove_validated_regular_file(&path)? {
+            removed += 1;
+        }
     }
     Ok(removed)
 }
@@ -217,26 +238,55 @@ pub fn invalidate_receipts_for_adapter(
     project_root_fingerprint: &str,
     store_id: &str,
 ) -> Result<usize, String> {
-    validate_memory_root(memory_root)?;
     validate_identifier("harness id", harness_id)?;
-    let directory = memory_root.join(RECEIPTS_DIRECTORY).join(harness_id);
-    if !directory.exists() {
-        return Ok(0);
+    let project_fs = open_receipt_store(memory_root)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    invalidate_receipts_for_adapter_locked(
+        &project_fs,
+        harness_id,
+        adapter_version,
+        bridge_fingerprint,
+        project_root_fingerprint,
+        store_id,
+    )
+}
+
+/// Removes receipt evidence that does not match the exact adapter contract.
+/// This is intentionally called under the same lock used by bridge mutation.
+pub(crate) fn invalidate_receipts_for_adapter_locked(
+    project_fs: &ProjectFs,
+    harness_id: &str,
+    adapter_version: &str,
+    bridge_fingerprint: &str,
+    project_root_fingerprint: &str,
+    store_id: &str,
+) -> Result<usize, String> {
+    validate_identifier("harness id", harness_id)?;
+    validate_identifier("adapter version", adapter_version)?;
+    if !is_sha256(bridge_fingerprint) || !is_sha256(project_root_fingerprint) {
+        return Err("receipt contract fingerprint is invalid".to_string());
     }
+    validate_identifier("store id", store_id)?;
+    let directory = receipt_harness_directory(harness_id);
+    let Some(workers) = project_fs.directory_entries(&directory)? else {
+        return Ok(0);
+    };
     let mut removed = 0;
-    for worker in fs::read_dir(&directory).map_err(|err| io_error(&directory, err))? {
-        let worker = worker.map_err(|err| io_error(&directory, err))?;
-        let worker_path = worker.path();
-        if !worker_path.is_dir() {
+    for worker in workers {
+        let worker_directory = directory.join(&worker);
+        let Some(entries) = project_fs.directory_entries(&worker_directory)? else {
             continue;
-        }
-        for entry in fs::read_dir(&worker_path).map_err(|err| io_error(&worker_path, err))? {
-            let entry = entry.map_err(|err| io_error(&worker_path, err))?;
-            let path = entry.path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+        };
+        for name in entries {
+            let path = worker_directory.join(&name);
+            if Path::new(&name)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                != Some("json")
+            {
                 continue;
             }
-            let current = read_json::<ActivationReceipt>(&path)
+            let current = read_receipt_locked(project_fs, &path)
                 .and_then(|receipt| {
                     validate_receipt(&receipt)?;
                     Ok(receipt)
@@ -247,13 +297,122 @@ pub fn invalidate_receipts_for_adapter(
                         && receipt.project_root_fingerprint == project_root_fingerprint
                         && receipt.store_id == store_id
                 });
-            if !current {
-                fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
+            if !current && project_fs.remove_validated_regular_file(&path)? {
                 removed += 1;
             }
         }
     }
     Ok(removed)
+}
+
+/// Removes every receipt for a harness through the same no-follow traversal.
+/// A manifest whose adapter record is itself stale cannot leave an otherwise
+/// matching historical receipt as activation proof.
+pub(crate) fn invalidate_all_receipts_for_adapter_locked(
+    project_fs: &ProjectFs,
+    harness_id: &str,
+) -> Result<usize, String> {
+    validate_identifier("harness id", harness_id)?;
+    let directory = receipt_harness_directory(harness_id);
+    let Some(workers) = project_fs.directory_entries(&directory)? else {
+        return Ok(0);
+    };
+    let mut removed = 0;
+    for worker in workers {
+        let worker_directory = directory.join(&worker);
+        let Some(entries) = project_fs.directory_entries(&worker_directory)? else {
+            continue;
+        };
+        for name in entries {
+            if Path::new(&name)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                != Some("json")
+            {
+                continue;
+            }
+            if project_fs.remove_validated_regular_file(&worker_directory.join(name))? {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
+/// Reads a persisted manifest through a descriptor-relative no-follow path.
+/// Callers that need an activation decision should hold `ProjectFs::lock_manifest`.
+pub(crate) fn load_manifest_locked(project_fs: &ProjectFs) -> Result<ActivationManifest, String> {
+    let bytes = project_fs
+        .read_optional(Path::new(".tree-ring/activation.json"))?
+        .ok_or_else(|| "activation manifest is unavailable".to_string())?;
+    let manifest: ActivationManifest = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid activation JSON: {error}"))?;
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+/// Writes a validated receipt using an O_NOFOLLOW, descriptor-relative target.
+/// The caller must hold the activation-contract lock.
+pub(crate) fn write_receipt_locked(
+    project_fs: &ProjectFs,
+    receipt: &ActivationReceipt,
+) -> Result<PathBuf, String> {
+    validate_receipt(receipt)?;
+    let relative = receipt_relative_path(receipt)?;
+    let bytes = serde_json::to_vec_pretty(receipt)
+        .map_err(|error| format!("failed to serialize activation receipt: {error}"))?;
+    let target = project_fs.resolve_target(&relative, true)?;
+    if target.read_optional()?.is_some() {
+        return Err("activation receipt already exists".to_string());
+    }
+    target.atomic_write(&bytes, true)?;
+    Ok(relative)
+}
+
+fn read_receipt_locked(
+    project_fs: &ProjectFs,
+    relative: &Path,
+) -> Result<ActivationReceipt, String> {
+    let bytes = project_fs
+        .read_optional(relative)?
+        .ok_or_else(|| "activation receipt disappeared".to_string())?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid activation receipt JSON: {error}"))
+}
+
+fn open_receipt_store(memory_root: &Path) -> Result<ProjectFs, String> {
+    validate_memory_root(memory_root)?;
+    let project = ActivationProject::from_memory_root(memory_root.to_path_buf())?;
+    let project_fs = ProjectFs::open(&project)?;
+    if project_fs
+        .directory_entries(Path::new(".tree-ring"))?
+        .is_none()
+    {
+        return Err("activation metadata root is unavailable".to_string());
+    }
+    Ok(project_fs)
+}
+
+fn receipt_harness_directory(harness_id: &str) -> PathBuf {
+    PathBuf::from(".tree-ring")
+        .join(RECEIPTS_DIRECTORY)
+        .join(harness_id)
+}
+
+fn receipt_relative_directory(harness_id: &str, worker_fingerprint: &str) -> PathBuf {
+    receipt_harness_directory(harness_id).join(worker_fingerprint)
+}
+
+fn receipt_relative_path(receipt: &ActivationReceipt) -> Result<PathBuf, String> {
+    validate_identifier("harness id", &receipt.harness_id)?;
+    validate_identifier("receipt id", &receipt.receipt_id)?;
+    if !is_sha256(&receipt.worker_key_fingerprint) {
+        return Err("receipt worker key fingerprint is invalid".to_string());
+    }
+    Ok(
+        receipt_relative_directory(&receipt.harness_id, &receipt.worker_key_fingerprint)
+            .join(format!("{}.json", receipt.receipt_id)),
+    )
 }
 
 /// Stable digest of only the project-relative, adapter-owned bridge contract.
@@ -321,6 +480,7 @@ fn manifest_path(memory_root: &Path) -> PathBuf {
     memory_root.join(ACTIVATION_MANIFEST_FILE)
 }
 
+#[cfg(test)]
 fn receipt_path(memory_root: &Path, harness_id: &str, worker_fingerprint: &str) -> PathBuf {
     memory_root
         .join(RECEIPTS_DIRECTORY)
@@ -643,6 +803,8 @@ fn io_error(path: &Path, error: std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use std::{
         fs,
         sync::{Arc, Barrier},
@@ -840,6 +1002,7 @@ mod tests {
     fn receipt_invalidation_removes_only_stale_adapter_contracts() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
+        fs::create_dir_all(&root).unwrap();
         let receipt = fixture_receipt(Utc::now());
         write_receipt(&root, &receipt).unwrap();
         assert_eq!(receipt_files(&root).len(), 1);
@@ -871,10 +1034,66 @@ mod tests {
         assert!(receipt_files(&root).is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn receipt_operations_reject_symlinked_directory_components_without_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project/.tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let sentinel = outside.join("sentinel.json");
+        fs::write(&sentinel, b"outside sentinel").unwrap();
+        symlink(&outside, root.join("activation")).unwrap();
+        let receipt = fixture_receipt(Utc::now());
+
+        assert!(write_receipt(&root, &receipt).is_err());
+        assert!(prune_receipts(&root, "codex", "worker-1", Utc::now()).is_err());
+        assert!(invalidate_receipts_for_adapter(
+            &root,
+            "codex",
+            &receipt.adapter_version,
+            &receipt.bridge_fingerprint,
+            &receipt.project_root_fingerprint,
+            &receipt.store_id,
+        )
+        .is_err());
+        assert_eq!(fs::read(&sentinel).unwrap(), b"outside sentinel");
+        assert!(!outside.join("receipts").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipt_file_symlink_is_never_read_or_deleted() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project/.tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let receipt = fixture_receipt(Utc::now());
+        let directory = receipt_path(&root, "codex", &fingerprint("worker-1"));
+        fs::create_dir_all(&directory).unwrap();
+        let sentinel = temp.path().join("outside-receipt.json");
+        fs::write(&sentinel, b"outside receipt").unwrap();
+        symlink(&sentinel, directory.join("symlink.json")).unwrap();
+
+        assert!(prune_receipts(&root, "codex", "worker-1", Utc::now()).is_err());
+        assert!(invalidate_receipts_for_adapter(
+            &root,
+            "codex",
+            &receipt.adapter_version,
+            &receipt.bridge_fingerprint,
+            &receipt.project_root_fingerprint,
+            &receipt.store_id,
+        )
+        .is_err());
+        assert_eq!(fs::read(&sentinel).unwrap(), b"outside receipt");
+        assert!(directory.join("symlink.json").exists());
+    }
+
     #[test]
     fn prune_receipts_removes_malformed_and_expired_records_and_keeps_the_latest_hundred() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
+        fs::create_dir_all(&root).unwrap();
         let now = Utc::now();
         let mut expired = fixture_receipt(now - Duration::days(RECEIPT_RETENTION_DAYS + 1));
         expired.receipt_id = "expired".to_string();

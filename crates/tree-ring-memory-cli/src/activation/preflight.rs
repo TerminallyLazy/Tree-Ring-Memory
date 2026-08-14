@@ -1,16 +1,18 @@
 use super::{
     adapters::{adapter_version, ActivationProject},
+    bridge::ProjectFs,
     manifest::{
-        bridge_fingerprint, fingerprint, fingerprint_path, invalidate_receipts_for_adapter,
-        load_manifest, prune_receipts, validate_manifest, write_receipt, ActivationManifest,
-        ActivationReceipt,
+        bridge_fingerprint, fingerprint, fingerprint_path,
+        invalidate_all_receipts_for_adapter_locked, invalidate_receipts_for_adapter_locked,
+        load_manifest_locked, prune_receipts_locked, validate_manifest, write_receipt_locked,
+        ActivationManifest, ActivationReceipt,
     },
     ActivationState, SessionIdentity, ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fmt, path::Path, time::Instant};
+use std::{ffi::OsStr, fmt, path::Path, time::Instant};
 use tree_ring_memory_core::SensitivityGuard;
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallOptions, RecallResult, SQLiteMemoryStore};
 use uuid::Uuid;
@@ -19,6 +21,8 @@ const FALLBACK_QUERY: &str = "project startup constraints";
 const MAX_RESULTS: usize = 8;
 const MAX_CONTEXT_BYTES: usize = 32 * 1024;
 const PREFLIGHT_TIMEOUT_MS: u64 = 10_000;
+const STORAGE_ERROR: &str = "activation preflight storage unavailable";
+const CONTRACT_ERROR: &str = "invalid preflight harness contract";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -34,6 +38,47 @@ pub struct PreflightRequest {
     pub identity: SessionIdentity,
     pub task_hint: Option<String>,
     pub context_format: PreflightContextFormat,
+    input_contract: PreflightInputContract,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreflightInputContract {
+    DirectIdentityFlags,
+    AdapterStdin,
+}
+
+impl PreflightRequest {
+    /// Constructs the direct identity request supported by the Codex wrapper.
+    /// Adapter-owned hooks must go through `parse_adapter_stdin` instead.
+    pub fn direct(
+        harness_id: impl Into<String>,
+        identity: SessionIdentity,
+        task_hint: Option<String>,
+        context_format: PreflightContextFormat,
+    ) -> Self {
+        Self {
+            harness_id: harness_id.into(),
+            identity,
+            task_hint,
+            context_format,
+            input_contract: PreflightInputContract::DirectIdentityFlags,
+        }
+    }
+
+    fn adapter_stdin(
+        harness_id: impl Into<String>,
+        identity: SessionIdentity,
+        task_hint: Option<String>,
+        context_format: PreflightContextFormat,
+    ) -> Self {
+        Self {
+            harness_id: harness_id.into(),
+            identity,
+            task_hint,
+            context_format,
+            input_contract: PreflightInputContract::AdapterStdin,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,12 +124,6 @@ impl fmt::Display for ActivationError {
 
 impl std::error::Error for ActivationError {}
 
-impl From<String> for ActivationError {
-    fn from(error: String) -> Self {
-        Self(error)
-    }
-}
-
 /// Runs bounded, identity-scoped recall and records proof only after output renders.
 pub fn run_preflight(
     store: &SQLiteMemoryStore,
@@ -92,57 +131,24 @@ pub fn run_preflight(
     manifest: &ActivationManifest,
     request: PreflightRequest,
 ) -> Result<PreflightResponse, ActivationError> {
-    let started = Instant::now();
-    validate_manifest(manifest).map_err(ActivationError::from)?;
-    ensure_store_path_matches(store, project)?;
-    ensure_persisted_manifest_matches(project, manifest)?;
+    validate_request_contract(&request)?;
     validate_identity(&request.identity)?;
+    validate_manifest(manifest)
+        .map_err(|_| ActivationError::new("activation manifest is invalid"))?;
+    ensure_store_path_matches(store, project)?;
 
-    let activation = manifest
-        .harnesses
-        .get(&request.harness_id)
-        .ok_or_else(|| ActivationError::new("harness has no activation record"))?;
-    let current_version = adapter_version(&request.harness_id)
-        .ok_or_else(|| ActivationError::new("unknown harness adapter"))?;
-    let current_bridge_fingerprint = bridge_fingerprint(&request.harness_id, activation);
-    invalidate_receipts_for_adapter(
-        &project.memory_root,
-        &request.harness_id,
-        &activation.adapter_version,
-        &current_bridge_fingerprint,
-        &manifest.project_root_fingerprint,
-        &manifest.store_id,
-    )
-    .map_err(ActivationError::from)?;
-    if activation.adapter_version != current_version {
-        return Err(ActivationError::new("stale adapter version"));
-    }
-    if activation.bridge_fingerprint != current_bridge_fingerprint {
-        return Err(ActivationError::new("stale bridge fingerprint"));
-    }
-    if !matches!(
-        activation.state,
-        ActivationState::ConfiguredAwaitingProof
-            | ActivationState::NeedsTrust
-            | ActivationState::Active
-            | ActivationState::ActiveIsolated
-    ) {
-        return Err(ActivationError::new(
-            "harness is not eligible for preflight",
-        ));
-    }
+    let receipt_project =
+        ActivationProject::from_memory_root(project.memory_root.clone()).map_err(storage_error)?;
+    let project_fs = ProjectFs::open(&receipt_project).map_err(storage_error)?;
+    let snapshot = prepare_preflight_contract(&project_fs, project, manifest, &request)?;
 
-    let state = preflight_state(project, manifest)?;
+    let started = Instant::now();
     let (query, query_class) = safe_query(request.task_hint.as_deref());
-    let project_name = configured_identity_root(project)?
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty());
     let results = MemoryRetriever::new(store)
         .recall_with_options(
             query,
             &RecallOptions {
-                project: project_name,
+                project: Some(&snapshot.project_name),
                 agent_profile: Some(&request.identity.agent_profile),
                 workflow_id: Some(&request.identity.workflow_id),
                 session_id: Some(&request.identity.session_id),
@@ -168,14 +174,14 @@ pub fn run_preflight(
         schema_version: ACTIVATION_SCHEMA_VERSION,
         protocol_version: ACTIVATION_PROTOCOL_VERSION,
         receipt_id: format!("receipt-{}", Uuid::new_v4()),
-        harness_id: request.harness_id,
-        adapter_version: activation.adapter_version.clone(),
-        bridge_fingerprint: activation.bridge_fingerprint.clone(),
-        store_id: manifest.store_id.clone(),
-        project_root_fingerprint: manifest.project_root_fingerprint.clone(),
+        harness_id: request.harness_id.clone(),
+        adapter_version: snapshot.contract.adapter_version.clone(),
+        bridge_fingerprint: snapshot.contract.bridge_fingerprint.clone(),
+        store_id: snapshot.manifest.store_id.clone(),
+        project_root_fingerprint: snapshot.manifest.project_root_fingerprint.clone(),
         worker_key_fingerprint: fingerprint(&request.identity.agent_profile),
-        session: request.identity,
-        state,
+        session: request.identity.clone(),
+        state: snapshot.state,
         query_class: query_class.to_string(),
         result_count: safe_results.len(),
         selected_memory_ids_sha256,
@@ -184,22 +190,192 @@ pub fn run_preflight(
         recorded_at: Utc::now(),
     };
     let response = PreflightResponse {
-        state,
+        state: snapshot.state,
         context,
         receipt: receipt_summary(&receipt),
     };
 
     // Force construction of the complete adapter payload before any receipt exists.
     render_for_format(&response, request.context_format)?;
-    prune_receipts(
-        &project.memory_root,
+    run_pre_commit_hook(&request);
+    commit_receipt(
+        &project_fs,
+        store,
+        project,
+        manifest,
+        &snapshot,
+        &request,
+        &receipt,
+    )?;
+    Ok(response)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CurrentActivationContract {
+    adapter_version: String,
+    bridge_fingerprint: String,
+    manifest_matches_registry: bool,
+    eligible_for_preflight: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreflightSnapshot {
+    manifest: ActivationManifest,
+    contract: CurrentActivationContract,
+    state: ActivationState,
+    project_name: String,
+}
+
+fn prepare_preflight_contract(
+    project_fs: &ProjectFs,
+    project: &ActivationProject,
+    supplied: &ActivationManifest,
+    request: &PreflightRequest,
+) -> Result<PreflightSnapshot, ActivationError> {
+    let _manifest_lock = project_fs.lock_manifest().map_err(storage_error)?;
+    let persisted = load_manifest_locked(project_fs).map_err(storage_error)?;
+    let contract = current_activation_contract(&persisted, &request.harness_id)?;
+    invalidate_current_receipts(project_fs, &persisted, &request.harness_id, &contract)?;
+    ensure_current_and_eligible(project_fs, &request.harness_id, &contract)?;
+    let state = match preflight_state(project, &persisted) {
+        Ok(state) => state,
+        Err(error) => {
+            invalidate_all_receipts_for_adapter_locked(project_fs, &request.harness_id)
+                .map_err(storage_error)?;
+            return Err(error);
+        }
+    };
+    let project_name = match project_scope_name(project) {
+        Ok(name) => name,
+        Err(error) => {
+            invalidate_all_receipts_for_adapter_locked(project_fs, &request.harness_id)
+                .map_err(storage_error)?;
+            return Err(error);
+        }
+    };
+    ensure_persisted_manifest_matches(&persisted, supplied)?;
+    Ok(PreflightSnapshot {
+        manifest: persisted,
+        contract,
+        state,
+        project_name,
+    })
+}
+
+fn commit_receipt(
+    project_fs: &ProjectFs,
+    store: &SQLiteMemoryStore,
+    project: &ActivationProject,
+    supplied: &ActivationManifest,
+    snapshot: &PreflightSnapshot,
+    request: &PreflightRequest,
+    receipt: &ActivationReceipt,
+) -> Result<(), ActivationError> {
+    let _manifest_lock = project_fs.lock_manifest().map_err(storage_error)?;
+    let persisted = load_manifest_locked(project_fs).map_err(storage_error)?;
+    ensure_store_path_matches(store, project)?;
+    let contract = current_activation_contract(&persisted, &request.harness_id)?;
+    invalidate_current_receipts(project_fs, &persisted, &request.harness_id, &contract)?;
+    ensure_current_and_eligible(project_fs, &request.harness_id, &contract)?;
+    let state = match preflight_state(project, &persisted) {
+        Ok(state) => state,
+        Err(error) => {
+            invalidate_all_receipts_for_adapter_locked(project_fs, &request.harness_id)
+                .map_err(storage_error)?;
+            return Err(error);
+        }
+    };
+    if persisted != *supplied
+        || persisted != snapshot.manifest
+        || contract != snapshot.contract
+        || state != snapshot.state
+        || receipt.adapter_version != contract.adapter_version
+        || receipt.bridge_fingerprint != contract.bridge_fingerprint
+        || receipt.store_id != persisted.store_id
+        || receipt.project_root_fingerprint != persisted.project_root_fingerprint
+    {
+        return Err(ActivationError::new(
+            "activation contract changed while preparing receipt",
+        ));
+    }
+    prune_receipts_locked(
+        project_fs,
         &receipt.harness_id,
         &receipt.session.agent_profile,
         Utc::now(),
     )
-    .map_err(ActivationError::from)?;
-    write_receipt(&project.memory_root, &receipt).map_err(ActivationError::from)?;
-    Ok(response)
+    .map_err(storage_error)?;
+    write_receipt_locked(project_fs, receipt).map_err(storage_error)?;
+    Ok(())
+}
+
+fn current_activation_contract(
+    manifest: &ActivationManifest,
+    harness_id: &str,
+) -> Result<CurrentActivationContract, ActivationError> {
+    let activation = manifest
+        .harnesses
+        .get(harness_id)
+        .ok_or_else(|| ActivationError::new("harness has no activation record"))?;
+    let adapter_version = adapter_version(harness_id)
+        .ok_or_else(|| ActivationError::new("unknown harness adapter"))?
+        .to_string();
+    let mut registry_activation = activation.clone();
+    registry_activation.adapter_version = adapter_version.clone();
+    let bridge_fingerprint = bridge_fingerprint(harness_id, &registry_activation);
+    Ok(CurrentActivationContract {
+        manifest_matches_registry: activation.adapter_version == adapter_version
+            && activation.bridge_fingerprint == bridge_fingerprint,
+        eligible_for_preflight: matches!(
+            activation.state,
+            ActivationState::ConfiguredAwaitingProof
+                | ActivationState::NeedsTrust
+                | ActivationState::Active
+                | ActivationState::ActiveIsolated
+        ),
+        adapter_version,
+        bridge_fingerprint,
+    })
+}
+
+fn invalidate_current_receipts(
+    project_fs: &ProjectFs,
+    manifest: &ActivationManifest,
+    harness_id: &str,
+    contract: &CurrentActivationContract,
+) -> Result<(), ActivationError> {
+    invalidate_receipts_for_adapter_locked(
+        project_fs,
+        harness_id,
+        &contract.adapter_version,
+        &contract.bridge_fingerprint,
+        &manifest.project_root_fingerprint,
+        &manifest.store_id,
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+fn ensure_current_and_eligible(
+    project_fs: &ProjectFs,
+    harness_id: &str,
+    contract: &CurrentActivationContract,
+) -> Result<(), ActivationError> {
+    if !contract.manifest_matches_registry {
+        invalidate_all_receipts_for_adapter_locked(project_fs, harness_id)
+            .map_err(storage_error)?;
+        return Err(ActivationError::new(
+            "stale adapter version or bridge fingerprint",
+        ));
+    }
+    if !contract.eligible_for_preflight {
+        invalidate_all_receipts_for_adapter_locked(project_fs, harness_id)
+            .map_err(storage_error)?;
+        return Err(ActivationError::new(
+            "harness is not eligible for preflight",
+        ));
+    }
+    Ok(())
 }
 
 pub fn render_claude_session_start(
@@ -248,10 +424,8 @@ pub fn parse_adapter_stdin(
     context_format: PreflightContextFormat,
     input: &str,
 ) -> Result<PreflightRequest, ActivationError> {
-    if harness_id == "codex" {
-        return Err(ActivationError::new(
-            "codex preflight requires direct identity flags",
-        ));
+    if !matches_adapter_stdin_contract(harness_id, context_format) {
+        return Err(ActivationError::new(CONTRACT_ERROR));
     }
     let value: serde_json::Value = serde_json::from_str(input)
         .map_err(|_| ActivationError::new("invalid adapter preflight stdin"))?;
@@ -290,12 +464,35 @@ pub fn parse_adapter_stdin(
         },
         _ => return Err(ActivationError::new("unknown harness adapter")),
     };
-    Ok(PreflightRequest {
-        harness_id: harness_id.to_string(),
+    Ok(PreflightRequest::adapter_stdin(
+        harness_id,
         identity,
         task_hint,
         context_format,
-    })
+    ))
+}
+
+fn validate_request_contract(request: &PreflightRequest) -> Result<(), ActivationError> {
+    let valid = match request.input_contract {
+        PreflightInputContract::DirectIdentityFlags => {
+            request.harness_id == "codex" && request.context_format == PreflightContextFormat::Json
+        }
+        PreflightInputContract::AdapterStdin => {
+            matches_adapter_stdin_contract(&request.harness_id, request.context_format)
+        }
+    };
+    valid
+        .then_some(())
+        .ok_or_else(|| ActivationError::new(CONTRACT_ERROR))
+}
+
+fn matches_adapter_stdin_contract(harness_id: &str, format: PreflightContextFormat) -> bool {
+    matches!(
+        (harness_id, format),
+        ("claude-code", PreflightContextFormat::ClaudeSessionStart)
+            | ("pi", PreflightContextFormat::PiBeforeAgentStart)
+            | ("agent-zero", PreflightContextFormat::Json)
+    )
 }
 
 fn normalize_stdin_identity(label: &str, value: &str) -> String {
@@ -329,20 +526,17 @@ fn identity_component_is_safe(value: &str) -> bool {
 }
 
 fn ensure_persisted_manifest_matches(
-    project: &ActivationProject,
-    manifest: &ActivationManifest,
+    persisted: &ActivationManifest,
+    supplied: &ActivationManifest,
 ) -> Result<(), ActivationError> {
-    let persisted = load_manifest(&project.memory_root)
-        .map_err(|_| ActivationError::new("activation manifest is unavailable"))?;
-    if persisted.schema_version != manifest.schema_version
-        || persisted.protocol_version != manifest.protocol_version
-        || persisted.store_id != manifest.store_id
-        || persisted.project_root_fingerprint != manifest.project_root_fingerprint
-        || persisted.harnesses != manifest.harnesses
-    {
+    if persisted != supplied {
         return Err(ActivationError::new("activation manifest/store mismatch"));
     }
     Ok(())
+}
+
+fn storage_error(_error: String) -> ActivationError {
+    ActivationError::new(STORAGE_ERROR)
 }
 
 fn ensure_store_path_matches(
@@ -390,6 +584,15 @@ fn configured_identity_root(project: &ActivationProject) -> Result<&Path, Activa
             .parent()
             .ok_or_else(|| ActivationError::new("configured memory root mismatch"))
     }
+}
+
+fn project_scope_name(project: &ActivationProject) -> Result<String, ActivationError> {
+    configured_identity_root(project)?
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| ActivationError::new("project identity is unavailable"))
 }
 
 fn canonical_or_original(path: &Path) -> std::path::PathBuf {
@@ -490,6 +693,43 @@ fn receipt_summary(receipt: &ActivationReceipt) -> ActivationReceiptSummary {
     }
 }
 
+#[cfg(not(test))]
+fn run_pre_commit_hook(_request: &PreflightRequest) {}
+
+#[cfg(test)]
+type PreCommitHook = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static PRE_COMMIT_HOOK: std::sync::Mutex<Option<(String, PreCommitHook)>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn run_pre_commit_hook(request: &PreflightRequest) {
+    let hook = {
+        let mut guard = PRE_COMMIT_HOOK
+            .lock()
+            .expect("pre-commit hook mutex poisoned");
+        if guard
+            .as_ref()
+            .is_some_and(|(session_id, _)| session_id == &request.identity.session_id)
+        {
+            guard.take().map(|(_, hook)| hook)
+        } else {
+            None
+        }
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[cfg(test)]
+fn install_pre_commit_hook(session_id: impl Into<String>, hook: impl FnOnce() + Send + 'static) {
+    *PRE_COMMIT_HOOK
+        .lock()
+        .expect("pre-commit hook mutex poisoned") = Some((session_id.into(), Box::new(hook)));
+}
+
 #[cfg(test)]
 pub(crate) fn project_fingerprint(project_root: &Path) -> String {
     fingerprint_path(project_root)
@@ -508,6 +748,11 @@ mod tests {
         ACTIVATION_SCHEMA_VERSION,
     };
     use std::{collections::BTreeMap, fs};
+    #[cfg(unix)]
+    use std::{
+        ffi::OsString,
+        os::unix::{ffi::OsStringExt, fs::symlink},
+    };
     use tree_ring_memory_core::{MemoryEvent, MemorySource};
     use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
@@ -566,16 +811,16 @@ mod tests {
     }
 
     fn fixture_request() -> PreflightRequest {
-        PreflightRequest {
-            harness_id: "pi".to_string(),
-            identity: SessionIdentity {
+        PreflightRequest::adapter_stdin(
+            "pi",
+            SessionIdentity {
                 agent_profile: "pi".to_string(),
                 workflow_id: "workflow-1".to_string(),
                 session_id: "session-1".to_string(),
             },
-            task_hint: Some("project startup constraints".to_string()),
-            context_format: PreflightContextFormat::PiBeforeAgentStart,
-        }
+            Some("project startup constraints".to_string()),
+            PreflightContextFormat::PiBeforeAgentStart,
+        )
     }
 
     #[test]
@@ -662,6 +907,68 @@ mod tests {
     }
 
     #[test]
+    fn harness_contract_mismatch_fails_before_recall_or_receipt() {
+        let (_temp, project, store, manifest) = fixture();
+        let request = PreflightRequest::direct(
+            "pi",
+            SessionIdentity {
+                agent_profile: "pi".to_string(),
+                workflow_id: "workflow-1".to_string(),
+                session_id: "session-1".to_string(),
+            },
+            Some("project startup constraints".to_string()),
+            PreflightContextFormat::Json,
+        );
+
+        let error = run_preflight(&store, &project, &manifest, request).unwrap_err();
+
+        assert_eq!(error.to_string(), CONTRACT_ERROR);
+        assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[test]
+    fn parser_binds_each_adapter_to_its_owned_event_format() {
+        let pi = r#"{"agent_profile":"pi","workflow_id":"workflow","session_id":"session"}"#;
+        let agent_zero =
+            r#"{"agent_profile":"agent-zero","workflow_id":"workflow","session_id":"session"}"#;
+        let claude = r#"{"session_id":"session"}"#;
+
+        assert!(parse_adapter_stdin(
+            "claude-code",
+            PreflightContextFormat::ClaudeSessionStart,
+            claude,
+        )
+        .is_ok());
+        assert!(parse_adapter_stdin("pi", PreflightContextFormat::PiBeforeAgentStart, pi).is_ok());
+        assert!(
+            parse_adapter_stdin("agent-zero", PreflightContextFormat::Json, agent_zero).is_ok()
+        );
+        assert_eq!(
+            parse_adapter_stdin("pi", PreflightContextFormat::Json, pi)
+                .unwrap_err()
+                .to_string(),
+            CONTRACT_ERROR
+        );
+        assert_eq!(
+            parse_adapter_stdin("codex", PreflightContextFormat::Json, "{}")
+                .unwrap_err()
+                .to_string(),
+            CONTRACT_ERROR
+        );
+        assert!(validate_request_contract(&PreflightRequest::direct(
+            "codex",
+            SessionIdentity {
+                agent_profile: "codex".to_string(),
+                workflow_id: "workflow".to_string(),
+                session_id: "session".to_string(),
+            },
+            None,
+            PreflightContextFormat::Json,
+        ))
+        .is_ok());
+    }
+
+    #[test]
     fn adapter_stdin_fingerprints_unsafe_identity_and_never_persists_raw_paths() {
         let (_temp, project, store, mut manifest) = fixture();
         let raw_path = "/private/tmp/pi/session.jsonl";
@@ -711,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_adapter_version_invalidates_prior_receipts_and_fails_closed() {
+    fn registry_version_mismatch_invalidates_prior_receipts_and_fails_closed() {
         let (_temp, project, store, mut manifest) = fixture();
         run_preflight(&store, &project, &manifest, fixture_request()).unwrap();
         assert_eq!(receipt_files(&project.memory_root).len(), 1);
@@ -723,6 +1030,52 @@ mod tests {
         let error = run_preflight(&store, &project, &manifest, fixture_request()).unwrap_err();
 
         assert!(error.to_string().contains("stale adapter version"));
+        assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[test]
+    fn bridge_mutation_between_prepare_and_commit_invalidates_old_receipts() {
+        let (_temp, project, store, manifest) = fixture();
+        run_preflight(&store, &project, &manifest, fixture_request()).unwrap();
+        assert_eq!(receipt_files(&project.memory_root).len(), 1);
+
+        let memory_root = project.memory_root.clone();
+        install_pre_commit_hook("mutation-between-prepare-and-commit", move || {
+            let lock_project = ActivationProject::from_memory_root(memory_root.clone()).unwrap();
+            let project_fs = ProjectFs::open(&lock_project).unwrap();
+            let _activation_lock = project_fs.lock_manifest().unwrap();
+            let mut changed = crate::activation::load_manifest(&memory_root).unwrap();
+            let activation = changed.harnesses.get_mut("pi").unwrap();
+            activation.owned_files[0].sha256 = "c".repeat(64);
+            activation.bridge_fingerprint = bridge_fingerprint("pi", activation);
+            save_manifest(&memory_root, &changed).unwrap();
+        });
+        let mut request = fixture_request();
+        request.identity.session_id = "mutation-between-prepare-and-commit".to_string();
+
+        let error = run_preflight(&store, &project, &manifest, request).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "activation contract changed while preparing receipt"
+        );
+        assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[test]
+    fn persisted_bridge_contract_mismatch_removes_old_receipt_before_recall() {
+        let (_temp, project, store, manifest) = fixture();
+        run_preflight(&store, &project, &manifest, fixture_request()).unwrap();
+        assert_eq!(receipt_files(&project.memory_root).len(), 1);
+        let mut changed = manifest.clone();
+        let activation = changed.harnesses.get_mut("pi").unwrap();
+        activation.owned_files[0].sha256 = "d".repeat(64);
+        activation.bridge_fingerprint = bridge_fingerprint("pi", activation);
+        save_manifest(&project.memory_root, &changed).unwrap();
+
+        let error = run_preflight(&store, &project, &manifest, fixture_request()).unwrap_err();
+
+        assert_eq!(error.to_string(), "activation manifest/store mismatch");
         assert!(receipt_files(&project.memory_root).is_empty());
     }
 
@@ -760,6 +1113,55 @@ mod tests {
 
         assert!(error.to_string().contains("memory store mismatch"));
         assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_receipt_directory_fails_closed_without_touching_outside() {
+        let (temp, project, store, manifest) = fixture();
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let sentinel = outside.join("sentinel.json");
+        fs::write(&sentinel, b"outside receipt sentinel").unwrap();
+        symlink(&outside, project.memory_root.join("activation")).unwrap();
+
+        let error = run_preflight(&store, &project, &manifest, fixture_request()).unwrap_err();
+
+        assert_eq!(error.to_string(), STORAGE_ERROR);
+        assert_eq!(fs::read(&sentinel).unwrap(), b"outside receipt sentinel");
+        assert!(!outside.join("receipts").exists());
+    }
+
+    #[test]
+    fn storage_failures_use_a_fixed_path_free_adapter_diagnostic() {
+        let (_temp, project, store, manifest) = fixture();
+        fs::write(project.memory_root.join("activation"), b"not a directory").unwrap();
+
+        let error = run_preflight(&store, &project, &manifest, fixture_request()).unwrap_err();
+
+        assert_eq!(error.to_string(), STORAGE_ERROR);
+        assert!(!error
+            .to_string()
+            .contains(&project.memory_root.display().to_string()));
+        assert!(receipt_files(&project.memory_root).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_project_basename_fails_closed_before_unscoped_recall() {
+        // APFS rejects invalid byte sequences, so exercise the trust boundary
+        // before filesystem access rather than relying on filesystem-specific
+        // creation behavior.
+        let project_root = std::path::PathBuf::from(OsString::from_vec(b"project-\xff".to_vec()));
+        let project = ActivationProject {
+            memory_root: project_root.join(".tree-ring"),
+            project_root,
+        };
+
+        assert_eq!(
+            project_scope_name(&project).unwrap_err().to_string(),
+            "project identity is unavailable"
+        );
     }
 
     #[test]
@@ -816,16 +1218,16 @@ mod tests {
         local.session_id = Some("session-1".to_string());
         local.scope = "agent".to_string();
         store.put(&local).unwrap();
-        let request = PreflightRequest {
-            harness_id: "agent-zero".to_string(),
-            identity: SessionIdentity {
+        let request = PreflightRequest::adapter_stdin(
+            "agent-zero",
+            SessionIdentity {
                 agent_profile: "agent-zero".to_string(),
                 workflow_id: "workflow-1".to_string(),
                 session_id: "session-1".to_string(),
             },
-            task_hint: None,
-            context_format: PreflightContextFormat::Json,
-        };
+            None,
+            PreflightContextFormat::Json,
+        );
 
         let response = run_preflight(&store, &project, &manifest, request).unwrap();
 

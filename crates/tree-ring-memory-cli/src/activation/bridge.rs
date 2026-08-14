@@ -9,7 +9,7 @@ use super::{
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    ffi::{CStr, CString, OsStr},
+    ffi::{CStr, CString, OsStr, OsString},
     fs::{self, File},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 #[cfg(unix)]
 use std::os::{
-    fd::{AsRawFd, FromRawFd},
-    unix::ffi::OsStrExt,
+    fd::{AsRawFd, FromRawFd, IntoRawFd},
+    unix::ffi::{OsStrExt, OsStringExt},
 };
 
 const CODEX_RETRY: &str = "tree-ring integrations activate --harness codex --accept-managed-block";
@@ -142,13 +142,13 @@ struct AppliedFile {
 
 #[cfg(unix)]
 #[derive(Debug)]
-struct ProjectFs {
+pub(crate) struct ProjectFs {
     root: File,
 }
 
 #[cfg(unix)]
 #[derive(Debug)]
-struct ResolvedTarget {
+pub(crate) struct ResolvedTarget {
     parent: File,
     name: CString,
     display: PathBuf,
@@ -156,7 +156,7 @@ struct ResolvedTarget {
 
 #[cfg(unix)]
 #[derive(Debug)]
-struct ManifestLock {
+pub(crate) struct ManifestLock {
     file: File,
 }
 
@@ -172,7 +172,7 @@ impl Drop for ManifestLock {
 
 #[cfg(unix)]
 impl ProjectFs {
-    fn open(project: &ActivationProject) -> Result<Self, String> {
+    pub(crate) fn open(project: &ActivationProject) -> Result<Self, String> {
         validate_project_shape(project)?;
         let metadata = fs::symlink_metadata(&project.project_root)
             .map_err(|error| io_error(&project.project_root, error))?;
@@ -185,7 +185,7 @@ impl ProjectFs {
         Ok(Self { root })
     }
 
-    fn lock_manifest(&self) -> Result<ManifestLock, String> {
+    pub(crate) fn lock_manifest(&self) -> Result<ManifestLock, String> {
         let file = self
             .root
             .try_clone()
@@ -201,14 +201,14 @@ impl ProjectFs {
         Ok(ManifestLock { file })
     }
 
-    fn read_optional(&self, relative: &Path) -> Result<Option<Vec<u8>>, String> {
+    pub(crate) fn read_optional(&self, relative: &Path) -> Result<Option<Vec<u8>>, String> {
         let Some(target) = self.resolve_target_optional(relative, false)? else {
             return Ok(None);
         };
         target.read_optional()
     }
 
-    fn resolve_target(
+    pub(crate) fn resolve_target(
         &self,
         relative: &Path,
         create_parents: bool,
@@ -259,11 +259,60 @@ impl ProjectFs {
         }
         Err("bridge path must include a file name".to_string())
     }
+
+    /// Lists direct children through a retained directory descriptor. Every
+    /// component is opened with `O_NOFOLLOW`; a missing directory is distinct
+    /// from a symlink or non-directory failure.
+    pub(crate) fn directory_entries(
+        &self,
+        relative: &Path,
+    ) -> Result<Option<Vec<OsString>>, String> {
+        let Some(directory) = self.resolve_directory_optional(relative)? else {
+            return Ok(None);
+        };
+        list_directory_entries(&directory).map(Some)
+    }
+
+    fn resolve_directory_optional(&self, relative: &Path) -> Result<Option<File>, String> {
+        validate_relative_path_buf(relative)?;
+        let mut directory = self
+            .root
+            .try_clone()
+            .map_err(|error| io_error(relative, error))?;
+        for component in relative.components() {
+            let Component::Normal(segment) = component else {
+                return Err("bridge path must be normalized and project-relative".to_string());
+            };
+            match open_child_directory(&directory, segment) {
+                Ok(next) => directory = next,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(format!(
+                        "bridge path parent is a symlink or non-directory at {}: {error}",
+                        relative.display()
+                    ));
+                }
+            }
+        }
+        Ok(Some(directory))
+    }
+
+    /// Deletes only a file that was re-opened as a regular no-follow target.
+    pub(crate) fn remove_validated_regular_file(&self, relative: &Path) -> Result<bool, String> {
+        let Some(target) = self.resolve_target_optional(relative, false)? else {
+            return Ok(false);
+        };
+        if target.read_optional()?.is_none() {
+            return Ok(false);
+        }
+        target.remove_file()?;
+        Ok(true)
+    }
 }
 
 #[cfg(unix)]
 impl ResolvedTarget {
-    fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
+    pub(crate) fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
         let descriptor = unsafe {
             // SAFETY: the parent descriptor and single-component name are valid for this call.
             libc::openat(
@@ -296,7 +345,7 @@ impl ResolvedTarget {
         Ok(Some(bytes))
     }
 
-    fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
+    pub(crate) fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
         let temp_name = CString::new(format!(
             ".{}.{}.tmp",
             self.name.to_string_lossy(),
@@ -357,6 +406,48 @@ impl ResolvedTarget {
         unlink_at(&self.parent, &self.name, &self.display)?;
         sync_directory(&self.parent, &self.display)
     }
+}
+
+#[cfg(unix)]
+fn list_directory_entries(directory: &File) -> Result<Vec<OsString>, String> {
+    let cloned = directory
+        .try_clone()
+        .map_err(|error| io_error(Path::new("."), error))?;
+    let stream = unsafe {
+        // SAFETY: fdopendir assumes ownership of the duplicated descriptor.
+        libc::fdopendir(cloned.into_raw_fd())
+    };
+    if stream.is_null() {
+        return Err(io_error(Path::new("."), std::io::Error::last_os_error()));
+    }
+    let mut entries = Vec::new();
+    loop {
+        let entry = unsafe {
+            // SAFETY: stream remains valid until the matching closedir below.
+            libc::readdir(stream)
+        };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe {
+            // SAFETY: d_name is NUL-terminated for a successful readdir entry.
+            CStr::from_ptr((*entry).d_name.as_ptr())
+        };
+        let bytes = name.to_bytes();
+        if bytes == b"." || bytes == b".." {
+            continue;
+        }
+        entries.push(OsString::from_vec(bytes.to_vec()));
+    }
+    let close_status = unsafe {
+        // SAFETY: closes the stream and its owned duplicated descriptor exactly once.
+        libc::closedir(stream)
+    };
+    if close_status != 0 {
+        return Err(io_error(Path::new("."), std::io::Error::last_os_error()));
+    }
+    entries.sort();
+    Ok(entries)
 }
 
 #[cfg(unix)]
@@ -485,15 +576,15 @@ fn sync_directory(directory: &File, display: &Path) -> Result<(), String> {
 
 #[cfg(not(unix))]
 #[derive(Debug)]
-struct ProjectFs;
+pub(crate) struct ProjectFs;
 
 #[cfg(not(unix))]
 #[derive(Debug)]
-struct ResolvedTarget;
+pub(crate) struct ResolvedTarget;
 
 #[cfg(not(unix))]
 #[derive(Debug)]
-struct ManifestLock;
+pub(crate) struct ManifestLock;
 
 #[cfg(not(unix))]
 #[derive(Debug)]
@@ -504,34 +595,45 @@ struct AppliedFile {
 
 #[cfg(not(unix))]
 impl ProjectFs {
-    fn open(_project: &ActivationProject) -> Result<Self, String> {
+    pub(crate) fn open(_project: &ActivationProject) -> Result<Self, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn lock_manifest(&self) -> Result<ManifestLock, String> {
+    pub(crate) fn lock_manifest(&self) -> Result<ManifestLock, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn read_optional(&self, _relative: &Path) -> Result<Option<Vec<u8>>, String> {
+    pub(crate) fn read_optional(&self, _relative: &Path) -> Result<Option<Vec<u8>>, String> {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn resolve_target(
+    pub(crate) fn resolve_target(
         &self,
         _relative: &Path,
         _create_parents: bool,
     ) -> Result<ResolvedTarget, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
+
+    pub(crate) fn directory_entries(
+        &self,
+        _relative: &Path,
+    ) -> Result<Option<Vec<OsString>>, String> {
+        Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    pub(crate) fn remove_validated_regular_file(&self, _relative: &Path) -> Result<bool, String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
 }
 
 #[cfg(not(unix))]
 impl ResolvedTarget {
-    fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
+    pub(crate) fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
         Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
     }
 
-    fn atomic_write(&self, _bytes: &[u8], _create_only: bool) -> Result<(), String> {
+    pub(crate) fn atomic_write(&self, _bytes: &[u8], _create_only: bool) -> Result<(), String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
