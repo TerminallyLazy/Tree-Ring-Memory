@@ -741,7 +741,7 @@ fn configured_identity_root(project: &ActivationProject) -> Result<&Path, Activa
 }
 
 fn project_scope_name(project: &ActivationProject) -> Result<String, ActivationError> {
-    configured_identity_root(project)?
+    canonical_or_original(configured_identity_root(project)?)
         .file_name()
         .and_then(OsStr::to_str)
         .filter(|name| !name.is_empty())
