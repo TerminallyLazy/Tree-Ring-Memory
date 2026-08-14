@@ -9,10 +9,12 @@ tree-ring integrations status
 ```
 
 `init` creates the canonical `.tree-ring/` root, discovers maintained adapters,
-and installs only project-local owned bridges or bounded managed blocks. It does
-not write global settings, overwrite unmanaged files, or require users to copy a
-bridge or run `integrations link`. That command is an advanced alias for
-controlled bridge work, not the default journey.
+and attempts create-only publication of project-local owned bridges or bounded
+managed blocks plus the activation manifest. It does not write global settings,
+replace or remove an existing final entry, or require users to copy a bridge or
+run `integrations link`. An existing bridge or manifest that would need mutation
+is preserved and reported as `needs-user-review`. `integrations link` is an
+advanced alias for controlled bridge work, not the default journey.
 
 Advanced commands are `tree-ring integrations status --verbose`,
 `tree-ring integrations activate --harness <id> --dry-run`,
@@ -30,7 +32,7 @@ required for initialization.
 | `needs-trust` | The runtime needs its own user approval before project resources load. |
 | `needs-project-mount` | The runtime cannot reach the canonical project root. |
 | `needs-plugin` | Agent Zero needs its separate `tree_ring_memory` plugin installed or enabled. |
-| `needs-user-review` | Existing unmanaged configuration makes automatic change unsafe. |
+| `needs-user-review` | An existing or changed bridge/manifest cannot be safely replaced or removed, or publication durability is indeterminate. |
 | `unsupported` | No maintained adapter can prove the integration. |
 | `failed` | Detection, installation, preflight, or receipt verification has a concrete diagnostic. |
 
@@ -55,6 +57,20 @@ older than 30 days.
 
 A receipt proves a privacy-safe preflight check, not durable memory creation or
 an adversarial security boundary. Durable writes remain explicit.
+
+Bridge lifecycle writes fail closed. Publication creates an absent final path;
+it never overwrites or removes an existing bridge or activation manifest, even
+when the existing bytes were previously recorded as Tree Ring-owned.
+Semantically unchanged manifests are preserved byte-for-byte. Activation or
+deactivation that would mutate a final entry makes no such change and returns
+`needs-user-review` with a reconciliation step.
+
+If a directory durability check fails after publication, Tree Ring does not try
+to roll the path back because it cannot safely condition removal on the exact
+published inode and bytes. It preserves all published disk material, marks each
+changed harness `needs-user-review` in the returned in-memory manifest, and
+leaves any manifest that already reached disk intact. Disk and memory can
+therefore differ until the user reviews and reconciles the indeterminate state.
 
 ## Canonical wire shapes
 
@@ -341,6 +357,9 @@ It is supported only for concurrent processes on the same host and a local
 filesystem, not across hosts, NFS/network filesystems, or containers on
 different hosts. Use per-host roots and explicit evidence-preserving fan-in.
 
-Maintained adapters detect capability, install only owned material, preflight a
-new session, verify its receipt, and deactivate only what they own. Conflicting
-or unmanaged files remain unchanged and report `needs-user-review`.
+Maintained adapters detect capability, create only absent owned material,
+preflight a new session, and verify its receipt. Deactivation is also
+creation-only at the writer boundary: existing final entries are not removed or
+replaced automatically, including recorded owned material. Conflicting,
+changed, or otherwise contested bridge and manifest entries remain unchanged
+and report `needs-user-review`.

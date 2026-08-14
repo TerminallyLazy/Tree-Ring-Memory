@@ -106,13 +106,21 @@ tree-ring integrations status
 ```
 
 Do not ask the user to copy a bridge or run `integrations link` for ordinary
-setup. `init` manages only safe project-local adapter material. A bridge,
-marker, or generated skill is not activation proof: `active` requires a fresh,
-matching receipt from a new session's scoped recall and safe context injection.
+setup. `init` configures only safe project-local adapter material by creating
+absent final bridge and manifest paths. It never replaces or removes an existing
+entry, including during deactivation; contested entries stay untouched and
+report `needs-user-review`. A bridge, marker, generated skill, or successful
+`init` is not activation proof: `active` requires a fresh, matching receipt from
+a new session's scoped recall and safe context injection.
 Treat `configured-awaiting-proof`, `active-isolated`, `needs-trust`,
 `needs-project-mount`, `needs-plugin`, `needs-user-review`, `unsupported`,
 and `failed` as their exact non-active outcomes. Never say Hermes or another
 unverified runtime is active.
+
+If publication durability becomes indeterminate, do not delete or rewrite the
+published path. Preserve disk material, keep changed harnesses marked
+`needs-user-review` in the returned in-memory manifest, and leave any activation
+manifest already published on disk intact for explicit reconciliation.
 
 Pi trust is the user's decision: report `needs-trust` rather than changing
 global trust. Agent Zero is separate: the existing `tree_ring_memory` plugin
