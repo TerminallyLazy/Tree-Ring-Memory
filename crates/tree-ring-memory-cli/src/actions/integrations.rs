@@ -72,6 +72,24 @@ pub struct IntegrationLifecycleActionReport {
     pub next_step: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiptVerificationStatus {
+    Valid,
+    Missing,
+    Invalid,
+}
+
+/// Receipt validation shared by status and certification. The receipt remains
+/// process-local; callers must serialize only the bounded metadata below.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReceiptVerification {
+    pub status: ReceiptVerificationStatus,
+    pub receipt: Option<ActivationReceipt>,
+    pub store_id_matches: bool,
+    pub project_root_matches: bool,
+    pub diagnostic: &'static str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreflightIdentityInput {
     pub agent_profile: Option<String>,
@@ -99,16 +117,24 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
             let activation = manifest
                 .as_ref()
                 .and_then(|manifest| manifest.harnesses.get(&detected.id));
-            let receipt = manifest.as_ref().and_then(|manifest| {
-                activation.and_then(|activation| {
-                    freshest_matching_receipt(
-                        &request.memory_root,
-                        &detected.id,
-                        manifest,
-                        activation,
-                    )
+            let receipt = manifest
+                .as_ref()
+                .and_then(|manifest| {
+                    activation.map(|activation| {
+                        verify_activation_receipts_at(
+                            &request.memory_root,
+                            &detected.id,
+                            manifest,
+                            activation,
+                            Utc::now(),
+                        )
+                    })
                 })
-            });
+                .and_then(|verification| {
+                    (verification.status == ReceiptVerificationStatus::Valid)
+                        .then_some(verification.receipt)
+                        .flatten()
+                });
             let state = receipt
                 .as_ref()
                 .map(|receipt| receipt.state)
@@ -474,26 +500,43 @@ fn ensure_manifest_project(
     Ok(())
 }
 
-fn freshest_matching_receipt(
+pub(crate) fn verify_activation_receipts(
     memory_root: &Path,
     harness_id: &str,
     manifest: &ActivationManifest,
     harness: &activation::HarnessActivation,
-) -> Option<ActivationReceipt> {
+) -> ReceiptVerification {
+    verify_activation_receipts_at(memory_root, harness_id, manifest, harness, Utc::now())
+}
+
+fn verify_activation_receipts_at(
+    memory_root: &Path,
+    harness_id: &str,
+    manifest: &ActivationManifest,
+    harness: &activation::HarnessActivation,
+    now: chrono::DateTime<Utc>,
+) -> ReceiptVerification {
     if harness.bridge_fingerprint != bridge_fingerprint(harness_id, harness) {
-        return None;
+        return invalid_receipt(None, "bridge fingerprint does not match adapter contract");
     }
     let mut pending = vec![memory_root.join("activation/receipts").join(harness_id)];
     let mut receipts = Vec::new();
+    let mut found_json = false;
     while let Some(path) = pending.pop() {
-        let Ok(entries) = fs::read_dir(path) else {
-            continue;
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return invalid_receipt(None, "activation receipt directory is unreadable"),
         };
-        for entry in entries.flatten() {
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return invalid_receipt(None, "activation receipt directory is unreadable");
+            };
             let path = entry.path();
             if path.is_dir() {
                 pending.push(path);
             } else if path.extension().and_then(|value| value.to_str()) == Some("json") {
+                found_json = true;
                 if let Ok(bytes) = fs::read(&path) {
                     if let Ok(receipt) = serde_json::from_slice::<ActivationReceipt>(&bytes) {
                         receipts.push(receipt);
@@ -502,25 +545,117 @@ fn freshest_matching_receipt(
             }
         }
     }
-    let now = Utc::now();
-    receipts
-        .into_iter()
-        .filter(|receipt| {
-            receipt.harness_id == harness_id
-                && receipt.protocol_version == manifest.protocol_version
-                && receipt.adapter_version == harness.adapter_version
-                && receipt.bridge_fingerprint == harness.bridge_fingerprint
-                && receipt.store_id == manifest.store_id
-                && receipt.project_root_fingerprint == manifest.project_root_fingerprint
-                && receipt.status == "success"
-                && matches!(
-                    receipt.state,
-                    ActivationState::Active | ActivationState::ActiveIsolated
-                )
-                && receipt.recorded_at <= now
-                && receipt.recorded_at > now - Duration::days(RECEIPT_RETENTION_DAYS)
-        })
+
+    if let Some(receipt) = receipts
+        .iter()
+        .filter(|receipt| receipt_matches(harness_id, manifest, harness, receipt, now))
         .max_by_key(|receipt| receipt.recorded_at)
+        .cloned()
+    {
+        return ReceiptVerification {
+            status: ReceiptVerificationStatus::Valid,
+            store_id_matches: true,
+            project_root_matches: true,
+            receipt: Some(receipt),
+            diagnostic: "fresh matching activation receipt",
+        };
+    }
+
+    if let Some(receipt) = receipts
+        .into_iter()
+        .max_by_key(|receipt| receipt.recorded_at)
+    {
+        let diagnostic = receipt_mismatch(harness_id, manifest, harness, &receipt, now);
+        return ReceiptVerification {
+            status: ReceiptVerificationStatus::Invalid,
+            store_id_matches: receipt.store_id == manifest.store_id,
+            project_root_matches: receipt.project_root_fingerprint
+                == manifest.project_root_fingerprint,
+            receipt: Some(receipt),
+            diagnostic,
+        };
+    }
+    if found_json {
+        return invalid_receipt(None, "activation receipt is malformed");
+    }
+    ReceiptVerification {
+        status: ReceiptVerificationStatus::Missing,
+        receipt: None,
+        store_id_matches: false,
+        project_root_matches: false,
+        diagnostic: "no activation receipt",
+    }
+}
+
+fn receipt_matches(
+    harness_id: &str,
+    manifest: &ActivationManifest,
+    harness: &activation::HarnessActivation,
+    receipt: &ActivationReceipt,
+    now: chrono::DateTime<Utc>,
+) -> bool {
+    receipt.schema_version == ACTIVATION_SCHEMA_VERSION
+        && receipt.harness_id == harness_id
+        && receipt.protocol_version == manifest.protocol_version
+        && receipt.adapter_version == harness.adapter_version
+        && receipt.bridge_fingerprint == harness.bridge_fingerprint
+        && receipt.store_id == manifest.store_id
+        && receipt.project_root_fingerprint == manifest.project_root_fingerprint
+        && receipt.status == "success"
+        && matches!(
+            receipt.state,
+            ActivationState::Active | ActivationState::ActiveIsolated
+        )
+        && receipt.recorded_at <= now
+        && receipt.recorded_at > now - Duration::days(RECEIPT_RETENTION_DAYS)
+}
+
+fn receipt_mismatch(
+    harness_id: &str,
+    manifest: &ActivationManifest,
+    harness: &activation::HarnessActivation,
+    receipt: &ActivationReceipt,
+    now: chrono::DateTime<Utc>,
+) -> &'static str {
+    if receipt.schema_version != ACTIVATION_SCHEMA_VERSION {
+        "activation receipt schema version mismatch"
+    } else if receipt.harness_id != harness_id {
+        "activation receipt harness mismatch"
+    } else if receipt.protocol_version != manifest.protocol_version {
+        "activation receipt protocol mismatch"
+    } else if receipt.adapter_version != harness.adapter_version {
+        "activation receipt adapter version mismatch"
+    } else if receipt.bridge_fingerprint != harness.bridge_fingerprint {
+        "activation receipt bridge fingerprint mismatch"
+    } else if receipt.store_id != manifest.store_id {
+        "activation receipt store mismatch"
+    } else if receipt.project_root_fingerprint != manifest.project_root_fingerprint {
+        "activation receipt project root mismatch"
+    } else if receipt.status != "success" {
+        "activation receipt does not record success"
+    } else if !matches!(
+        receipt.state,
+        ActivationState::Active | ActivationState::ActiveIsolated
+    ) {
+        "activation receipt state is not active"
+    } else if receipt.recorded_at > now {
+        "activation receipt timestamp is in the future"
+    } else {
+        "activation receipt is expired"
+    }
+}
+
+fn invalid_receipt(
+    receipt: Option<ActivationReceipt>,
+    diagnostic: &'static str,
+) -> ReceiptVerification {
+    ReceiptVerification {
+        status: ReceiptVerificationStatus::Invalid,
+        receipt,
+        store_id_matches: false,
+        project_root_matches: false,
+        diagnostic,
+    }
 }
 
 fn next_step_for_state(state: ActivationState, detected_next_step: &str) -> String {
@@ -567,6 +702,10 @@ fn path_fingerprint(path: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+pub(crate) fn project_root_fingerprint(path: &Path) -> String {
+    path_fingerprint(path)
 }
 
 #[cfg(test)]

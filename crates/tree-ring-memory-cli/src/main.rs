@@ -672,7 +672,7 @@ fn run(cli: Cli) -> Result<(), String> {
             IntegrationCommand::Certify {
                 source_root,
                 out_dir,
-                live: _,
+                live,
             },
     } = &cli.command
     {
@@ -681,7 +681,9 @@ fn run(cli: Cli) -> Result<(), String> {
             .unwrap_or_else(|| evidence::certification_dir_for_project(source_root));
         let report = certify_harnesses(HarnessCertificationRequest {
             source_root: source_root.clone(),
+            memory_root: cli.root.clone(),
             evidence_dir,
+            live: *live,
         })?;
         print_harness_certification_report(&report, cli.json)?;
         return Ok(());
@@ -1929,6 +1931,7 @@ fn format_harness_certification_report(
                     "harness_id": record.harness_id,
                     "name": record.name,
                     "status": record.status,
+                    "activation": record.activation,
                     "markers": record.markers,
                     "summary": record.summary,
                     "next_step": record.next_step,
@@ -1955,9 +1958,10 @@ fn format_harness_certification_report(
         )];
         for record in &report.records {
             lines.push(format!(
-                "{} [{}] {}",
+                "{} [{}] activation={:?} {}",
                 record.name,
                 record.status.as_str(),
+                record.activation.state,
                 record.summary
             ));
             lines.push(format!("  next: {}", record.next_step));
@@ -2026,6 +2030,21 @@ mod tests {
     use tempfile::tempdir;
     use tree_ring_memory_core::{ConsolidationPeriod, ConsolidationRequest};
     use tree_ring_memory_sqlite::MemoryRetriever;
+
+    fn harness_activation_fixture(
+        state: tree_ring_memory_cli::activation::ActivationState,
+    ) -> crate::harness_evidence::HarnessActivationEvidence {
+        crate::harness_evidence::HarnessActivationEvidence {
+            adapter_version: "1".to_string(),
+            adapter_capability: tree_ring_memory_cli::activation::AdapterCapability::GuidanceOnly,
+            state,
+            receipt_recorded_at: None,
+            receipt_age_seconds: None,
+            store_id_matches: state == tree_ring_memory_cli::activation::ActivationState::Active,
+            project_root_matches: true,
+            diagnostic: "fixture diagnostic".to_string(),
+        }
+    }
 
     #[test]
     fn integrations_preflight_parses_direct_codex_identity() {
@@ -2418,6 +2437,7 @@ mod tests {
 
         assert!(!root.join("memory.sqlite").exists());
         assert!(out_dir.join("harness/codex.json").exists());
+        assert!(out_dir.join("harness-activation-summary.md").exists());
         let index = fs::read_to_string(out_dir.join("evidence-index.json")).unwrap();
         assert!(index.contains("\"codex\""));
         let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
@@ -2441,6 +2461,26 @@ mod tests {
             .path()
             .join("target/tree-ring-certification/harness/codex.json")
             .exists());
+    }
+
+    #[test]
+    fn integrations_certify_live_uses_existing_parser_route() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "integrations",
+            "certify",
+            "--source-root",
+            "/tmp/project",
+            "--live",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Integrations {
+                command: IntegrationCommand::Certify { live: true, .. }
+            }
+        ));
     }
 
     #[test]
@@ -2590,6 +2630,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Active,
+                    ),
                     markers: vec![crate::harness_evidence::HarnessProbeMarker {
                         path: ".codex".to_string(),
                         origin: "project".to_string(),
@@ -2613,6 +2656,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Failed,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2633,6 +2679,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::NeedsTrust,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2679,6 +2728,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Active,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2699,6 +2751,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Failed,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2719,6 +2774,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::NeedsTrust,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2739,19 +2797,19 @@ mod tests {
             "Tree Ring Memory harness certification: pass=1 fail=1 skip=1 evidence=/tmp/project/target/tree-ring-certification"
         ));
         assert!(output.contains(
-            "Codex [pass] Codex has a project marker and generated Tree Ring recall/remember guidance."
+            "Codex [pass] activation=Active Codex has a project marker and generated Tree Ring recall/remember guidance."
         ));
         assert!(output.contains(
             "  next: Merge the generated Tree Ring guidance into the active Codex instructions."
         ));
         assert!(output.contains(
-            "Goose [fail] Goose has a project marker but is missing generated Tree Ring guidance."
+            "Goose [fail] activation=Failed Goose has a project marker but is missing generated Tree Ring guidance."
         ));
         assert!(output.contains(
             "  next: Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions."
         ));
         assert!(output.contains(
-            "PI [skip] PI was not detected for this project, so no compatibility claim is made."
+            "PI [skip] activation=NeedsTrust PI was not detected for this project, so no compatibility claim is made."
         ));
         assert!(output.contains(
             "  next: Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`."
