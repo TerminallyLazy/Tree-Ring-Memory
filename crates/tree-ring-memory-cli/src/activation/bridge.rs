@@ -1,8 +1,8 @@
 use super::{
-    adapters::{ActivationProject, AdapterPlan, ManagedBlockUpdate, PlannedWrite},
+    adapters::{adapter_version, ActivationProject, AdapterPlan, ManagedBlockUpdate, PlannedWrite},
     manifest::{
-        validate_manifest, validate_project_relative_path, ActivationManifest, HarnessActivation,
-        OwnedBridgeFile, OwnedManagedBlock,
+        bridge_fingerprint, validate_manifest, validate_project_relative_path, ActivationManifest,
+        HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
     },
     ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION,
 };
@@ -583,12 +583,16 @@ pub fn apply_bridge_plan(
             .unwrap_or(HarnessActivation {
                 state: plan.state,
                 adapter_capability: capability_for(&plan.harness_id)?,
+                adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
+                bridge_fingerprint: String::new(),
                 bridge_path: None,
                 owned_files: Vec::new(),
                 managed_blocks: Vec::new(),
             });
         activation.state = plan.state;
         activation.adapter_capability = capability_for(&plan.harness_id)?;
+        activation.adapter_version = adapter_version_for(&plan.harness_id)?.to_string();
+        activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
         next_manifest
             .harnesses
             .insert(plan.harness_id.clone(), activation);
@@ -789,6 +793,8 @@ pub fn deactivate_bridge_plan(
     {
         next.bridge_path = Some(first);
     }
+    next.adapter_version = adapter_version_for(harness_id)?.to_string();
+    next.bridge_fingerprint = bridge_fingerprint(harness_id, next);
 
     let changed_paths = files
         .iter()
@@ -891,16 +897,17 @@ fn prepare_apply(
         .first()
         .map(|owned| owned.path.clone())
         .or_else(|| managed_blocks.first().map(|owned| owned.path.clone()));
-    Ok(Preparation::Ready {
-        files,
-        activation: HarnessActivation {
-            state: applied_state(&plan.harness_id, plan.state),
-            adapter_capability: capability_for(&plan.harness_id)?,
-            bridge_path,
-            owned_files,
-            managed_blocks,
-        },
-    })
+    let mut activation = HarnessActivation {
+        state: applied_state(&plan.harness_id, plan.state),
+        adapter_capability: capability_for(&plan.harness_id)?,
+        adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
+        bridge_fingerprint: String::new(),
+        bridge_path,
+        owned_files,
+        managed_blocks,
+    };
+    activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+    Ok(Preparation::Ready { files, activation })
 }
 
 fn prepare_complete_file(
@@ -1653,6 +1660,10 @@ fn capability_for(harness_id: &str) -> Result<AdapterCapability, String> {
     }
 }
 
+fn adapter_version_for(harness_id: &str) -> Result<&'static str, String> {
+    adapter_version(harness_id).ok_or_else(|| format!("unknown harness adapter: {harness_id}"))
+}
+
 fn applied_state(harness_id: &str, planned: ActivationState) -> ActivationState {
     if harness_id == "pi" {
         ActivationState::NeedsTrust
@@ -1996,6 +2007,12 @@ mod tests {
             .exists());
 
         apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
+        let activation = manifest.harnesses.get("agent-zero").unwrap();
+        assert_eq!(activation.adapter_version, "1");
+        assert_eq!(
+            activation.bridge_fingerprint,
+            bridge_fingerprint("agent-zero", activation)
+        );
         let binding: Value = serde_json::from_str(&read(
             project
                 .project_root
@@ -2182,6 +2199,8 @@ mod tests {
                 HarnessActivation {
                     state: ActivationState::ConfiguredAwaitingProof,
                     adapter_capability: AdapterCapability::WrapperPreflight,
+                    adapter_version: "1".to_string(),
+                    bridge_fingerprint: String::new(),
                     bridge_path: Some(relative.to_string()),
                     owned_files: vec![OwnedBridgeFile {
                         path: relative.to_string(),
@@ -2203,6 +2222,8 @@ mod tests {
             HarnessActivation {
                 state: ActivationState::ConfiguredAwaitingProof,
                 adapter_capability: AdapterCapability::WrapperPreflight,
+                adapter_version: "1".to_string(),
+                bridge_fingerprint: String::new(),
                 bridge_path: Some(".tree-ring/AGENTS.md".to_string()),
                 owned_files: Vec::new(),
                 managed_blocks: vec![OwnedManagedBlock {

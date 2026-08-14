@@ -35,6 +35,10 @@ pub struct ActivationManifest {
 pub struct HarnessActivation {
     pub state: ActivationState,
     pub adapter_capability: AdapterCapability,
+    #[serde(default = "default_adapter_version")]
+    pub adapter_version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bridge_fingerprint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bridge_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -72,10 +76,23 @@ pub struct ActivationReceipt {
     pub protocol_version: u16,
     pub receipt_id: String,
     pub harness_id: String,
+    pub adapter_version: String,
+    pub bridge_fingerprint: String,
+    pub store_id: String,
+    pub project_root_fingerprint: String,
     pub worker_key_fingerprint: String,
     pub session: SessionIdentity,
     pub state: ActivationState,
+    pub query_class: String,
+    pub result_count: usize,
+    pub selected_memory_ids_sha256: String,
+    pub duration_ms: u64,
+    pub status: String,
     pub recorded_at: DateTime<Utc>,
+}
+
+fn default_adapter_version() -> String {
+    "1".to_string()
 }
 
 /// Loads the persisted manifest without creating a directory or file.
@@ -189,6 +206,115 @@ pub fn prune_receipts(
         removed += 1;
     }
     Ok(removed)
+}
+
+/// Removes receipts that no longer prove the current adapter/store contract.
+pub fn invalidate_receipts_for_adapter(
+    memory_root: &Path,
+    harness_id: &str,
+    adapter_version: &str,
+    bridge_fingerprint: &str,
+    project_root_fingerprint: &str,
+    store_id: &str,
+) -> Result<usize, String> {
+    validate_memory_root(memory_root)?;
+    validate_identifier("harness id", harness_id)?;
+    let directory = memory_root.join(RECEIPTS_DIRECTORY).join(harness_id);
+    if !directory.exists() {
+        return Ok(0);
+    }
+    let mut removed = 0;
+    for worker in fs::read_dir(&directory).map_err(|err| io_error(&directory, err))? {
+        let worker = worker.map_err(|err| io_error(&directory, err))?;
+        let worker_path = worker.path();
+        if !worker_path.is_dir() {
+            continue;
+        }
+        for entry in fs::read_dir(&worker_path).map_err(|err| io_error(&worker_path, err))? {
+            let entry = entry.map_err(|err| io_error(&worker_path, err))?;
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let current = read_json::<ActivationReceipt>(&path)
+                .and_then(|receipt| {
+                    validate_receipt(&receipt)?;
+                    Ok(receipt)
+                })
+                .is_ok_and(|receipt| {
+                    receipt.adapter_version == adapter_version
+                        && receipt.bridge_fingerprint == bridge_fingerprint
+                        && receipt.project_root_fingerprint == project_root_fingerprint
+                        && receipt.store_id == store_id
+                });
+            if !current {
+                fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
+/// Stable digest of only the project-relative, adapter-owned bridge contract.
+pub fn bridge_fingerprint(harness_id: &str, activation: &HarnessActivation) -> String {
+    let mut hasher = Sha256::new();
+    hash_part(&mut hasher, harness_id);
+    hash_part(&mut hasher, &activation.adapter_version);
+    let mut files = activation.owned_files.clone();
+    files.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.sha256.cmp(&right.sha256))
+    });
+    for owned in files {
+        hash_part(&mut hasher, "file");
+        hash_part(&mut hasher, &owned.path);
+        hash_part(&mut hasher, &owned.sha256);
+    }
+    let mut blocks = activation.managed_blocks.clone();
+    blocks.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.block_id.cmp(&right.block_id))
+            .then(left.sha256.cmp(&right.sha256))
+            .then(left.leading_separator.cmp(&right.leading_separator))
+    });
+    for owned in blocks {
+        hash_part(&mut hasher, "block");
+        hash_part(&mut hasher, &owned.path);
+        hash_part(&mut hasher, &owned.block_id);
+        hash_part(&mut hasher, &owned.sha256);
+        hash_part(&mut hasher, &owned.leading_separator);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn hash_part(hasher: &mut Sha256, value: &str) {
+    hasher.update(value.len().to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+#[cfg(test)]
+pub(crate) fn receipt_files(memory_root: &Path) -> Vec<PathBuf> {
+    let directory = memory_root.join(RECEIPTS_DIRECTORY);
+    let mut files = Vec::new();
+    let mut pending = vec![directory];
+    while let Some(path) = pending.pop() {
+        let Ok(entries) = fs::read_dir(path) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
 }
 
 fn manifest_path(memory_root: &Path) -> PathBuf {
@@ -336,6 +462,10 @@ pub(crate) fn validate_manifest(manifest: &ActivationManifest) -> Result<(), Str
                 return Err("invalid managed block leading separator".to_string());
             }
         }
+        validate_identifier("adapter version", &activation.adapter_version)?;
+        if !activation.bridge_fingerprint.is_empty() && !is_sha256(&activation.bridge_fingerprint) {
+            return Err("bridge fingerprint must be a SHA-256 hex digest".to_string());
+        }
         reject_duplicate_ownership(harness_id, activation)?;
     }
     Ok(())
@@ -410,12 +540,42 @@ fn validate_receipt(receipt: &ActivationReceipt) -> Result<(), String> {
     }
     validate_identifier("receipt id", &receipt.receipt_id)?;
     validate_identifier("harness id", &receipt.harness_id)?;
+    validate_identifier("adapter version", &receipt.adapter_version)?;
+    if !is_sha256(&receipt.bridge_fingerprint) {
+        return Err("receipt bridge fingerprint must be a SHA-256 hex digest".to_string());
+    }
+    validate_identifier("store id", &receipt.store_id)?;
+    if !is_sha256(&receipt.project_root_fingerprint) {
+        return Err("receipt project root fingerprint must be a SHA-256 hex digest".to_string());
+    }
     if !is_sha256(&receipt.worker_key_fingerprint) {
         return Err("worker key fingerprint must be a SHA-256 hex digest".to_string());
     }
     validate_receipt_identity("agent profile", &receipt.session.agent_profile)?;
     validate_receipt_identity("workflow id", &receipt.session.workflow_id)?;
-    validate_receipt_identity("session id", &receipt.session.session_id)
+    validate_receipt_identity("session id", &receipt.session.session_id)?;
+    if !matches!(
+        receipt.state,
+        ActivationState::Active | ActivationState::ActiveIsolated
+    ) {
+        return Err("receipt state is not active".to_string());
+    }
+    if !matches!(
+        receipt.query_class.as_str(),
+        "task_hint" | "startup_fallback"
+    ) {
+        return Err("invalid receipt query class".to_string());
+    }
+    if receipt.result_count > 8 {
+        return Err("receipt result count exceeds preflight limit".to_string());
+    }
+    if !is_sha256(&receipt.selected_memory_ids_sha256) {
+        return Err("selected memory IDs digest must be a SHA-256 hex digest".to_string());
+    }
+    if receipt.status != "success" {
+        return Err("invalid receipt status".to_string());
+    }
+    Ok(())
 }
 
 fn validate_receipt_identity(label: &str, value: &str) -> Result<(), String> {
@@ -461,12 +621,12 @@ pub(crate) fn validate_project_relative_path(value: &str) -> Result<(), String> 
     Ok(())
 }
 
-fn fingerprint_path(project_root: &Path) -> String {
+pub(crate) fn fingerprint_path(project_root: &Path) -> String {
     let path = fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     fingerprint(&path.to_string_lossy())
 }
 
-fn fingerprint(value: &str) -> String {
+pub(crate) fn fingerprint(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -495,6 +655,10 @@ mod tests {
             protocol_version: ACTIVATION_PROTOCOL_VERSION,
             receipt_id: format!("receipt-{}", Uuid::new_v4()),
             harness_id: "codex".to_string(),
+            adapter_version: "1".to_string(),
+            bridge_fingerprint: "b".repeat(64),
+            store_id: "store-test".to_string(),
+            project_root_fingerprint: "a".repeat(64),
             worker_key_fingerprint: fingerprint("worker-1"),
             session: SessionIdentity {
                 agent_profile: "implementer".to_string(),
@@ -502,6 +666,11 @@ mod tests {
                 session_id: "session-1".to_string(),
             },
             state: ActivationState::Active,
+            query_class: "task_hint".to_string(),
+            result_count: 1,
+            selected_memory_ids_sha256: "c".repeat(64),
+            duration_ms: 1,
+            status: "success".to_string(),
             recorded_at,
         }
     }
@@ -614,6 +783,95 @@ mod tests {
     }
 
     #[test]
+    fn preexisting_activation_records_default_version_and_require_new_bridge_proof() {
+        let json = serde_json::json!({
+            "schema_version": ACTIVATION_SCHEMA_VERSION,
+            "protocol_version": ACTIVATION_PROTOCOL_VERSION,
+            "store_id": "store-test",
+            "project_root_fingerprint": "a".repeat(64),
+            "cli_version": "0.14.0",
+            "harnesses": {
+                "codex": {
+                    "state": "configured-awaiting-proof",
+                    "adapter_capability": "wrapper-preflight",
+                    "bridge_path": null,
+                    "owned_files": [],
+                    "managed_blocks": []
+                }
+            }
+        });
+
+        let manifest: ActivationManifest = serde_json::from_value(json).unwrap();
+        let activation = manifest.harnesses.get("codex").unwrap();
+
+        assert_eq!(activation.adapter_version, "1");
+        assert!(activation.bridge_fingerprint.is_empty());
+        assert!(validate_manifest(&manifest).is_ok());
+    }
+
+    #[test]
+    fn bridge_fingerprint_is_order_independent_and_version_bound() {
+        let mut activation = HarnessActivation {
+            state: ActivationState::ConfiguredAwaitingProof,
+            adapter_capability: AdapterCapability::NativePreflight,
+            adapter_version: "1".to_string(),
+            bridge_fingerprint: String::new(),
+            bridge_path: Some(".pi/extensions/tree-ring-memory.ts".to_string()),
+            owned_files: vec![
+                OwnedBridgeFile {
+                    path: ".pi/extensions/tree-ring-memory.ts".to_string(),
+                    sha256: "a".repeat(64),
+                },
+                OwnedBridgeFile {
+                    path: ".agents/skills/tree-ring-memory/SKILL.md".to_string(),
+                    sha256: "b".repeat(64),
+                },
+            ],
+            managed_blocks: Vec::new(),
+        };
+        let first = bridge_fingerprint("pi", &activation);
+        activation.owned_files.reverse();
+        assert_eq!(bridge_fingerprint("pi", &activation), first);
+        activation.adapter_version = "2".to_string();
+        assert_ne!(bridge_fingerprint("pi", &activation), first);
+    }
+
+    #[test]
+    fn receipt_invalidation_removes_only_stale_adapter_contracts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project/.tree-ring");
+        let receipt = fixture_receipt(Utc::now());
+        write_receipt(&root, &receipt).unwrap();
+        assert_eq!(receipt_files(&root).len(), 1);
+        assert_eq!(
+            invalidate_receipts_for_adapter(
+                &root,
+                "codex",
+                &receipt.adapter_version,
+                &receipt.bridge_fingerprint,
+                &receipt.project_root_fingerprint,
+                &receipt.store_id,
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(receipt_files(&root).len(), 1);
+        assert_eq!(
+            invalidate_receipts_for_adapter(
+                &root,
+                "codex",
+                "2",
+                &"d".repeat(64),
+                &receipt.project_root_fingerprint,
+                &receipt.store_id,
+            )
+            .unwrap(),
+            1
+        );
+        assert!(receipt_files(&root).is_empty());
+    }
+
+    #[test]
     fn prune_receipts_removes_malformed_and_expired_records_and_keeps_the_latest_hundred() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
@@ -650,6 +908,19 @@ mod tests {
             HarnessActivation {
                 state: ActivationState::Active,
                 adapter_capability: AdapterCapability::NativePreflight,
+                adapter_version: "1".to_string(),
+                bridge_fingerprint: bridge_fingerprint(
+                    "codex",
+                    &HarnessActivation {
+                        state: ActivationState::Active,
+                        adapter_capability: AdapterCapability::NativePreflight,
+                        adapter_version: "1".to_string(),
+                        bridge_fingerprint: String::new(),
+                        bridge_path: None,
+                        owned_files: Vec::new(),
+                        managed_blocks: Vec::new(),
+                    },
+                ),
                 bridge_path: None,
                 owned_files: Vec::new(),
                 managed_blocks: Vec::new(),

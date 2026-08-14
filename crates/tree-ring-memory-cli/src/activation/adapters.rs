@@ -184,6 +184,7 @@ pub type AgentIntegration = AdapterDetection;
 
 pub trait HarnessAdapter: Sync {
     fn id(&self) -> &'static str;
+    fn version(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
     fn capability(&self) -> AdapterCapability;
     fn detect(&self, project: &ActivationProject, env: &dyn HarnessEnvironment)
@@ -194,6 +195,7 @@ pub trait HarnessAdapter: Sync {
 #[derive(Debug, Clone, Copy)]
 struct DeclarativeAdapter {
     id: &'static str,
+    version: &'static str,
     display_name: &'static str,
     command: &'static str,
     capability: AdapterCapability,
@@ -211,6 +213,7 @@ enum AdapterSupport {
 const ADAPTERS: [DeclarativeAdapter; 7] = [
     DeclarativeAdapter {
         id: "codex",
+        version: "1",
         display_name: "Codex",
         command: "codex",
         capability: AdapterCapability::WrapperPreflight,
@@ -219,6 +222,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "claude-code",
+        version: "1",
         display_name: "Claude Code",
         command: "claude",
         capability: AdapterCapability::NativePreflight,
@@ -227,6 +231,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "pi",
+        version: "1",
         display_name: "Pi",
         command: "pi",
         capability: AdapterCapability::NativePreflight,
@@ -235,6 +240,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "agent-zero",
+        version: "1",
         display_name: "Agent Zero / A0",
         command: "agent-zero",
         capability: AdapterCapability::NativePreflight,
@@ -243,6 +249,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "hermes",
+        version: "0",
         display_name: "Hermes",
         command: "hermes",
         capability: AdapterCapability::GuidanceOnly,
@@ -251,6 +258,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "opencode",
+        version: "0",
         display_name: "OpenCode",
         command: "opencode",
         capability: AdapterCapability::GuidanceOnly,
@@ -259,6 +267,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "goose",
+        version: "0",
         display_name: "Goose",
         command: "goose",
         capability: AdapterCapability::GuidanceOnly,
@@ -274,6 +283,13 @@ pub fn maintained_adapters() -> Vec<&'static dyn HarnessAdapter> {
         .filter(|adapter| adapter.support != AdapterSupport::Unsupported)
         .map(|adapter| adapter as &dyn HarnessAdapter)
         .collect()
+}
+
+/// Returns the exact activation adapter version registered for a harness.
+pub fn adapter_version(id: &str) -> Option<&'static str> {
+    registered_adapters()
+        .find(|adapter| adapter.id == id)
+        .map(|adapter| adapter.version)
 }
 
 fn registered_adapters() -> impl Iterator<Item = &'static DeclarativeAdapter> {
@@ -366,6 +382,10 @@ pub fn plan_deactivation_with_environment(
 impl HarnessAdapter for DeclarativeAdapter {
     fn id(&self) -> &'static str {
         self.id
+    }
+
+    fn version(&self) -> &'static str {
+        self.version
     }
 
     fn display_name(&self) -> &'static str {
@@ -683,6 +703,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex", "claude-code", "pi", "agent-zero"]
         );
+        assert!(maintained.iter().all(|adapter| adapter.version() == "1"));
+        assert!(maintained
+            .iter()
+            .all(|adapter| adapter_version(adapter.id()) == Some("1")));
         for id in ["hermes", "opencode", "goose"] {
             assert_eq!(
                 plan_activation(id, &project()).unwrap().state,

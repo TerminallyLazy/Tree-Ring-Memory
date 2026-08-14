@@ -3,7 +3,7 @@ use rusqlite::{
     TransactionBehavior,
 };
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tree_ring_memory_core::models::{sqlite_error, MemoryEvent, TreeRingError, TreeRingResult};
 use tree_ring_memory_core::recall::{search_queries, RecallScorer};
@@ -123,6 +123,22 @@ impl SQLiteMemoryStore {
             connection,
             write_context: WriteContext::anonymous(),
         })
+    }
+
+    /// Returns the filesystem path SQLite reports for the main database.
+    /// In-memory and otherwise pathless databases fail closed for callers that
+    /// must bind behavior to one configured local store.
+    pub fn database_path(&self) -> TreeRingResult<PathBuf> {
+        let path: String = self
+            .connection
+            .query_row("PRAGMA database_list", [], |row| row.get(2))
+            .map_err(sqlite_error_from_rusqlite)?;
+        if path.is_empty() {
+            return Err(TreeRingError::Validation(
+                "main SQLite database has no filesystem path".to_string(),
+            ));
+        }
+        Ok(PathBuf::from(path))
     }
 
     #[cfg(test)]
@@ -1646,6 +1662,25 @@ mod tests {
     };
     use tempfile::tempdir;
     use tree_ring_memory_core::models::MemorySource;
+
+    #[test]
+    fn database_path_reports_the_main_filesystem_store() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+
+        assert_eq!(
+            std::fs::canonicalize(store.database_path().unwrap()).unwrap(),
+            std::fs::canonicalize(db_path).unwrap()
+        );
+    }
+
+    #[test]
+    fn database_path_rejects_pathless_in_memory_stores() {
+        let store = SQLiteMemoryStore::open(":memory:").unwrap();
+
+        assert!(store.database_path().is_err());
+    }
 
     #[test]
     fn public_store_facade_still_covers_write_search_export_import_and_maintenance() {

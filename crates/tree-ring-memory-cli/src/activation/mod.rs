@@ -37,9 +37,16 @@ pub struct SessionIdentity {
 pub mod adapters;
 pub mod bridge;
 pub mod manifest;
+pub mod preflight;
 
 #[allow(unused_imports)]
 pub use manifest::{
     load_manifest, load_or_create_manifest, prune_receipts, save_manifest, write_receipt,
     ActivationManifest, ActivationReceipt, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
+};
+#[allow(unused_imports)]
+pub use preflight::{
+    parse_adapter_stdin, render_claude_session_start, render_json_context, render_pi_context,
+    run_preflight, ActivationError, ActivationReceiptSummary, PreflightContextFormat,
+    PreflightRequest, PreflightResponse,
 };
