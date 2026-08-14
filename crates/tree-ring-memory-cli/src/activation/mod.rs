@@ -42,8 +42,8 @@ pub mod preflight;
 
 #[allow(unused_imports)]
 pub use manifest::{
-    load_manifest, load_or_create_manifest, prune_receipts, save_manifest, write_receipt,
-    ActivationManifest, ActivationReceipt, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
+    load_manifest, load_or_create_manifest, prune_receipts, write_receipt, ActivationManifest,
+    ActivationReceipt, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
 };
 #[allow(unused_imports)]
 pub use preflight::{

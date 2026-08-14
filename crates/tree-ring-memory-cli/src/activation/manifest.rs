@@ -134,8 +134,13 @@ pub fn load_or_create_manifest(
     }
 }
 
-/// Atomically persists a validated activation manifest.
-pub fn save_manifest(memory_root: &Path, manifest: &ActivationManifest) -> Result<(), String> {
+/// Test-only replacement writer for fixtures that exercise changed persisted
+/// contracts. Production activation persistence remains creation-only.
+#[cfg(test)]
+pub(crate) fn save_manifest(
+    memory_root: &Path,
+    manifest: &ActivationManifest,
+) -> Result<(), String> {
     validate_memory_root(memory_root)?;
     validate_manifest(manifest)?;
     atomic_write_json(
@@ -492,6 +497,7 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
 
 #[derive(Clone, Copy)]
 enum AtomicWriteMode {
+    #[cfg(test)]
     Replace,
     Create,
 }
@@ -528,6 +534,7 @@ fn atomic_write_json<T: Serialize>(
         file.sync_all().map_err(|err| io_error(&temp_path, err))?;
         drop(file);
         match mode {
+            #[cfg(test)]
             AtomicWriteMode::Replace => {
                 fs::rename(&temp_path, path).map_err(|err| io_error(path, err))
             }
