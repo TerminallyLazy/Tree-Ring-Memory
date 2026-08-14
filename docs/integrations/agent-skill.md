@@ -393,10 +393,20 @@ a marker-only result cannot pass.
 
 Pi trust is the user's platform decision: report `needs-trust` rather than
 changing global trust. Agent Zero uses only its separate `tree_ring_memory`
-plugin: a missing plugin is `needs-plugin`, an inaccessible canonical root is
-`needs-project-mount`, and a different store is `active-isolated`. Tree Ring
-does not modify Agent Zero core or create another store to imply sharing. Hermes
-and any unverified runtime remain non-active.
+plugin. `tree-ring init` creation-publishes Tree Ring's passive Agent Zero
+binding with `needs-plugin`; that is configuration, not a claim that the plugin
+or project mount is available. After the user installs/enables the matching
+plugin release and selects the mounted project, the plugin owns an absolute,
+non-project `activation-capability.json` descriptor and passes it internally.
+Only its descriptor-scoped status and new-session preflight can report
+`configured-awaiting-proof` and then receipt-backed `active`.
+
+Do not create a generic `.a0` marker, copy the descriptor into the project, or
+try to invoke a descriptor command. Tree Ring does not modify Agent Zero core or
+create another store to imply sharing. A missing, invalid, disabled, or
+release-incompatible plugin descriptor remains `needs-plugin`; an inaccessible
+canonical root is `needs-project-mount`, and a different store is
+`active-isolated`. Hermes and any unverified runtime remain non-active.
 
 Receipts are privacy-redacted operational evidence, not raw prompts, recalled
 content, secrets, sensitive values, paths, or coordinator capabilities. They
