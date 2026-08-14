@@ -10,11 +10,14 @@ tree-ring integrations status
 
 `init` creates the canonical `.tree-ring/` root, discovers maintained adapters,
 and attempts create-only publication of project-local owned bridges or bounded
-managed blocks plus the activation manifest. It does not write global settings,
-replace or remove an existing final entry, or require users to copy a bridge or
-run `integrations link`. An existing bridge or manifest that would need mutation
-is preserved and reported as `needs-user-review`. `integrations link` is an
-advanced alias for controlled bridge work, not the default journey.
+managed blocks plus the activation manifest. For Agent Zero it also
+creation-publishes Tree Ring's passive
+`.tree-ring/activation/agent-zero.json` binding and a `needs-plugin` manifest
+record. It does not write Agent Zero core configuration, replace or remove an
+existing final entry, or require users to copy a bridge or run `integrations
+link`. An existing bridge or manifest that would need mutation is preserved and
+reported as `needs-user-review`. `integrations link` is an advanced alias for
+controlled bridge work, not the default journey.
 
 Advanced commands are `tree-ring integrations status --verbose`,
 `tree-ring integrations activate --harness <id> --dry-run`,
@@ -31,7 +34,7 @@ required for initialization.
 | `active-isolated` | Preflight succeeded against a store that does not match this project's canonical store. |
 | `needs-trust` | The runtime needs its own user approval before project resources load. |
 | `needs-project-mount` | The runtime cannot reach the canonical project root. |
-| `needs-plugin` | Agent Zero needs its separate `tree_ring_memory` plugin installed or enabled. |
+| `needs-plugin` | The passive Agent Zero binding exists, but its separate compatible `tree_ring_memory` plugin is absent, disabled, invalid, or not available to this command. |
 | `needs-user-review` | An existing or changed bridge/manifest cannot be safely replaced or removed, or publication durability is indeterminate. |
 | `unsupported` | No maintained adapter can prove the integration. |
 | `failed` | Detection, installation, preflight, or receipt verification has a concrete diagnostic. |
@@ -71,6 +74,40 @@ published inode and bytes. It preserves all published disk material, marks each
 changed harness `needs-user-review` in the returned in-memory manifest, and
 leaves any manifest that already reached disk intact. Disk and memory can
 therefore differ until the user reviews and reconciles the indeterminate state.
+
+## Agent Zero passive binding and internal capability descriptor
+
+The Agent Zero adapter is deliberately passive at project initialization. The
+project only receives Tree Ring-owned binding material and its `needs-plugin`
+state; it does not receive plugin code, an Agent Zero core change, a generic
+`.a0` marker, or a capability descriptor. This keeps a repository portable and
+prevents a copied marker or configuration file from impersonating an installed
+adapter.
+
+The separately installed `tree_ring_memory` plugin owns one fixed
+`activation-capability.json` descriptor at its own plugin root. Its path is
+absolute, outside the project, and must be a regular non-symlink file. The
+plugin enforces that fixed safe location and passes the descriptor only through
+its private child-process transport
+(`TREE_RING_AGENT_ZERO_PLUGIN_MANIFEST`) for its internal core `init`, status,
+and preflight calls from the configured mounted project. It strips an inherited
+descriptor value from every other child process. It is not a user setting,
+project artifact, API/UI payload, receipt field, or model input; users must not
+copy, create, edit, or manually pass a descriptor.
+
+Core validates the descriptor's exact schema and the sibling plugin manifest's
+name and version before it uses it. A descriptor-scoped `init` may establish the
+passive binding but never turns it into proof or changes its persisted manifest
+record from `needs-plugin`. Only descriptor-scoped runtime status can derive
+`configured-awaiting-proof`, and only a descriptor-scoped new-session preflight
+with a matching receipt can report `active`. Ordinary host-shell status without
+that internal descriptor remains `needs-plugin`. There is no generic manual
+descriptor command.
+
+This is also a release boundary: the descriptor's declared Tree Ring series,
+the installed core CLI, and the installed plugin release must be compatible.
+An unreleased source checkout, a stale bundled CLI, or a passive binding does
+not make Agent Zero capable.
 
 ## Canonical wire shapes
 
@@ -136,6 +173,34 @@ immediately before a managed block and is restricted to `""`, `"\n"`, or
 deserializes as `""`, and the empty value still contributes a zero-length field
 to the fingerprint. For example, the manifest above contributes one LF byte
 for `leading_separator`, while an omitted field contributes no value bytes.
+
+### Agent Zero plugin capability descriptor
+
+The following is the first compatible plugin descriptor. It is shown only to
+define the cross-repository protocol; it remains plugin-owned and internal, not
+a project file or a user-authored command input.
+
+```json
+{
+  "schema_version": 1,
+  "kind": "tree-ring-agent-zero-plugin-capability",
+  "plugin_id": "tree_ring_memory",
+  "plugin_version": "3.1.0",
+  "activation_protocol_version": 1,
+  "tree_ring_version": {
+    "min": "0.14.0",
+    "minor": "0.14"
+  },
+  "enabled": true
+}
+```
+
+`plugin_version` must exactly agree with the installed descriptor's sibling
+`plugin.yaml`; the example's `3.1.0` is the first compatible plugin release.
+The plugin enforces the descriptor's fixed safe external location; core
+verifies every listed field and that sibling manifest identity before accepting
+it. The descriptor never appears in a project manifest, Agent Zero tool input,
+Web UI/API response, or receipt.
 
 ### Redacted receipt
 
@@ -244,8 +309,10 @@ server and sends only this request to the project-local command:
 ```
 
 Agent Zero does not send a task hint, prompt, coordinator capability, token, or
-model-supplied identity. The plugin reads the relative project binding and
-derives the three identity fields before invoking the command.
+model-supplied identity. After descriptor-scoped status validates its internal
+capability descriptor, the plugin reads the passive relative project binding and
+derives the three identity fields before invoking preflight. The descriptor is
+not JSON stdin and cannot be supplied by the model or a user request.
 
 ### Input validation and handling
 
@@ -256,8 +323,11 @@ capability-bearing fields (including `capability`, `token`,
 `TREE_RING_COORDINATOR_TOKEN`) are rejected rather than ignored. Inputs that
 claim a store, root, bridge fingerprint, harness identity, or receipt state are
 also rejected; those values come only from the local manifest and adapter.
-Raw stdin and SessionStart input are transient: Tree Ring does not persist or
-log them, regardless of whether validation succeeds.
+The Agent Zero descriptor is separate from stdin: it is accepted only through
+the installed plugin's internal absolute-path transport, never through a
+generic CLI option or an input field. Raw stdin and SessionStart input are
+transient: Tree Ring does not persist or log them, regardless of whether
+validation succeeds.
 
 ### Pi and Agent Zero JSON preflight responses
 
@@ -352,9 +422,12 @@ matching receipt for another accessible store is `active-isolated`, never
 ## Runtime and shared-store boundaries
 
 Pi project trust is a user decision: report `needs-trust` and leave global
-trust unchanged. Agent Zero uses only the separate `tree_ring_memory` plugin;
-Tree Ring does not modify Agent Zero core, and a generic `.a0` marker is not an
-adapter. An absent plugin is `needs-plugin`; an inaccessible project root is
+trust unchanged. Agent Zero uses only the separate `tree_ring_memory` plugin.
+`init` leaves a passive project binding at `needs-plugin`; the plugin's fixed
+absolute, non-project descriptor is the only way its runtime status/preflight
+can use that binding. Tree Ring does not modify Agent Zero core, and a generic
+`.a0` marker is not an adapter. A missing, invalid, disabled, or release-
+incompatible descriptor remains `needs-plugin`; an inaccessible project root is
 `needs-project-mount`; a different accessible store is `active-isolated`.
 
 Shared status requires every receipt to match the canonical project `store_id`.

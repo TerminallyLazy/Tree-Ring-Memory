@@ -120,6 +120,29 @@ same-host local filesystem with matching project-store identity. It does not
 claim safe SQLite sharing across hosts, NFS/network filesystems, or containers
 on different hosts.
 
+### Agent Zero uses its separate plugin
+
+Agent Zero is intentionally a two-part setup. `tree-ring init` creates the
+project-local, passive Agent Zero binding and records `needs-plugin`; that
+proves only that Tree Ring owns the project-side configuration. It does not
+claim that Agent Zero is installed, that the project is mounted there, or that
+an agent has used memory.
+
+For a project that will use Agent Zero, install or update the separate
+`tree_ring_memory` plugin, then configure it for the same mounted project root.
+That is the only extra user setup. The plugin owns its fixed,
+absolute `activation-capability.json` descriptor outside the project and passes
+it to Tree Ring internally. Do not copy that file into the repository, create a
+generic `.a0` marker, or try to invoke a descriptor command yourself.
+
+The plugin's descriptor-scoped status check can report
+`configured-awaiting-proof`; a new Agent Zero session's descriptor-scoped
+preflight writes the receipt required for `active`. A normal host-shell status
+without the installed plugin descriptor intentionally remains `needs-plugin`.
+The matching Tree Ring core and Agent Zero plugin release must both be
+installed; a source checkout, a passive binding, or an older bundled CLI is not
+an installed-capability claim.
+
 Source install (requires Rust and Cargo):
 
 ```bash
@@ -706,6 +729,15 @@ already published on disk is left intact. A bridge is not proof of runtime use.
 `tree-ring integrations status` reports the exact non-active state and one
 action, such as Pi trust, an Agent Zero plugin, a missing mount, or unmanaged-file
 review. Do not treat Hermes or another unverified runtime as active.
+
+For Agent Zero, `init` also creates only Tree Ring's passive
+`needs-plugin` binding. The separate `tree_ring_memory` plugin owns its
+absolute, non-project `activation-capability.json` descriptor and uses it
+internally after the user selects the mounted project. Only its
+descriptor-scoped status and a new-session preflight can advance the runtime
+view to `configured-awaiting-proof` and then receipt-backed `active`. There is
+no manual descriptor workflow, and the core/plugin release pair must be
+compatible before this path is available.
 
 Memory updates are agent-mediated. Bridge files tell the active agent when to
 call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,

@@ -123,11 +123,20 @@ published path. Preserve disk material, keep changed harnesses marked
 manifest already published on disk intact for explicit reconciliation.
 
 Pi trust is the user's decision: report `needs-trust` rather than changing
-global trust. Agent Zero is separate: the existing `tree_ring_memory` plugin
-must be installed/enabled and able to mount the canonical `.tree-ring` root.
-Never treat a generic marker as its adapter, modify Agent Zero core, or call a
-different plugin store shared. A different reachable store is
-`active-isolated`; an unavailable root is `needs-project-mount`.
+global trust. Agent Zero is separate: `tree-ring init` writes only Tree Ring's
+passive Agent Zero binding with `needs-plugin`. The user installs/enables the
+compatible `tree_ring_memory` plugin and selects the mounted project; the plugin
+then owns its absolute, non-project `activation-capability.json` descriptor and
+passes it internally. Only descriptor-scoped plugin status can derive
+`configured-awaiting-proof`, and only its new-session preflight receipt can
+make the runtime `active`.
+
+Never create a generic marker, copy or hand-author that descriptor, set its
+internal transport, modify Agent Zero core, or call a different plugin store
+shared. A missing, invalid, disabled, or release-incompatible descriptor stays
+`needs-plugin`; a different reachable store is `active-isolated`; an
+unavailable root is `needs-project-mount`. A passive binding, source checkout,
+or stale bundled CLI is not installed capability.
 
 Receipts prove a privacy-safe preflight check, not durable memory creation or a
 security boundary. They exclude raw prompts, recalled content, secrets,
