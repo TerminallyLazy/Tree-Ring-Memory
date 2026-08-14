@@ -10,7 +10,9 @@ v0.11 Rust-native source adapters plus framework discovery. The v0.12 line now
 also carries explicit same-host multi-agent correlation, partitioning, and
 idempotent-write semantics. The v0.13 line adds an opt-in coordinated write
 policy, protected-write audit, schema-v3 old-memory-mutation fence, and
-forward-schema rejection.
+forward-schema rejection. The v0.14 line adds project-local harness activation
+with receipt-backed readiness, keeping configured bridges distinct from active
+memory use.
 
 ## Current Status
 
