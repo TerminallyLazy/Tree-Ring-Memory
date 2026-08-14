@@ -26,6 +26,18 @@ impl ActivationProject {
         } else {
             project_root.to_path_buf()
         };
+        // Keep the root and its derived project parent in the same lexical
+        // form. The CLI default is `.tree-ring`; without this, it derives `.`
+        // as the project root but compares `.tree-ring` with `./.tree-ring`
+        // during the project-local safety validation.
+        let memory_root = if memory_root
+            .parent()
+            .is_some_and(|parent| parent.as_os_str().is_empty())
+        {
+            project_root.join(&memory_root)
+        } else {
+            memory_root
+        };
         Ok(Self {
             project_root,
             memory_root,

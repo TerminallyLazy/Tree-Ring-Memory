@@ -133,6 +133,88 @@ fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() 
 }
 
 #[test]
+fn default_relative_root_initializes_from_the_project_root() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("relative-default-root");
+    let empty_path = temp.path().join("empty-path");
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    fs::create_dir_all(&empty_path).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .env_remove("TREE_RING_AGENT_PROFILE")
+        .env_remove("TREE_RING_WORKFLOW_ID")
+        .env_remove("TREE_RING_SESSION_ID")
+        .env_remove("TREE_RING_COORDINATOR_TOKEN")
+        .arg("--json")
+        .arg("init")
+        .output()
+        .unwrap();
+
+    assert_success("default relative root init", &output);
+    let report = output_json("default relative root init", &output);
+    assert_eq!(report["ok"], true);
+    assert_eq!(
+        record_by_id(&report["integrations"], "codex")["state"],
+        "configured-awaiting-proof"
+    );
+    assert!(project.join(".tree-ring/memory.sqlite").exists());
+    assert!(project
+        .join(".agents/skills/tree-ring-memory/SKILL.md")
+        .exists());
+
+    let preflight = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .env_remove("TREE_RING_AGENT_PROFILE")
+        .env_remove("TREE_RING_WORKFLOW_ID")
+        .env_remove("TREE_RING_SESSION_ID")
+        .env_remove("TREE_RING_COORDINATOR_TOKEN")
+        .arg("--json")
+        .args([
+            "integrations",
+            "preflight",
+            "--harness",
+            "codex",
+            "--agent-profile",
+            "smoke-worker",
+            "--workflow-id",
+            "smoke-flow",
+            "--session-id",
+            "smoke-session",
+        ])
+        .output()
+        .unwrap();
+    assert_success("default relative root preflight", &preflight);
+    assert_eq!(
+        output_json("default relative root preflight", &preflight)["state"],
+        "active"
+    );
+
+    let status = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .env_remove("TREE_RING_AGENT_PROFILE")
+        .env_remove("TREE_RING_WORKFLOW_ID")
+        .env_remove("TREE_RING_SESSION_ID")
+        .env_remove("TREE_RING_COORDINATOR_TOKEN")
+        .arg("--json")
+        .args(["integrations", "status"])
+        .output()
+        .unwrap();
+    assert_success("default relative root status", &status);
+    let status_report = output_json("default relative root status", &status);
+    assert_eq!(
+        record_by_id(&status_report["integrations"], "codex")["state"],
+        "active"
+    );
+}
+
+#[test]
 fn init_preflight_status_and_certify_prove_same_store_workers_without_private_receipt_data() {
     let temp = tempdir().unwrap();
     let project = temp.path().join(PROJECT_NAME);
