@@ -206,14 +206,14 @@ pub(crate) fn prune_receipts_locked(
             }) {
                 Ok(receipt) => receipt,
                 Err(_) => {
-                    if project_fs.remove_validated_regular_file(&path)? {
+                    if project_fs.remove_validated_receipt_file(&path)? {
                         removed += 1;
                     }
                     continue;
                 }
             };
         if receipt.recorded_at < expiry {
-            if project_fs.remove_validated_regular_file(&path)? {
+            if project_fs.remove_validated_receipt_file(&path)? {
                 removed += 1;
             }
         } else {
@@ -222,7 +222,7 @@ pub(crate) fn prune_receipts_locked(
     }
     retained.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| right.1.cmp(&left.1)));
     for (_, path) in retained.into_iter().skip(RECEIPT_RETENTION_PER_WORKER) {
-        if project_fs.remove_validated_regular_file(&path)? {
+        if project_fs.remove_validated_receipt_file(&path)? {
             removed += 1;
         }
     }
@@ -297,7 +297,7 @@ pub(crate) fn invalidate_receipts_for_adapter_locked(
                         && receipt.project_root_fingerprint == project_root_fingerprint
                         && receipt.store_id == store_id
                 });
-            if !current && project_fs.remove_validated_regular_file(&path)? {
+            if !current && project_fs.remove_validated_receipt_file(&path)? {
                 removed += 1;
             }
         }
@@ -331,7 +331,7 @@ pub(crate) fn invalidate_all_receipts_for_adapter_locked(
             {
                 continue;
             }
-            if project_fs.remove_validated_regular_file(&worker_directory.join(name))? {
+            if project_fs.remove_validated_receipt_file(&worker_directory.join(name))? {
                 removed += 1;
             }
         }
@@ -361,11 +361,7 @@ pub(crate) fn write_receipt_locked(
     let relative = receipt_relative_path(receipt)?;
     let bytes = serde_json::to_vec_pretty(receipt)
         .map_err(|error| format!("failed to serialize activation receipt: {error}"))?;
-    let target = project_fs.resolve_target(&relative, true)?;
-    if target.read_optional()?.is_some() {
-        return Err("activation receipt already exists".to_string());
-    }
-    target.atomic_write(&bytes, true)?;
+    project_fs.create_receipt_file(&relative, &bytes)?;
     Ok(relative)
 }
 
