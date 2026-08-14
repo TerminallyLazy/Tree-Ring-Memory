@@ -84,8 +84,11 @@ pub fn load_or_create_manifest(
         harnesses: BTreeMap::new(),
     };
     validate_manifest(&manifest)?;
-    atomic_write_json(&path, &manifest)?;
-    Ok(manifest)
+    match atomic_write_json(&path, &manifest, AtomicWriteMode::Create) {
+        Ok(()) => Ok(manifest),
+        Err(_) if path.exists() => load_manifest(memory_root),
+        Err(error) => Err(error),
+    }
 }
 
 /// Writes a receipt beneath the store's activation receipt directory.
@@ -98,7 +101,7 @@ pub fn write_receipt(memory_root: &Path, receipt: &ActivationReceipt) -> Result<
         &receipt.worker_key_fingerprint,
     )
     .join(format!("{}.json", receipt.receipt_id));
-    atomic_write_json(&path, receipt)?;
+    atomic_write_json(&path, receipt, AtomicWriteMode::Replace)?;
     Ok(path)
 }
 
@@ -126,8 +129,17 @@ pub fn prune_receipts(
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
-        let receipt: ActivationReceipt = read_json(&path)?;
-        validate_receipt(&receipt)?;
+        let receipt: ActivationReceipt = match read_json(&path).and_then(|receipt| {
+            validate_receipt(&receipt)?;
+            Ok(receipt)
+        }) {
+            Ok(receipt) => receipt,
+            Err(_) => {
+                fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
+                removed += 1;
+                continue;
+            }
+        };
         if receipt.recorded_at < expiry {
             fs::remove_file(&path).map_err(|err| io_error(&path, err))?;
             removed += 1;
@@ -160,7 +172,17 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
         .map_err(|err| format!("invalid activation JSON at {}: {err}", path.display()))
 }
 
-fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+#[derive(Clone, Copy)]
+enum AtomicWriteMode {
+    Replace,
+    Create,
+}
+
+fn atomic_write_json<T: Serialize>(
+    path: &Path,
+    value: &T,
+    mode: AtomicWriteMode,
+) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|err| format!("failed to serialize activation JSON: {err}"))?;
     let parent = path
@@ -187,7 +209,15 @@ fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String>
             .map_err(|err| io_error(&temp_path, err))?;
         file.sync_all().map_err(|err| io_error(&temp_path, err))?;
         drop(file);
-        fs::rename(&temp_path, path).map_err(|err| io_error(path, err))
+        match mode {
+            AtomicWriteMode::Replace => {
+                fs::rename(&temp_path, path).map_err(|err| io_error(path, err))
+            }
+            AtomicWriteMode::Create => {
+                fs::hard_link(&temp_path, path).map_err(|err| io_error(path, err))?;
+                fs::remove_file(&temp_path).map_err(|err| io_error(&temp_path, err))
+            }
+        }
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
@@ -251,9 +281,17 @@ fn validate_receipt(receipt: &ActivationReceipt) -> Result<(), String> {
     if !is_sha256(&receipt.worker_key_fingerprint) {
         return Err("worker key fingerprint must be a SHA-256 hex digest".to_string());
     }
-    validate_identifier("agent profile", &receipt.session.agent_profile)?;
-    validate_identifier("workflow id", &receipt.session.workflow_id)?;
-    validate_identifier("session id", &receipt.session.session_id)
+    validate_receipt_identity("agent profile", &receipt.session.agent_profile)?;
+    validate_receipt_identity("workflow id", &receipt.session.workflow_id)?;
+    validate_receipt_identity("session id", &receipt.session.session_id)
+}
+
+fn validate_receipt_identity(label: &str, value: &str) -> Result<(), String> {
+    validate_identifier(label, value)?;
+    if SensitivityGuard::default().inspect(value).sensitivity != "normal" {
+        return Err(format!("sensitive {label}"));
+    }
+    Ok(())
 }
 
 fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
@@ -313,7 +351,11 @@ fn io_error(path: &Path, error: std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{
+        fs,
+        sync::{Arc, Barrier},
+        thread,
+    };
 
     fn fixture_receipt(recorded_at: DateTime<Utc>) -> ActivationReceipt {
         ActivationReceipt {
@@ -359,6 +401,28 @@ mod tests {
     }
 
     #[test]
+    fn receipt_identity_rejects_every_non_normal_sensitivity_classification() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project/.tree-ring");
+        for (field, value) in [
+            ("agent_profile", "medical"),
+            ("workflow_id", "bank account"),
+            ("session_id", "lawsuit"),
+            ("agent_profile", "passport"),
+            ("workflow_id", "sk-proj-aaaaaaaaaaaaaaaaaaaa"),
+        ] {
+            let mut receipt = fixture_receipt(Utc::now());
+            match field {
+                "agent_profile" => receipt.session.agent_profile = value.to_string(),
+                "workflow_id" => receipt.session.workflow_id = value.to_string(),
+                "session_id" => receipt.session.session_id = value.to_string(),
+                _ => unreachable!(),
+            }
+            assert!(write_receipt(&root, &receipt).is_err(), "{field}: {value}");
+        }
+    }
+
+    #[test]
     fn malformed_manifest_fails_without_replacing_the_file() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
@@ -378,13 +442,37 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_first_create_returns_the_persisted_manifest_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project/.tree-ring");
+        let project = temp.path().join("project");
+        let barrier = Arc::new(Barrier::new(8));
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let root = root.clone();
+            let project = project.clone();
+            let barrier = Arc::clone(&barrier);
+            workers.push(thread::spawn(move || {
+                barrier.wait();
+                load_or_create_manifest(&root, &project, "0.14.0").unwrap()
+            }));
+        }
+        let manifests = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        let persisted = load_manifest(&root).unwrap();
+        assert!(manifests.iter().all(|manifest| manifest == &persisted));
+    }
+
+    #[test]
     fn atomic_overwrite_replaces_complete_json_without_temp_files() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
         let project = temp.path().join("project");
         let manifest = load_or_create_manifest(&root, &project, "0.14.0").unwrap();
         let path = manifest_path(&root);
-        atomic_write_json(&path, &manifest).unwrap();
+        atomic_write_json(&path, &manifest, AtomicWriteMode::Replace).unwrap();
         assert_eq!(load_manifest(&root).unwrap(), manifest);
         assert!(fs::read_dir(&root).unwrap().all(|entry| !entry
             .unwrap()
@@ -394,21 +482,23 @@ mod tests {
     }
 
     #[test]
-    fn prune_receipts_expires_old_records_and_keeps_the_latest_hundred() {
+    fn prune_receipts_removes_malformed_and_expired_records_and_keeps_the_latest_hundred() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project/.tree-ring");
         let now = Utc::now();
         let mut expired = fixture_receipt(now - Duration::days(RECEIPT_RETENTION_DAYS + 1));
         expired.receipt_id = "expired".to_string();
         write_receipt(&root, &expired).unwrap();
+        let directory = receipt_path(&root, "codex", &fingerprint("worker-1"));
+        fs::write(directory.join("malformed.json"), b"not a receipt").unwrap();
         for offset in 0..101 {
             let mut receipt = fixture_receipt(now - Duration::seconds(offset));
             receipt.receipt_id = format!("receipt-{offset}");
             write_receipt(&root, &receipt).unwrap();
         }
-        assert_eq!(prune_receipts(&root, "codex", "worker-1", now).unwrap(), 2);
-        let directory = receipt_path(&root, "codex", &fingerprint("worker-1"));
-        assert_eq!(fs::read_dir(directory).unwrap().count(), 100);
+        assert_eq!(prune_receipts(&root, "codex", "worker-1", now).unwrap(), 3);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 100);
+        assert!(!directory.join("malformed.json").exists());
     }
 
     #[test]
