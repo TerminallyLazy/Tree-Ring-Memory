@@ -1732,7 +1732,7 @@ mod tests {
         let index = fs::read_to_string(out_dir.join("evidence-index.json")).unwrap();
         assert!(index.contains("\"codex\""));
         let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
-        assert_eq!(parsed["harness"]["codex"]["status"], "pass");
+        assert_eq!(parsed["harness"]["codex"]["status"], "skip");
     }
 
     #[test]

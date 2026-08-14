@@ -133,8 +133,16 @@ pub struct AdapterPlan {
 pub struct DeactivationPlan {
     pub harness_id: String,
     pub state: ActivationState,
-    pub owned_paths: Vec<PathBuf>,
+    pub operations: Vec<DeactivationOperation>,
     pub next_step: String,
+}
+
+/// Removal work retained with the same ownership granularity as activation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeactivationOperation {
+    BridgeWrite(BridgeWrite),
+    ManagedBlockUpdate(ManagedBlockUpdate),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -326,20 +334,30 @@ pub fn plan_activation_with_environment(
 
 pub fn plan_deactivation(
     id: &str,
-    _project: &ActivationProject,
+    project: &ActivationProject,
+) -> Result<DeactivationPlan, String> {
+    plan_deactivation_with_environment(id, project, &EmptyHarnessEnvironment)
+}
+
+pub fn plan_deactivation_with_environment(
+    id: &str,
+    project: &ActivationProject,
+    env: &dyn HarnessEnvironment,
 ) -> Result<DeactivationPlan, String> {
     let adapter = registered_adapters()
         .find(|adapter| adapter.id == id)
         .ok_or_else(|| format!("unknown harness adapter: {id}"))?;
-    let state = if adapter.support == AdapterSupport::Unsupported {
-        ActivationState::Unsupported
-    } else {
-        ActivationState::ConfiguredAwaitingProof
-    };
+    let detection = adapter.detect(project, env);
+    let operations = adapter
+        .plan(project, &detection)
+        .writes
+        .into_iter()
+        .map(DeactivationOperation::from)
+        .collect();
     Ok(DeactivationPlan {
         harness_id: id.to_string(),
-        state,
-        owned_paths: adapter_owned_paths(adapter),
+        state: detection.state,
+        operations,
         next_step: "A later bridge layer removes only manifest-recorded Tree Ring-owned material."
             .to_string(),
     })
@@ -368,7 +386,10 @@ impl HarnessAdapter for DeclarativeAdapter {
             .iter()
             .filter(|marker| env.project_path_exists(Path::new(marker)))
             .map(|marker| IntegrationMarker {
-                path: project.project_root.join(marker).display().to_string(),
+                path: normalized_relative_path(marker)
+                    .expect("static marker paths are normalized")
+                    .display()
+                    .to_string(),
                 origin: MarkerOrigin::Project,
             })
             .collect::<Vec<_>>();
@@ -455,14 +476,13 @@ fn adapter_writes(adapter: &DeclarativeAdapter) -> Vec<PlannedWrite> {
     }
 }
 
-fn adapter_owned_paths(adapter: &DeclarativeAdapter) -> Vec<PathBuf> {
-    adapter_writes(adapter)
-        .into_iter()
-        .map(|write| match write {
-            PlannedWrite::BridgeWrite(write) => write.path,
-            PlannedWrite::ManagedBlockUpdate(write) => write.path,
-        })
-        .collect()
+impl From<PlannedWrite> for DeactivationOperation {
+    fn from(write: PlannedWrite) -> Self {
+        match write {
+            PlannedWrite::BridgeWrite(write) => Self::BridgeWrite(write),
+            PlannedWrite::ManagedBlockUpdate(write) => Self::ManagedBlockUpdate(write),
+        }
+    }
 }
 
 fn bridge_write(path: &str) -> PlannedWrite {
@@ -701,5 +721,66 @@ mod tests {
                     .any(|component| component == Component::ParentDir));
             }
         }
+    }
+
+    #[test]
+    fn detection_exposes_project_relative_markers_for_an_absolute_project_root() {
+        let mut env = FakeEnvironment::default();
+        env.paths.insert(PathBuf::from(".codex"));
+        let project =
+            ActivationProject::from_memory_root("/private/tmp/tree-ring-project/.tree-ring")
+                .unwrap();
+
+        let report = detect_adapters(&project, &env);
+        let marker = report.by_id("codex").unwrap().markers.first().unwrap();
+
+        assert_eq!(marker.path, ".codex");
+        assert!(!Path::new(&marker.path).is_absolute());
+    }
+
+    #[test]
+    fn deactivation_retains_managed_block_ownership() {
+        let plan = plan_deactivation("codex", &project()).unwrap();
+
+        assert_eq!(plan.state, ActivationState::ConfiguredAwaitingProof);
+        assert!(plan.operations.iter().any(|operation| matches!(
+            operation,
+            DeactivationOperation::BridgeWrite(BridgeWrite { path })
+                if path == Path::new(".agents/skills/tree-ring-memory/SKILL.md")
+        )));
+        assert!(plan.operations.iter().any(|operation| matches!(
+            operation,
+            DeactivationOperation::ManagedBlockUpdate(ManagedBlockUpdate { path, block_id })
+                if path == Path::new("AGENTS.md") && block_id == "codex"
+        )));
+        assert!(!plan.operations.iter().any(|operation| matches!(
+            operation,
+            DeactivationOperation::BridgeWrite(BridgeWrite { path }) if path == Path::new("AGENTS.md")
+        )));
+    }
+
+    #[test]
+    fn missing_agent_zero_plugin_blocks_deactivation_without_operations() {
+        let plan = plan_deactivation("agent-zero", &project()).unwrap();
+
+        assert_eq!(plan.state, ActivationState::NeedsPlugin);
+        assert!(plan.operations.is_empty());
+    }
+
+    #[test]
+    fn compatible_agent_zero_plugin_plans_only_its_binding_deactivation() {
+        let env = FakeEnvironment {
+            agent_zero: Some(AgentZeroPluginManifest::compatible()),
+            ..FakeEnvironment::default()
+        };
+        let plan = plan_deactivation_with_environment("agent-zero", &project(), &env).unwrap();
+
+        assert_eq!(plan.state, ActivationState::ConfiguredAwaitingProof);
+        assert_eq!(
+            plan.operations,
+            vec![DeactivationOperation::BridgeWrite(BridgeWrite {
+                path: PathBuf::from(".tree-ring/activation/agent-zero.json"),
+            })]
+        );
     }
 }

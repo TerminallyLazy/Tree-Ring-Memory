@@ -124,7 +124,19 @@ fn probe_record(
         .iter()
         .any(|marker| marker.origin == MarkerOrigin::Home);
     let guidance_ready = guidance.recall_guidance && guidance.remember_guidance;
-    let (status, summary, next_step) = if project_marker && guidance_ready {
+    let (status, summary, next_step) = if project_marker
+        && guidance_ready
+        && !activation_state_allows_compatibility_pass(integration.state)
+    {
+        (
+            EvidenceStatus::Skip,
+            format!(
+                "{} has activation state {:?}; no active harness compatibility claim is made.",
+                integration.name, integration.state
+            ),
+            integration.next_step.to_string(),
+        )
+    } else if project_marker && guidance_ready {
         (
             EvidenceStatus::Pass,
             format!(
@@ -175,6 +187,12 @@ fn probe_record(
         summary,
         next_step,
     }
+}
+
+fn activation_state_allows_compatibility_pass(
+    state: tree_ring_memory_cli::activation::ActivationState,
+) -> bool {
+    state == tree_ring_memory_cli::activation::ActivationState::Active
 }
 
 fn inspect_guidance(source_root: &Path) -> HarnessGuidanceEvidence {
@@ -285,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn harness_certification_passes_project_marker_with_generated_guidance() {
+    fn harness_certification_skips_non_active_project_marker_with_generated_guidance() {
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".codex")).unwrap();
         std::fs::create_dir_all(dir.path().join(".tree-ring")).unwrap();
@@ -317,8 +335,11 @@ mod tests {
             .iter()
             .find(|record| record.harness_id == "codex")
             .unwrap();
-        assert_eq!(codex.status, EvidenceStatus::Pass);
-        assert!(codex.summary.contains("project marker"));
+        assert_eq!(codex.status, EvidenceStatus::Skip);
+        assert!(codex.summary.contains("activation state"));
+        assert!(codex
+            .summary
+            .contains("no active harness compatibility claim"));
         assert!(codex.guidance.recall_guidance);
         assert!(codex.guidance.remember_guidance);
         assert!(evidence_dir.join("harness/codex.json").exists());
@@ -467,6 +488,69 @@ mod tests {
             record.command,
             "tree-ring integrations certify --source-root <source_root>"
         );
+    }
+
+    #[test]
+    fn blocking_adapter_states_never_certify_marker_and_guidance_as_active() {
+        let guidance = HarnessGuidanceEvidence {
+            agents_md: Some(PathBuf::from(".tree-ring/AGENTS.md")),
+            skill_md: Some(PathBuf::from(".tree-ring/SKILL.md")),
+            cli_md: Some(PathBuf::from(".tree-ring/CLI.md")),
+            recall_guidance: true,
+            remember_guidance: true,
+        };
+        for (id, state) in [
+            (
+                "agent-zero",
+                tree_ring_memory_cli::activation::ActivationState::NeedsPlugin,
+            ),
+            (
+                "opencode",
+                tree_ring_memory_cli::activation::ActivationState::Unsupported,
+            ),
+            (
+                "goose",
+                tree_ring_memory_cli::activation::ActivationState::Unsupported,
+            ),
+            (
+                "codex",
+                tree_ring_memory_cli::activation::ActivationState::NeedsTrust,
+            ),
+            (
+                "claude-code",
+                tree_ring_memory_cli::activation::ActivationState::ConfiguredAwaitingProof,
+            ),
+        ] {
+            let integration = AdapterDetection {
+                id: id.to_string(),
+                name: id.to_string(),
+                capability: tree_ring_memory_cli::activation::AdapterCapability::GuidanceOnly,
+                executable_version: None,
+                status: tree_ring_memory_cli::activation::adapters::IntegrationStatus::Detected,
+                state,
+                markers: vec![IntegrationMarker {
+                    path: format!(".{id}"),
+                    origin: MarkerOrigin::Project,
+                }],
+                plan: tree_ring_memory_cli::activation::adapters::AdapterPlan {
+                    harness_id: id.to_string(),
+                    state,
+                    writes: Vec::new(),
+                    next_step: "Resolve activation before certification.".to_string(),
+                },
+                next_step: "Resolve activation before certification.".to_string(),
+            };
+
+            let record = probe_record(&integration, Path::new("/tmp/project"), "now", &guidance);
+
+            assert_eq!(record.status, EvidenceStatus::Skip, "{id}");
+            assert!(!record
+                .summary
+                .contains("has a project marker and generated"));
+            assert!(record
+                .summary
+                .contains("no active harness compatibility claim"));
+        }
     }
 
     #[test]
