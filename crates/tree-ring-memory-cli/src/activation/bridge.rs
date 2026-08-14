@@ -1,19 +1,26 @@
 use super::{
     adapters::{ActivationProject, AdapterPlan, ManagedBlockUpdate, PlannedWrite},
     manifest::{
-        save_manifest, validate_manifest, validate_project_relative_path, ActivationManifest,
-        HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
+        validate_manifest, validate_project_relative_path, ActivationManifest, HarnessActivation,
+        OwnedBridgeFile, OwnedManagedBlock,
     },
     ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, OpenOptions},
-    io::Write,
+    ffi::{CStr, CString, OsStr},
+    fs::{self, File},
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
 };
 use uuid::Uuid;
+
+#[cfg(unix)]
+use std::os::{
+    fd::{AsRawFd, FromRawFd},
+    unix::ffi::OsStrExt,
+};
 
 const CODEX_RETRY: &str = "tree-ring integrations activate --harness codex --accept-managed-block";
 const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed preflight v1";
@@ -126,6 +133,413 @@ struct PreparedFile {
     after: Option<Vec<u8>>,
 }
 
+#[cfg(unix)]
+#[derive(Debug)]
+struct AppliedFile {
+    prepared: PreparedFile,
+    target: ResolvedTarget,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct ProjectFs {
+    root: File,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct ResolvedTarget {
+    parent: File,
+    name: CString,
+    display: PathBuf,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct ManifestLock {
+    file: File,
+}
+
+#[cfg(unix)]
+impl Drop for ManifestLock {
+    fn drop(&mut self) {
+        unsafe {
+            // SAFETY: the lock file descriptor is owned and remains open for this guard's life.
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(unix)]
+impl ProjectFs {
+    fn open(project: &ActivationProject) -> Result<Self, String> {
+        validate_project_shape(project)?;
+        let metadata = fs::symlink_metadata(&project.project_root)
+            .map_err(|error| io_error(&project.project_root, error))?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("project root must be a real directory, not a symlink".to_string());
+        }
+        let physical_root = fs::canonicalize(&project.project_root)
+            .map_err(|error| io_error(&project.project_root, error))?;
+        let root = open_directory_path_no_follow(&physical_root)?;
+        Ok(Self { root })
+    }
+
+    fn lock_manifest(&self) -> Result<ManifestLock, String> {
+        let file = self
+            .root
+            .try_clone()
+            .map_err(|error| io_error(Path::new("."), error))?;
+        let result = unsafe {
+            // SAFETY: `file` owns the stable project-root directory descriptor and remains alive
+            // for the returned guard, so path replacement cannot split concurrent writers.
+            libc::flock(file.as_raw_fd(), libc::LOCK_EX)
+        };
+        if result != 0 {
+            return Err(io_error(Path::new("."), std::io::Error::last_os_error()));
+        }
+        Ok(ManifestLock { file })
+    }
+
+    fn read_optional(&self, relative: &Path) -> Result<Option<Vec<u8>>, String> {
+        let Some(target) = self.resolve_target_optional(relative, false)? else {
+            return Ok(None);
+        };
+        target.read_optional()
+    }
+
+    fn resolve_target(
+        &self,
+        relative: &Path,
+        create_parents: bool,
+    ) -> Result<ResolvedTarget, String> {
+        self.resolve_target_optional(relative, create_parents)?
+            .ok_or_else(|| format!("bridge target parent is missing: {}", relative.display()))
+    }
+
+    fn resolve_target_optional(
+        &self,
+        relative: &Path,
+        create_parents: bool,
+    ) -> Result<Option<ResolvedTarget>, String> {
+        validate_relative_path_buf(relative)?;
+        let mut components = relative.components().peekable();
+        let mut directory = self
+            .root
+            .try_clone()
+            .map_err(|error| io_error(relative, error))?;
+        while let Some(component) = components.next() {
+            let Component::Normal(segment) = component else {
+                return Err("bridge path must be normalized and project-relative".to_string());
+            };
+            if components.peek().is_none() {
+                return Ok(Some(ResolvedTarget {
+                    parent: directory,
+                    name: component_c_string(segment)?,
+                    display: relative.to_path_buf(),
+                }));
+            }
+            match open_child_directory(&directory, segment) {
+                Ok(next) => directory = next,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound && !create_parents => {
+                    return Ok(None);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    create_child_directory(&directory, segment)?;
+                    directory = open_child_directory(&directory, segment)
+                        .map_err(|error| io_error(relative, error))?;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "bridge path parent is a symlink or non-directory at {}: {error}",
+                        relative.display()
+                    ));
+                }
+            }
+        }
+        Err("bridge path must include a file name".to_string())
+    }
+}
+
+#[cfg(unix)]
+impl ResolvedTarget {
+    fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
+        let descriptor = unsafe {
+            // SAFETY: the parent descriptor and single-component name are valid for this call.
+            libc::openat(
+                self.parent.as_raw_fd(),
+                self.name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            )
+        };
+        if descriptor < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            return Err(io_error(&self.display, error));
+        }
+        let mut file = owned_file_descriptor(descriptor, &self.display)?;
+        if !file
+            .metadata()
+            .map_err(|error| io_error(&self.display, error))?
+            .is_file()
+        {
+            return Err(format!(
+                "bridge target is not a regular file: {}",
+                self.display.display()
+            ));
+        }
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| io_error(&self.display, error))?;
+        Ok(Some(bytes))
+    }
+
+    fn atomic_write(&self, bytes: &[u8], create_only: bool) -> Result<(), String> {
+        let temp_name = CString::new(format!(
+            ".{}.{}.tmp",
+            self.name.to_string_lossy(),
+            Uuid::new_v4()
+        ))
+        .map_err(|_| "temporary bridge name contains NUL".to_string())?;
+        let descriptor = unsafe {
+            // SAFETY: parent and temp name are valid; O_EXCL creates one owned temp file.
+            libc::openat(
+                self.parent.as_raw_fd(),
+                temp_name.as_ptr(),
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                0o600,
+            )
+        };
+        let mut temp = owned_file_descriptor(descriptor, &self.display)?;
+        let result = (|| {
+            temp.write_all(bytes)
+                .map_err(|error| io_error(&self.display, error))?;
+            temp.sync_all()
+                .map_err(|error| io_error(&self.display, error))?;
+            drop(temp);
+            let status = unsafe {
+                if create_only {
+                    // SAFETY: both names are relative to the same retained parent descriptor.
+                    libc::linkat(
+                        self.parent.as_raw_fd(),
+                        temp_name.as_ptr(),
+                        self.parent.as_raw_fd(),
+                        self.name.as_ptr(),
+                        0,
+                    )
+                } else {
+                    // SAFETY: both names are relative to the same retained parent descriptor.
+                    libc::renameat(
+                        self.parent.as_raw_fd(),
+                        temp_name.as_ptr(),
+                        self.parent.as_raw_fd(),
+                        self.name.as_ptr(),
+                    )
+                }
+            };
+            if status != 0 {
+                return Err(io_error(&self.display, std::io::Error::last_os_error()));
+            }
+            if create_only {
+                unlink_at(&self.parent, &temp_name, &self.display)?;
+            }
+            sync_directory(&self.parent, &self.display)
+        })();
+        if result.is_err() {
+            let _ = unlink_at(&self.parent, &temp_name, &self.display);
+        }
+        result
+    }
+
+    fn remove_file(&self) -> Result<(), String> {
+        unlink_at(&self.parent, &self.name, &self.display)?;
+        sync_directory(&self.parent, &self.display)
+    }
+}
+
+#[cfg(unix)]
+fn open_directory_path_no_follow(path: &Path) -> Result<File, String> {
+    if path.as_os_str().is_empty() {
+        return Err("project root is empty".to_string());
+    }
+    let absolute = path.is_absolute();
+    let anchor = CString::new(if absolute { "/" } else { "." }).expect("static anchor");
+    let descriptor = unsafe {
+        // SAFETY: anchor is a valid static C string and the descriptor is immediately owned.
+        libc::open(
+            anchor.as_ptr(),
+            libc::O_RDONLY
+                | libc::O_CLOEXEC
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_NONBLOCK,
+        )
+    };
+    let mut directory = owned_file_descriptor(descriptor, path)?;
+    for component in path.components() {
+        match component {
+            Component::RootDir if absolute => {}
+            Component::CurDir => {}
+            Component::Normal(segment) => {
+                directory = open_child_directory(&directory, segment)
+                    .map_err(|error| io_error(path, error))?;
+            }
+            _ => return Err("project root must not contain parent traversal".to_string()),
+        }
+    }
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn open_child_directory(directory: &File, segment: &OsStr) -> std::io::Result<File> {
+    let segment = component_c_string(segment)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let descriptor = unsafe {
+        // SAFETY: directory owns a live descriptor and segment is one path component.
+        libc::openat(
+            directory.as_raw_fd(),
+            segment.as_ptr(),
+            libc::O_RDONLY
+                | libc::O_CLOEXEC
+                | libc::O_DIRECTORY
+                | libc::O_NOFOLLOW
+                | libc::O_NONBLOCK,
+        )
+    };
+    if descriptor < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe {
+            // SAFETY: openat returned a new owned descriptor.
+            File::from_raw_fd(descriptor)
+        })
+    }
+}
+
+#[cfg(unix)]
+fn create_child_directory(directory: &File, segment: &OsStr) -> Result<(), String> {
+    let segment = component_c_string(segment)?;
+    let status = unsafe {
+        // SAFETY: directory owns a live descriptor and segment is one path component.
+        libc::mkdirat(directory.as_raw_fd(), segment.as_ptr(), 0o755)
+    };
+    if status == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        Ok(())
+    } else {
+        Err(format!("failed to create bridge directory: {error}"))
+    }
+}
+
+#[cfg(unix)]
+fn component_c_string(segment: &OsStr) -> Result<CString, String> {
+    CString::new(segment.as_bytes()).map_err(|_| "bridge path component contains NUL".to_string())
+}
+
+#[cfg(unix)]
+fn owned_file_descriptor(descriptor: libc::c_int, path: &Path) -> Result<File, String> {
+    if descriptor < 0 {
+        return Err(io_error(path, std::io::Error::last_os_error()));
+    }
+    Ok(unsafe {
+        // SAFETY: the successful libc call returned a new owned descriptor.
+        File::from_raw_fd(descriptor)
+    })
+}
+
+#[cfg(unix)]
+fn unlink_at(parent: &File, name: &CStr, display: &Path) -> Result<(), String> {
+    let status = unsafe {
+        // SAFETY: parent owns a live descriptor and name is one child component.
+        libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0)
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Ok(())
+        } else {
+            Err(io_error(display, error))
+        }
+    }
+}
+
+#[cfg(unix)]
+fn sync_directory(directory: &File, display: &Path) -> Result<(), String> {
+    let status = unsafe {
+        // SAFETY: directory owns a live directory descriptor.
+        libc::fsync(directory.as_raw_fd())
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io_error(display, std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct ProjectFs;
+
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct ResolvedTarget;
+
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct ManifestLock;
+
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct AppliedFile {
+    prepared: PreparedFile,
+    target: ResolvedTarget,
+}
+
+#[cfg(not(unix))]
+impl ProjectFs {
+    fn open(_project: &ActivationProject) -> Result<Self, String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn lock_manifest(&self) -> Result<ManifestLock, String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn read_optional(&self, _relative: &Path) -> Result<Option<Vec<u8>>, String> {
+        Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn resolve_target(
+        &self,
+        _relative: &Path,
+        _create_parents: bool,
+    ) -> Result<ResolvedTarget, String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+}
+
+#[cfg(not(unix))]
+impl ResolvedTarget {
+    fn read_optional(&self) -> Result<Option<Vec<u8>>, String> {
+        Err("bridge access requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn atomic_write(&self, _bytes: &[u8], _create_only: bool) -> Result<(), String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    fn remove_file(&self) -> Result<(), String> {
+        Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+}
+
 #[derive(Debug)]
 enum Preparation {
     Ready {
@@ -145,9 +559,11 @@ pub fn apply_bridge_plan(
     plan: AdapterPlan,
     accept_managed_block: bool,
 ) -> Result<BridgePlanResult, String> {
-    validate_project(project)?;
     validate_manifest(manifest)?;
     validate_plan(&plan)?;
+    let project_fs = ProjectFs::open(project)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
 
     if matches!(
         plan.state,
@@ -159,19 +575,31 @@ pub fn apply_bridge_plan(
                 plan.harness_id, plan.state
             ));
         }
-        let mut next_manifest = manifest.clone();
-        next_manifest.harnesses.insert(
-            plan.harness_id.clone(),
-            HarnessActivation {
+        let mut next_manifest = current_manifest.clone();
+        let mut activation = next_manifest
+            .harnesses
+            .get(&plan.harness_id)
+            .cloned()
+            .unwrap_or(HarnessActivation {
                 state: plan.state,
                 adapter_capability: capability_for(&plan.harness_id)?,
                 bridge_path: None,
                 owned_files: Vec::new(),
                 managed_blocks: Vec::new(),
-            },
-        );
-        save_manifest(&project.memory_root, &next_manifest)?;
-        *manifest = next_manifest;
+            });
+        activation.state = plan.state;
+        activation.adapter_capability = capability_for(&plan.harness_id)?;
+        next_manifest
+            .harnesses
+            .insert(plan.harness_id.clone(), activation);
+        commit_files_and_manifest(
+            &project_fs,
+            manifest,
+            &current_manifest,
+            expected_persisted.as_ref(),
+            next_manifest,
+            &[],
+        )?;
         return Ok(BridgePlanResult {
             state: plan.state,
             changed_paths: Vec::new(),
@@ -179,7 +607,7 @@ pub fn apply_bridge_plan(
         });
     }
 
-    let prepared = prepare_apply(project, manifest, &plan, accept_managed_block)?;
+    let prepared = prepare_apply(&project_fs, &current_manifest, &plan, accept_managed_block)?;
     let Preparation::Ready { files, activation } = prepared else {
         let Preparation::Review { next_step } = prepared else {
             unreachable!()
@@ -191,7 +619,7 @@ pub fn apply_bridge_plan(
         });
     };
 
-    let mut next_manifest = manifest.clone();
+    let mut next_manifest = current_manifest.clone();
     next_manifest
         .harnesses
         .insert(plan.harness_id.clone(), activation);
@@ -201,7 +629,14 @@ pub fn apply_bridge_plan(
         .filter(|file| file.before != file.after)
         .map(|file| file.relative.clone())
         .collect::<Vec<_>>();
-    commit_files_and_manifest(project, manifest, next_manifest, &files)?;
+    commit_files_and_manifest(
+        &project_fs,
+        manifest,
+        &current_manifest,
+        expected_persisted.as_ref(),
+        next_manifest,
+        &files,
+    )?;
 
     let state = applied_state(&plan.harness_id, plan.state);
     Ok(BridgePlanResult {
@@ -219,9 +654,9 @@ pub fn preview_bridge_plan(
     plan: AdapterPlan,
     accept_managed_block: bool,
 ) -> Result<BridgePlanResult, String> {
-    validate_project(project)?;
     validate_manifest(manifest)?;
     validate_plan(&plan)?;
+    let project_fs = ProjectFs::open(project)?;
     if matches!(
         plan.state,
         ActivationState::NeedsPlugin | ActivationState::Unsupported
@@ -238,7 +673,7 @@ pub fn preview_bridge_plan(
             next_step: plan.next_step,
         });
     }
-    match prepare_apply(project, manifest, &plan, accept_managed_block)? {
+    match prepare_apply(&project_fs, manifest, &plan, accept_managed_block)? {
         Preparation::Review { next_step } => Ok(BridgePlanResult {
             state: ActivationState::NeedsUserReview,
             changed_paths: Vec::new(),
@@ -264,11 +699,13 @@ pub fn deactivate_bridge_plan(
     manifest: &mut ActivationManifest,
     harness_id: &str,
 ) -> Result<BridgePlanResult, String> {
-    validate_project(project)?;
     validate_manifest(manifest)?;
-    let Some(current) = manifest.harnesses.get(harness_id).cloned() else {
+    let project_fs = ProjectFs::open(project)?;
+    let _manifest_lock = project_fs.lock_manifest()?;
+    let (current_manifest, expected_persisted) = reconcile_manifest(&project_fs, manifest)?;
+    let Some(current) = current_manifest.harnesses.get(harness_id).cloned() else {
         return Ok(BridgePlanResult {
-            state: ActivationState::ConfiguredAwaitingProof,
+            state: deactivated_state(harness_id),
             changed_paths: Vec::new(),
             next_step: "No manifest-recorded Tree Ring bridge material was present.".to_string(),
         });
@@ -278,15 +715,17 @@ pub fn deactivate_bridge_plan(
     let mut retained_files = Vec::new();
     for owned in &current.owned_files {
         let relative = PathBuf::from(&owned.path);
-        ensure_local_target(project, &relative)?;
-        let before = read_optional(&project.project_root.join(&relative))?;
-        let other_owner = manifest.harnesses.iter().any(|(other_id, activation)| {
-            other_id != harness_id
-                && activation
-                    .owned_files
-                    .iter()
-                    .any(|other| other.path == owned.path && other.sha256 == owned.sha256)
-        });
+        let before = project_fs.read_optional(&relative)?;
+        let other_owner = current_manifest
+            .harnesses
+            .iter()
+            .any(|(other_id, activation)| {
+                other_id != harness_id
+                    && activation
+                        .owned_files
+                        .iter()
+                        .any(|other| other.path == owned.path && other.sha256 == owned.sha256)
+            });
         match before {
             Some(bytes) if sha256(&bytes) == owned.sha256 && !other_owner => {
                 files.push(PreparedFile {
@@ -304,13 +743,17 @@ pub fn deactivate_bridge_plan(
     let mut retained_blocks = Vec::new();
     for owned in &current.managed_blocks {
         let relative = PathBuf::from(&owned.path);
-        ensure_local_target(project, &relative)?;
-        let before = read_optional(&project.project_root.join(&relative))?;
+        let before = project_fs.read_optional(&relative)?;
         let Some(before_bytes) = before else {
             continue;
         };
         let removal = if relative == Path::new("AGENTS.md") {
-            remove_markdown_block(&before_bytes, &owned.block_id, &owned.sha256)?
+            remove_markdown_block(
+                &before_bytes,
+                &owned.block_id,
+                &owned.sha256,
+                &owned.leading_separator,
+            )?
         } else if relative == Path::new(".claude/settings.json") {
             remove_claude_handler(&before_bytes, &owned.sha256)?
         } else {
@@ -329,12 +772,12 @@ pub fn deactivate_bridge_plan(
         }
     }
 
-    let mut next_manifest = manifest.clone();
+    let mut next_manifest = current_manifest.clone();
     let next = next_manifest
         .harnesses
         .get_mut(harness_id)
         .expect("cloned manifest retained harness");
-    next.state = ActivationState::ConfiguredAwaitingProof;
+    next.state = deactivated_state(harness_id);
     next.bridge_path = None;
     next.owned_files = retained_files;
     next.managed_blocks = retained_blocks;
@@ -352,13 +795,20 @@ pub fn deactivate_bridge_plan(
         .filter(|file| file.before != file.after)
         .map(|file| file.relative.clone())
         .collect::<Vec<_>>();
-    commit_files_and_manifest(project, manifest, next_manifest, &files)?;
+    commit_files_and_manifest(
+        &project_fs,
+        manifest,
+        &current_manifest,
+        expected_persisted.as_ref(),
+        next_manifest,
+        &files,
+    )?;
     let needs_review = !next_manifest_ownership_empty(manifest, harness_id);
     Ok(BridgePlanResult {
         state: if needs_review {
             ActivationState::NeedsUserReview
         } else {
-            ActivationState::ConfiguredAwaitingProof
+            deactivated_state(harness_id)
         },
         changed_paths,
         next_step: if needs_review {
@@ -371,7 +821,7 @@ pub fn deactivate_bridge_plan(
 }
 
 fn prepare_apply(
-    project: &ActivationProject,
+    project_fs: &ProjectFs,
     manifest: &ActivationManifest,
     plan: &AdapterPlan,
     accept_managed_block: bool,
@@ -390,7 +840,7 @@ fn prepare_apply(
             PlannedWrite::BridgeWrite(write) => {
                 let desired = render_complete_file(&plan.harness_id, &write.path, manifest)?;
                 prepare_complete_file(
-                    project,
+                    project_fs,
                     manifest,
                     &plan.harness_id,
                     &write.path,
@@ -400,7 +850,7 @@ fn prepare_apply(
             }
             PlannedWrite::ManagedBlockUpdate(write) if write.path == Path::new("AGENTS.md") => {
                 prepare_markdown_file(
-                    project,
+                    project_fs,
                     &plan.harness_id,
                     write,
                     accept_managed_block,
@@ -411,7 +861,7 @@ fn prepare_apply(
             PlannedWrite::ManagedBlockUpdate(write)
                 if write.path == Path::new(".claude/settings.json") =>
             {
-                prepare_claude_settings(project, write, &mut owned_files, &mut managed_blocks)?
+                prepare_claude_settings(project_fs, write, &mut owned_files, &mut managed_blocks)?
             }
             PlannedWrite::ManagedBlockUpdate(write) => {
                 return Err(format!(
@@ -454,15 +904,14 @@ fn prepare_apply(
 }
 
 fn prepare_complete_file(
-    project: &ActivationProject,
+    project_fs: &ProjectFs,
     manifest: &ActivationManifest,
     harness_id: &str,
     relative: &Path,
     desired: Vec<u8>,
     owned_files: &mut Vec<OwnedBridgeFile>,
 ) -> Result<Option<PreparedFile>, String> {
-    ensure_local_target(project, relative)?;
-    let before = read_optional(&project.project_root.join(relative))?;
+    let before = project_fs.read_optional(relative)?;
     let path = relative_string(relative)?;
     let desired_hash = sha256(&desired);
     let own = owned_files.iter().find(|owned| owned.path == path).cloned();
@@ -507,18 +956,24 @@ fn prepare_complete_file(
 }
 
 fn prepare_markdown_file(
-    project: &ActivationProject,
+    project_fs: &ProjectFs,
     harness_id: &str,
     write: &ManagedBlockUpdate,
     accept_managed_block: bool,
     owned_files: &mut Vec<OwnedBridgeFile>,
     managed_blocks: &mut Vec<OwnedManagedBlock>,
 ) -> Result<Option<PreparedFile>, String> {
-    ensure_local_target(project, &write.path)?;
-    let before = read_optional(&project.project_root.join(&write.path))?;
+    let before = project_fs.read_optional(&write.path)?;
     let path = relative_string(&write.path)?;
     let block = markdown_block(harness_id);
     if before.is_none() {
+        if owned_files.iter().any(|owned| owned.path == path)
+            || managed_blocks
+                .iter()
+                .any(|owned| owned.path == path && owned.block_id == write.block_id)
+        {
+            return Ok(None);
+        }
         let bytes = block.into_bytes();
         upsert_owned_file(owned_files, path, sha256(&bytes));
         return Ok(Some(PreparedFile {
@@ -549,7 +1004,7 @@ fn prepare_markdown_file(
         )
     })?;
     let markers = locate_markdown_block(before_text, harness_id)?;
-    let after = if let Some((start, end)) = markers {
+    let (after, leading_separator) = if let Some((start, end)) = markers {
         let existing_block = &before_text[start..end];
         let recorded = managed_blocks
             .iter()
@@ -557,18 +1012,25 @@ fn prepare_markdown_file(
         if recorded.is_some_and(|owned| sha256(existing_block.as_bytes()) != owned.sha256) {
             return Ok(None);
         }
-        replace_range(before_text, start, end, &block).into_bytes()
+        (
+            replace_range(before_text, start, end, &block).into_bytes(),
+            recorded
+                .map(|owned| owned.leading_separator.clone())
+                .unwrap_or_default(),
+        )
     } else {
         if !accept_managed_block {
             return Ok(None);
         }
-        append_markdown_block(before_text, &block).into_bytes()
+        let (content, separator) = append_markdown_block(before_text, &block);
+        (content.into_bytes(), separator)
     };
     upsert_managed_block(
         managed_blocks,
         path,
         write.block_id.clone(),
         sha256(block.as_bytes()),
+        leading_separator,
     );
     Ok(Some(PreparedFile {
         relative: write.path.clone(),
@@ -578,17 +1040,23 @@ fn prepare_markdown_file(
 }
 
 fn prepare_claude_settings(
-    project: &ActivationProject,
+    project_fs: &ProjectFs,
     write: &ManagedBlockUpdate,
     owned_files: &mut Vec<OwnedBridgeFile>,
     managed_blocks: &mut Vec<OwnedManagedBlock>,
 ) -> Result<Option<PreparedFile>, String> {
-    ensure_local_target(project, &write.path)?;
-    let before = read_optional(&project.project_root.join(&write.path))?;
+    let before = project_fs.read_optional(&write.path)?;
     let path = relative_string(&write.path)?;
     let handler = claude_handler();
     let handler_hash = sha256(&serde_json::to_vec(&handler).map_err(json_error)?);
     if before.is_none() {
+        if owned_files.iter().any(|owned| owned.path == path)
+            || managed_blocks
+                .iter()
+                .any(|owned| owned.path == path && owned.block_id == write.block_id)
+        {
+            return Ok(None);
+        }
         let mut root = Map::new();
         insert_claude_handler(&mut root, handler)?;
         let bytes = pretty_json(&Value::Object(root))?;
@@ -646,7 +1114,13 @@ fn prepare_claude_settings(
         }
     }
     let after = pretty_json(&Value::Object(root))?;
-    upsert_managed_block(managed_blocks, path, write.block_id.clone(), handler_hash);
+    upsert_managed_block(
+        managed_blocks,
+        path,
+        write.block_id.clone(),
+        handler_hash,
+        String::new(),
+    );
     Ok(Some(PreparedFile {
         relative: write.path.clone(),
         before,
@@ -736,34 +1210,11 @@ fn validate_plan(plan: &AdapterPlan) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_project(project: &ActivationProject) -> Result<(), String> {
+fn validate_project_shape(project: &ActivationProject) -> Result<(), String> {
     if project.memory_root != project.project_root.join(".tree-ring") {
         return Err(
             "activation project memory root must be the project-local .tree-ring".to_string(),
         );
-    }
-    ensure_local_target(project, Path::new(".tree-ring/activation.json"))
-}
-
-fn ensure_local_target(project: &ActivationProject, relative: &Path) -> Result<(), String> {
-    validate_relative_path_buf(relative)?;
-    let mut current = project.project_root.clone();
-    for component in relative.components() {
-        let Component::Normal(part) = component else {
-            return Err("bridge path must be normalized and project-relative".to_string());
-        };
-        current.push(part);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(format!(
-                    "bridge path traverses a symlink: {}",
-                    current.display()
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(io_error(&current, error)),
-        }
     }
     Ok(())
 }
@@ -813,17 +1264,21 @@ fn locate_markdown_block(
     }
 }
 
-fn append_markdown_block(content: &str, block: &str) -> String {
+fn append_markdown_block(content: &str, block: &str) -> (String, String) {
     if content.is_empty() {
-        return block.to_string();
+        return (block.to_string(), String::new());
     }
-    if content.ends_with("\n\n") {
-        format!("{content}{block}")
+    let separator = if content.ends_with("\n\n") {
+        ""
     } else if content.ends_with('\n') {
-        format!("{content}\n{block}")
+        "\n"
     } else {
-        format!("{content}\n\n{block}")
-    }
+        "\n\n"
+    };
+    (
+        format!("{content}{separator}{block}"),
+        separator.to_string(),
+    )
 }
 
 fn replace_range(content: &str, start: usize, end: usize, replacement: &str) -> String {
@@ -834,6 +1289,7 @@ fn remove_markdown_block(
     bytes: &[u8],
     block_id: &str,
     expected_hash: &str,
+    leading_separator: &str,
 ) -> Result<Option<Vec<u8>>, String> {
     let content = match std::str::from_utf8(bytes) {
         Ok(content) => content,
@@ -845,14 +1301,13 @@ fn remove_markdown_block(
     if sha256(&content.as_bytes()[start..end]) != expected_hash {
         return Ok(None);
     }
-    let mut result = replace_range(content, start, end, "");
-    while result.ends_with("\n\n") {
-        result.pop();
+    let removal_start = start.saturating_sub(leading_separator.len());
+    if &content[removal_start..start] != leading_separator {
+        return Ok(None);
     }
-    if !result.is_empty() && !result.ends_with('\n') {
-        result.push('\n');
-    }
-    Ok(Some(result.into_bytes()))
+    Ok(Some(
+        replace_range(content, removal_start, end, "").into_bytes(),
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -871,58 +1326,49 @@ fn claude_handler() -> Value {
 }
 
 fn inspect_claude_handler(root: &Map<String, Value>) -> Result<ClaudeHandlerState, String> {
+    validate_claude_hook_shape(root)?;
     let expected = claude_handler();
     let mut exact = 0usize;
     let mut conflict = false;
-    inspect_tree_ring_values(
-        &Value::Object(root.clone()),
-        &expected,
-        &mut exact,
-        &mut conflict,
-    );
+    if let Some(entries) = root
+        .get("hooks")
+        .and_then(Value::as_object)
+        .and_then(|hooks| hooks.get("SessionStart"))
+        .and_then(Value::as_array)
+    {
+        for entry in entries {
+            let handlers = entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .expect("validated SessionStart handler array");
+            for handler in handlers {
+                let object = handler
+                    .as_object()
+                    .expect("validated SessionStart handler object");
+                let description = object.get("description").and_then(Value::as_str);
+                let command = object.get("command").and_then(Value::as_str);
+                let claims_description = description == Some(CLAUDE_DESCRIPTION);
+                let claims_command = command.is_some_and(|command| {
+                    command.contains("tree-ring")
+                        && command.contains("integrations preflight")
+                        && command.contains("--harness claude-code")
+                });
+                if claims_description || claims_command {
+                    if handler == &expected {
+                        exact += 1;
+                    } else {
+                        conflict = true;
+                    }
+                }
+            }
+        }
+    }
     if conflict || exact > 1 {
         Ok(ClaudeHandlerState::Conflict)
     } else if exact == 1 {
         Ok(ClaudeHandlerState::Exact)
     } else {
-        validate_claude_hook_shape(root)?;
         Ok(ClaudeHandlerState::Absent)
-    }
-}
-
-fn inspect_tree_ring_values(
-    value: &Value,
-    expected: &Value,
-    exact: &mut usize,
-    conflict: &mut bool,
-) {
-    match value {
-        Value::Object(object) => {
-            let description = object.get("description").and_then(Value::as_str);
-            let command = object.get("command").and_then(Value::as_str);
-            let claims_description = description == Some(CLAUDE_DESCRIPTION);
-            let claims_command = command.is_some_and(|command| {
-                command.contains("tree-ring")
-                    && command.contains("integrations preflight")
-                    && command.contains("--harness claude-code")
-            });
-            if claims_description || claims_command {
-                if Value::Object(object.clone()) == *expected {
-                    *exact += 1;
-                } else {
-                    *conflict = true;
-                }
-            }
-            for child in object.values() {
-                inspect_tree_ring_values(child, expected, exact, conflict);
-            }
-        }
-        Value::Array(values) => {
-            for child in values {
-                inspect_tree_ring_values(child, expected, exact, conflict);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -934,9 +1380,21 @@ fn validate_claude_hook_shape(root: &Map<String, Value>) -> Result<(), String> {
         .as_object()
         .ok_or_else(|| "Claude settings hooks must be an object".to_string())?;
     if let Some(session_start) = hooks.get("SessionStart") {
-        session_start
+        let entries = session_start
             .as_array()
             .ok_or_else(|| "Claude SessionStart hooks must be an array".to_string())?;
+        for entry in entries {
+            let entry = entry
+                .as_object()
+                .ok_or_else(|| "Claude SessionStart entry must be an object".to_string())?;
+            let handlers = entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "Claude SessionStart entry hooks must be an array".to_string())?;
+            if handlers.iter().any(|handler| !handler.is_object()) {
+                return Err("Claude SessionStart command handler must be an object".to_string());
+            }
+        }
     }
     Ok(())
 }
@@ -965,6 +1423,9 @@ fn remove_claude_handler(bytes: &[u8], expected_hash: &str) -> Result<Option<Vec
         Ok(root) => root,
         Err(_) => return Ok(None),
     };
+    if validate_claude_hook_shape(&root).is_err() {
+        return Ok(None);
+    }
     let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else {
         return Ok(None);
     };
@@ -1041,49 +1502,113 @@ fn upsert_managed_block(
     path: String,
     block_id: String,
     digest: String,
+    leading_separator: String,
 ) {
     if let Some(existing) = owned
         .iter_mut()
         .find(|owned| owned.path == path && owned.block_id == block_id)
     {
         existing.sha256 = digest;
+        existing.leading_separator = leading_separator;
     } else {
         owned.push(OwnedManagedBlock {
             path,
             block_id,
             sha256: digest,
+            leading_separator,
         });
     }
 }
 
+fn reconcile_manifest(
+    project_fs: &ProjectFs,
+    supplied: &ActivationManifest,
+) -> Result<(ActivationManifest, Option<ActivationManifest>), String> {
+    let persisted = load_persisted_manifest(project_fs)?;
+    let Some(persisted_manifest) = persisted else {
+        return Ok((supplied.clone(), None));
+    };
+    if persisted_manifest.schema_version != supplied.schema_version
+        || persisted_manifest.protocol_version != supplied.protocol_version
+        || persisted_manifest.store_id != supplied.store_id
+        || persisted_manifest.project_root_fingerprint != supplied.project_root_fingerprint
+    {
+        return Err(
+            "activation manifest identity changed while preparing bridge update".to_string(),
+        );
+    }
+    Ok((persisted_manifest.clone(), Some(persisted_manifest)))
+}
+
+fn load_persisted_manifest(project_fs: &ProjectFs) -> Result<Option<ActivationManifest>, String> {
+    let Some(bytes) = project_fs.read_optional(Path::new(".tree-ring/activation.json"))? else {
+        return Ok(None);
+    };
+    let manifest: ActivationManifest = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid activation JSON: {error}"))?;
+    validate_manifest(&manifest)?;
+    Ok(Some(manifest))
+}
+
+fn ensure_expected_manifest(
+    project_fs: &ProjectFs,
+    expected: Option<&ActivationManifest>,
+) -> Result<(), String> {
+    let current = load_persisted_manifest(project_fs)?;
+    if current.as_ref() == expected {
+        Ok(())
+    } else {
+        Err("activation manifest changed concurrently; bridge update was not committed".to_string())
+    }
+}
+
+fn persist_manifest(
+    project_fs: &ProjectFs,
+    expected: Option<&ActivationManifest>,
+    manifest: &ActivationManifest,
+) -> Result<(), String> {
+    validate_manifest(manifest)?;
+    ensure_expected_manifest(project_fs, expected)?;
+    let bytes = serde_json::to_vec_pretty(manifest)
+        .map_err(|error| format!("failed to serialize activation JSON: {error}"))?;
+    let target = project_fs.resolve_target(Path::new(".tree-ring/activation.json"), true)?;
+    target.atomic_write(&bytes, expected.is_none())
+}
+
 fn commit_files_and_manifest(
-    project: &ActivationProject,
+    project_fs: &ProjectFs,
     manifest: &mut ActivationManifest,
+    original_manifest: &ActivationManifest,
+    expected_persisted: Option<&ActivationManifest>,
     next_manifest: ActivationManifest,
     files: &[PreparedFile],
 ) -> Result<(), String> {
-    let original_manifest = manifest.clone();
+    ensure_expected_manifest(project_fs, expected_persisted)?;
     let mut applied = Vec::new();
     for file in files.iter().filter(|file| file.before != file.after) {
-        if let Err(error) = commit_prepared_file(project, file) {
-            rollback_files(project, &applied);
-            return Err(error);
+        match commit_prepared_file(project_fs, file) {
+            Ok(applied_file) => applied.push(applied_file),
+            Err(error) => {
+                rollback_files(&applied);
+                return Err(error);
+            }
         }
-        applied.push(file.clone());
     }
-    if let Err(error) = save_manifest(&project.memory_root, &next_manifest) {
-        rollback_files(project, &applied);
-        *manifest = original_manifest;
+    if let Err(error) = persist_manifest(project_fs, expected_persisted, &next_manifest) {
+        rollback_files(&applied);
+        *manifest = original_manifest.clone();
         return Err(error);
     }
     *manifest = next_manifest;
     Ok(())
 }
 
-fn commit_prepared_file(project: &ActivationProject, file: &PreparedFile) -> Result<(), String> {
-    ensure_local_target(project, &file.relative)?;
-    let path = project.project_root.join(&file.relative);
-    let current = read_optional(&path)?;
+fn commit_prepared_file(
+    project_fs: &ProjectFs,
+    file: &PreparedFile,
+) -> Result<AppliedFile, String> {
+    let target = project_fs.resolve_target(&file.relative, file.after.is_some())?;
+    let current = target.read_optional()?;
     if current != file.before {
         return Err(format!(
             "bridge target changed after validation: {}",
@@ -1091,67 +1616,25 @@ fn commit_prepared_file(project: &ActivationProject, file: &PreparedFile) -> Res
         ));
     }
     match &file.after {
-        Some(bytes) => atomic_write_bytes(&path, bytes, file.before.is_none()),
-        None => match fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(io_error(&path, error)),
-        },
-    }
+        Some(bytes) => target.atomic_write(bytes, file.before.is_none())?,
+        None => target.remove_file()?,
+    };
+    Ok(AppliedFile {
+        prepared: file.clone(),
+        target,
+    })
 }
 
-fn rollback_files(project: &ActivationProject, files: &[PreparedFile]) {
+fn rollback_files(files: &[AppliedFile]) {
     for file in files.iter().rev() {
-        let path = project.project_root.join(&file.relative);
-        match &file.before {
+        match &file.prepared.before {
             Some(bytes) => {
-                let _ = atomic_write_bytes(&path, bytes, false);
+                let _ = file.target.atomic_write(bytes, false);
             }
             None => {
-                let _ = fs::remove_file(&path);
+                let _ = file.target.remove_file();
             }
         }
-    }
-}
-
-fn atomic_write_bytes(path: &Path, bytes: &[u8], create_only: bool) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("bridge output has no parent: {}", path.display()))?;
-    fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("bridge output has no UTF-8 file name: {}", path.display()))?;
-    let temp = parent.join(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp)
-            .map_err(|error| io_error(&temp, error))?;
-        file.write_all(bytes)
-            .map_err(|error| io_error(&temp, error))?;
-        file.sync_all().map_err(|error| io_error(&temp, error))?;
-        drop(file);
-        if create_only {
-            fs::hard_link(&temp, path).map_err(|error| io_error(path, error))?;
-            fs::remove_file(&temp).map_err(|error| io_error(&temp, error))
-        } else {
-            fs::rename(&temp, path).map_err(|error| io_error(path, error))
-        }
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    result
-}
-
-fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(io_error(path, error)),
     }
 }
 
@@ -1178,6 +1661,14 @@ fn applied_state(harness_id: &str, planned: ActivationState) -> ActivationState 
     }
 }
 
+fn deactivated_state(harness_id: &str) -> ActivationState {
+    if harness_id == "pi" {
+        ActivationState::NeedsTrust
+    } else {
+        ActivationState::ConfiguredAwaitingProof
+    }
+}
+
 fn review_step(harness_id: &str) -> String {
     if harness_id == "codex" {
         CODEX_RETRY.to_string()
@@ -1201,11 +1692,17 @@ mod tests {
     use super::*;
     use crate::activation::{
         adapters::{plan_activation, ActivationProject, AdapterPlan, BridgeWrite, PlannedWrite},
-        manifest::ActivationManifest,
-        ActivationState, ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
+        manifest::{ActivationManifest, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock},
+        ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
     };
     use serde_json::{json, Value};
-    use std::{collections::BTreeMap, fs, path::Path};
+    use std::{
+        collections::BTreeMap,
+        fs,
+        path::Path,
+        sync::{Arc, Barrier},
+        thread,
+    };
     use tempfile::TempDir;
 
     fn fixture() -> (TempDir, ActivationProject, ActivationManifest) {
@@ -1244,6 +1741,17 @@ mod tests {
 
     fn plan(harness: &str, project: &ActivationProject) -> AdapterPlan {
         plan_activation(harness, project).unwrap()
+    }
+
+    fn verified_agent_zero_plan() -> AdapterPlan {
+        AdapterPlan {
+            harness_id: "agent-zero".to_string(),
+            state: ActivationState::ConfiguredAwaitingProof,
+            writes: vec![PlannedWrite::BridgeWrite(BridgeWrite {
+                path: ".tree-ring/activation/agent-zero.json".into(),
+            })],
+            next_step: "verified separate plugin".to_string(),
+        }
     }
 
     #[test]
@@ -1487,15 +1995,7 @@ mod tests {
             .join(".tree-ring/activation/agent-zero.json")
             .exists());
 
-        let verified = AdapterPlan {
-            harness_id: "agent-zero".to_string(),
-            state: ActivationState::ConfiguredAwaitingProof,
-            writes: vec![PlannedWrite::BridgeWrite(BridgeWrite {
-                path: ".tree-ring/activation/agent-zero.json".into(),
-            })],
-            next_step: "verified separate plugin".to_string(),
-        };
-        apply_bridge_plan(&project, &mut manifest, verified, false).unwrap();
+        apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
         let binding: Value = serde_json::from_str(&read(
             project
                 .project_root
@@ -1663,5 +2163,264 @@ mod tests {
         assert!(error.contains("symlink"));
         assert!(!outside_temp.path().join("activation.json").exists());
         assert!(!project_temp.path().join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn malformed_manifest_ownership_can_never_delete_non_adapter_or_store_material() {
+        for relative in [
+            ".tree-ring/AGENTS.md",
+            ".tree-ring/SKILL.md",
+            ".tree-ring/CLI.md",
+            ".tree-ring/activation/receipts/codex/worker/receipt.json",
+            "unrelated.txt",
+        ] {
+            let (_temp, project, mut manifest) = fixture();
+            let path = project.project_root.join(relative);
+            write(&path, "must survive\n");
+            manifest.harnesses.insert(
+                "codex".to_string(),
+                HarnessActivation {
+                    state: ActivationState::ConfiguredAwaitingProof,
+                    adapter_capability: AdapterCapability::WrapperPreflight,
+                    bridge_path: Some(relative.to_string()),
+                    owned_files: vec![OwnedBridgeFile {
+                        path: relative.to_string(),
+                        sha256: sha256(b"must survive\n"),
+                    }],
+                    managed_blocks: Vec::new(),
+                },
+            );
+
+            let error = deactivate_bridge_plan(&project, &mut manifest, "codex").unwrap_err();
+
+            assert!(error.contains("ownership") || error.contains("bridge"));
+            assert_eq!(read(path), "must survive\n", "{relative}");
+        }
+
+        let (_temp, project, mut manifest) = fixture();
+        manifest.harnesses.insert(
+            "codex".to_string(),
+            HarnessActivation {
+                state: ActivationState::ConfiguredAwaitingProof,
+                adapter_capability: AdapterCapability::WrapperPreflight,
+                bridge_path: Some(".tree-ring/AGENTS.md".to_string()),
+                owned_files: Vec::new(),
+                managed_blocks: vec![OwnedManagedBlock {
+                    path: ".tree-ring/AGENTS.md".to_string(),
+                    block_id: "codex".to_string(),
+                    sha256: "a".repeat(64),
+                    leading_separator: String::new(),
+                }],
+            },
+        );
+        assert!(deactivate_bridge_plan(&project, &mut manifest, "codex").is_err());
+        assert!(project.memory_root.join("AGENTS.md").exists());
+    }
+
+    #[test]
+    fn agent_zero_missing_plugin_preserves_the_owned_binding_for_safe_deactivation() {
+        let (_temp, project, mut manifest) = fixture();
+        apply_bridge_plan(&project, &mut manifest, verified_agent_zero_plan(), false).unwrap();
+        let binding = project
+            .project_root
+            .join(".tree-ring/activation/agent-zero.json");
+        let ownership = manifest.harnesses["agent-zero"].owned_files.clone();
+
+        let result =
+            apply_bridge_plan(&project, &mut manifest, plan("agent-zero", &project), false)
+                .unwrap();
+
+        assert_eq!(result.state, ActivationState::NeedsPlugin);
+        assert!(binding.exists());
+        assert_eq!(manifest.harnesses["agent-zero"].owned_files, ownership);
+        assert_eq!(
+            manifest.harnesses["agent-zero"].bridge_path.as_deref(),
+            Some(".tree-ring/activation/agent-zero.json")
+        );
+    }
+
+    #[test]
+    fn missing_formerly_owned_agents_and_claude_settings_require_review_without_recreation() {
+        let (_temp, project, mut manifest) = fixture();
+        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
+        fs::remove_file(project.project_root.join("AGENTS.md")).unwrap();
+        let result =
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert!(!project.project_root.join("AGENTS.md").exists());
+
+        let (_temp, project, mut manifest) = fixture();
+        write(project.project_root.join("AGENTS.md"), "# Team\n");
+        apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
+        fs::remove_file(project.project_root.join("AGENTS.md")).unwrap();
+        let result =
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), false).unwrap();
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert!(!project.project_root.join("AGENTS.md").exists());
+
+        let (_temp, project, mut manifest) = fixture();
+        apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        fs::remove_file(project.project_root.join(".claude/settings.json")).unwrap();
+        let result = apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert!(!project.project_root.join(".claude/settings.json").exists());
+
+        let (_temp, project, mut manifest) = fixture();
+        let settings = project.project_root.join(".claude/settings.json");
+        write(&settings, "{\"permissions\": {\"allow\": [\"Read\"]}}");
+        apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        fs::remove_file(&settings).unwrap();
+        let result = apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert!(!settings.exists());
+    }
+
+    #[test]
+    fn claude_only_recognizes_handlers_in_the_exact_session_start_hook_location() {
+        let (_temp, project, mut manifest) = fixture();
+        let settings = project.project_root.join(".claude/settings.json");
+        write(
+            &settings,
+            &serde_json::to_string_pretty(&json!({
+                "custom": claude_handler(),
+                "hooks": {"SessionStart": []}
+            }))
+            .unwrap(),
+        );
+
+        apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        let merged: Value = serde_json::from_str(&read(&settings)).unwrap();
+
+        assert_eq!(merged["custom"], claude_handler());
+        assert_eq!(merged["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+
+        let (_temp, project, mut manifest) = fixture();
+        let settings = project.project_root.join(".claude/settings.json");
+        let malformed = serde_json::to_string(&json!({
+            "custom": claude_handler(),
+            "hooks": {"SessionStart": [{"hooks": "not-an-array"}]}
+        }))
+        .unwrap();
+        write(&settings, &malformed);
+        let result = apply_bridge_plan(
+            &project,
+            &mut manifest,
+            plan("claude-code", &project),
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.state, ActivationState::NeedsUserReview);
+        assert_eq!(read(settings), malformed);
+    }
+
+    #[test]
+    fn concurrent_disjoint_activations_merge_both_manifest_records() {
+        let (_temp, project, manifest) = fixture();
+        let barrier = Arc::new(Barrier::new(2));
+        let mut workers = Vec::new();
+        for harness in ["codex", "pi"] {
+            let project = project.clone();
+            let mut worker_manifest = manifest.clone();
+            let barrier = Arc::clone(&barrier);
+            workers.push(thread::spawn(move || {
+                let adapter_plan = plan(harness, &project);
+                barrier.wait();
+                apply_bridge_plan(&project, &mut worker_manifest, adapter_plan, false).unwrap();
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+
+        let persisted = crate::activation::load_manifest(&project.memory_root).unwrap();
+        assert!(persisted.harnesses.contains_key("codex"));
+        assert!(persisted.harnesses.contains_key("pi"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn descriptor_relative_commit_and_rollback_ignore_a_replaced_parent_path() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp, project, _manifest) = fixture();
+        let target_path = project
+            .project_root
+            .join(".agents/skills/tree-ring-memory/SKILL.md");
+        write(&target_path, "before\n");
+        let project_fs = ProjectFs::open(&project).unwrap();
+        let target = project_fs
+            .resolve_target(Path::new(".agents/skills/tree-ring-memory/SKILL.md"), false)
+            .unwrap();
+        target.atomic_write(b"committed\n", false).unwrap();
+
+        let parked = project.project_root.join(".agents-parked");
+        fs::rename(project.project_root.join(".agents"), &parked).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(outside.path(), project.project_root.join(".agents")).unwrap();
+        target.atomic_write(b"before\n", false).unwrap();
+
+        assert!(!outside
+            .path()
+            .join("skills/tree-ring-memory/SKILL.md")
+            .exists());
+        assert_eq!(
+            read(parked.join("skills/tree-ring-memory/SKILL.md")),
+            "before\n"
+        );
+    }
+
+    #[test]
+    fn pi_deactivation_and_no_record_state_remain_needs_trust() {
+        let (_temp, project, mut manifest) = fixture();
+        let absent = deactivate_bridge_plan(&project, &mut manifest, "pi").unwrap();
+        assert_eq!(absent.state, ActivationState::NeedsTrust);
+
+        apply_bridge_plan(&project, &mut manifest, plan("pi", &project), false).unwrap();
+        let deactivated = deactivate_bridge_plan(&project, &mut manifest, "pi").unwrap();
+        assert_eq!(deactivated.state, ActivationState::NeedsTrust);
+        assert_eq!(manifest.harnesses["pi"].state, ActivationState::NeedsTrust);
+    }
+
+    #[test]
+    fn codex_deactivation_preserves_preexisting_trailing_blank_lines_exactly() {
+        for original in ["# Team\n", "# Team\n\n", "# Team\n\n\n"] {
+            let (_temp, project, mut manifest) = fixture();
+            write(project.project_root.join("AGENTS.md"), original);
+            apply_bridge_plan(&project, &mut manifest, plan("codex", &project), true).unwrap();
+
+            deactivate_bridge_plan(&project, &mut manifest, "codex").unwrap();
+
+            assert_eq!(read(project.project_root.join("AGENTS.md")), original);
+        }
     }
 }

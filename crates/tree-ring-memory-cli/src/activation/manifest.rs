@@ -60,6 +60,8 @@ pub struct OwnedManagedBlock {
     pub path: String,
     pub block_id: String,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub leading_separator: String,
 }
 
 /// A deliberately minimal, non-sensitive record that an activation occurred.
@@ -292,9 +294,28 @@ pub(crate) fn validate_manifest(manifest: &ActivationManifest) -> Result<(), Str
         validate_identifier("harness id", harness_id)?;
         if let Some(bridge_path) = &activation.bridge_path {
             validate_project_relative_path(bridge_path)?;
+            if !activation
+                .owned_files
+                .iter()
+                .any(|owned| owned.path == *bridge_path)
+                && !activation
+                    .managed_blocks
+                    .iter()
+                    .any(|owned| owned.path == *bridge_path)
+            {
+                return Err(format!(
+                    "bridge path is not recorded ownership for {harness_id}"
+                ));
+            }
         }
         for owned in &activation.owned_files {
             validate_project_relative_path(&owned.path)?;
+            if !allowed_owned_file(harness_id, &owned.path) {
+                return Err(format!(
+                    "invalid complete-file ownership target for {harness_id}: {}",
+                    owned.path
+                ));
+            }
             if !is_sha256(&owned.sha256) {
                 return Err("owned bridge file digest must be a SHA-256 hex digest".to_string());
             }
@@ -302,9 +323,73 @@ pub(crate) fn validate_manifest(manifest: &ActivationManifest) -> Result<(), Str
         for owned in &activation.managed_blocks {
             validate_project_relative_path(&owned.path)?;
             validate_identifier("managed block id", &owned.block_id)?;
+            if !allowed_managed_block(harness_id, &owned.path, &owned.block_id) {
+                return Err(format!(
+                    "invalid managed-block ownership target for {harness_id}: {}#{}",
+                    owned.path, owned.block_id
+                ));
+            }
             if !is_sha256(&owned.sha256) {
                 return Err("managed block digest must be a SHA-256 hex digest".to_string());
             }
+            if !matches!(owned.leading_separator.as_str(), "" | "\n" | "\n\n") {
+                return Err("invalid managed block leading separator".to_string());
+            }
+        }
+        reject_duplicate_ownership(harness_id, activation)?;
+    }
+    Ok(())
+}
+
+fn allowed_owned_file(harness_id: &str, path: &str) -> bool {
+    match harness_id {
+        "codex" => matches!(
+            path,
+            ".agents/skills/tree-ring-memory/SKILL.md" | "AGENTS.md"
+        ),
+        "claude-code" => matches!(
+            path,
+            ".claude/skills/tree-ring-memory/SKILL.md" | ".claude/settings.json"
+        ),
+        "pi" => matches!(
+            path,
+            ".agents/skills/tree-ring-memory/SKILL.md" | ".pi/extensions/tree-ring-memory.ts"
+        ),
+        "agent-zero" => path == ".tree-ring/activation/agent-zero.json",
+        _ => false,
+    }
+}
+
+fn allowed_managed_block(harness_id: &str, path: &str, block_id: &str) -> bool {
+    matches!(
+        (harness_id, path, block_id),
+        ("codex", "AGENTS.md", "codex") | ("claude-code", ".claude/settings.json", "claude-code")
+    )
+}
+
+fn reject_duplicate_ownership(
+    harness_id: &str,
+    activation: &HarnessActivation,
+) -> Result<(), String> {
+    let mut files = std::collections::BTreeSet::new();
+    for owned in &activation.owned_files {
+        if !files.insert(&owned.path) {
+            return Err(format!(
+                "duplicate complete-file ownership for {harness_id}"
+            ));
+        }
+    }
+    let mut blocks = std::collections::BTreeSet::new();
+    for owned in &activation.managed_blocks {
+        if !blocks.insert((&owned.path, &owned.block_id)) {
+            return Err(format!(
+                "duplicate managed-block ownership for {harness_id}"
+            ));
+        }
+        if files.contains(&owned.path) {
+            return Err(format!(
+                "conflicting complete-file and managed-block ownership for {harness_id}"
+            ));
         }
     }
     Ok(())
@@ -565,7 +650,7 @@ mod tests {
             HarnessActivation {
                 state: ActivationState::Active,
                 adapter_capability: AdapterCapability::NativePreflight,
-                bridge_path: Some("bridges/codex.sh".to_string()),
+                bridge_path: None,
                 owned_files: Vec::new(),
                 managed_blocks: Vec::new(),
             },

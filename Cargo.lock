@@ -1694,6 +1694,7 @@ version = "0.14.0"
 dependencies = [
  "chrono",
  "clap",
+ "libc",
  "ratatui",
  "rusqlite",
  "serde",
