@@ -100,8 +100,11 @@ name and version before it uses it. A descriptor-scoped `init` may establish the
 passive binding but never turns it into proof or changes its persisted manifest
 record from `needs-plugin`. Only descriptor-scoped runtime status can derive
 `configured-awaiting-proof`, and only a descriptor-scoped new-session preflight
-with a matching receipt can report `active`. Ordinary host-shell status without
-that internal descriptor remains `needs-plugin`. There is no generic manual
+with a matching receipt can report `active`. That preflight requires both the
+live validated descriptor and the exact passive core-owned `needs-plugin`
+binding record. Legacy or non-passive Agent Zero records are deliberately not
+auto-migrated and do not qualify. Ordinary host-shell status without that
+internal descriptor remains `needs-plugin`. There is no generic manual
 descriptor command.
 
 This is also a release boundary: the descriptor's declared Tree Ring series,
