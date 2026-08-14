@@ -5,15 +5,18 @@ Tree Ring Memory ships two integration aids for agent workflows:
 - `skills/tree-ring-memory/SKILL.md`: a portable agent skill that teaches an agent when to recall, remember, redact, forget, and avoid memory capture.
 - `templates/dox/AGENTS.md`: a DOX-style project contract template for repos that want Tree Ring Memory guidance alongside source code.
 
-`tree-ring init` creates canonical project guidance and safely activates
-maintained project-local harness adapters. The resulting local guidance is:
+`tree-ring init` creates canonical project guidance and safely configures
+maintained project-local harness adapters where create-only publication is
+possible. The resulting local guidance is:
 
 - `.tree-ring/AGENTS.md`
 - `.tree-ring/SKILL.md`
 - `.tree-ring/CLI.md`
 
-Existing unmanaged files are not overwritten. A generated bridge is a pointer,
-not proof that a runtime used Tree Ring; see
+Existing bridge and activation-manifest entries are never overwritten or
+removed. If an entry would need mutation, Tree Ring preserves it and reports
+`needs-user-review`. A generated bridge is a pointer, not proof that a runtime
+used Tree Ring; see
 [the harness activation protocol](../protocol/harness-activation.md).
 
 These generated files are the canonical project-local guidance. Harness-native
@@ -340,7 +343,9 @@ Coordinated mode, that persisted rerun requires
 
 Tree Ring Memory is framework-agnostic. The default is `tree-ring init`, not a
 manual bridge-copying workflow. It installs only owned project-local material
-that a maintained adapter can safely manage. Then run:
+that a maintained adapter can publish to an absent final path. It never replaces
+or removes an existing bridge or activation manifest, including during
+deactivation. Then run:
 
 ```bash
 tree-ring integrations status
@@ -350,6 +355,12 @@ tree-ring integrations status
 safe context injection. `configured-awaiting-proof`, `active-isolated`,
 `needs-trust`, `needs-project-mount`, `needs-plugin`, and
 `needs-user-review` are deliberately non-active states.
+
+If an entry is already present or has changed, leave it untouched and follow the
+reported `needs-user-review` reconciliation step. If durability becomes
+indeterminate after publication, preserve the published disk material; Tree
+Ring keeps changed harnesses in the returned in-memory manifest marked for
+review and leaves any manifest already published on disk intact.
 
 Recommended project-level bridge targets:
 

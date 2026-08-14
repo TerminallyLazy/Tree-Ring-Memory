@@ -104,11 +104,14 @@ tree-ring init
 tree-ring integrations status
 ```
 
-Default `init` creates the canonical project-local store and safely activates
-maintained adapters. It does not require copying a skill or manually running
-`integrations link`. A harness is `active` only after a fresh matching receipt
-shows a new session completed scoped recall and safe context injection; markers
-and generated guidance are never enough. See the [harness activation
+Default `init` creates the canonical project-local store and configures
+maintained adapters where new project-local bridge and manifest entries can be
+created safely. It does not require copying a skill or manually running
+`integrations link`. Existing entries are never overwritten or removed; a
+contested bridge or manifest reports `needs-user-review`. A harness is `active`
+only after a fresh matching receipt shows a new session completed scoped recall
+and safe context injection; `init`, markers, and generated guidance establish
+configuration, not activation. See the [harness activation
 protocol](docs/protocol/harness-activation.md) for states, receipts, advanced
 commands, and runtime boundaries.
 
@@ -262,7 +265,9 @@ The CLI stores memory in `.tree-ring/` by default.
 
 Command ownership is Rust-native:
 
-- `init` creates the SQLite store plus `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+- `init` creates the SQLite store plus `.tree-ring/AGENTS.md`,
+  `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing
+  files, then attempts create-only project harness configuration.
 - `remember`, `recall`, and `forget` cover direct memory capture, retrieval, redaction, and deletion.
 - `evidence` is the Revolve-inspired improvement-loop entry point for evaluated outcomes.
 - `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
@@ -499,7 +504,9 @@ tree-ring recall-quality --source-root .
 `tree-ring integrations scan --source-root .` remains a read-only diagnostic;
 it cannot establish runtime use. `integrations link` remains an advanced alias
 for controlled bridge work. Default `init` handles safe project-local adapter
-activation, while global configuration remains explicit opt-in.
+configuration, while global configuration remains explicit opt-in. Neither
+command replaces or removes an existing final bridge or activation manifest;
+entries that require mutation remain unchanged for explicit review.
 
 `tree-ring export` writes newline-delimited JSON. The first line is a
 `tree_ring_memory_export` header with schema and plugin version metadata; each
@@ -682,18 +689,23 @@ The current activation protocol is documented in
 - `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, remember, redact, forget, or avoid memory capture.
 - `templates/dox/AGENTS.md` is a DOX-style project contract template for repos that want Tree Ring Memory rules alongside source code.
 - `docs/integrations/agent-skill.md` explains how to use both without making memory more authoritative than local project docs.
-- `tree-ring init` creates canonical guidance and safely activates maintained
-  project-local adapters; status remains receipt-backed.
+- `tree-ring init` creates canonical guidance and safely configures maintained
+  project-local adapters when create-only publication is possible; status
+  remains receipt-backed.
 
 For DOX-style project awareness, merge the relevant generated `.tree-ring/AGENTS.md`
 sections into the project root `AGENTS.md`. The CLI intentionally does not
 rewrite root project contracts automatically.
 
-`tree-ring init` installs managed project-local bridges where an adapter can do
-so safely. A bridge is not proof of runtime use. `tree-ring integrations status`
-reports the exact non-active state and one action, such as Pi trust, an Agent
-Zero plugin, a missing mount, or unmanaged-file review. Do not treat Hermes or
-another unverified runtime as active.
+`tree-ring init` creates managed project-local bridges where an adapter can do
+so safely. It never replaces or removes an existing bridge or activation
+manifest; contested entries are preserved as `needs-user-review`. If durability
+becomes indeterminate after publication, published disk material is preserved,
+the in-memory changed harness state remains marked for review, and any manifest
+already published on disk is left intact. A bridge is not proof of runtime use.
+`tree-ring integrations status` reports the exact non-active state and one
+action, such as Pi trust, an Agent Zero plugin, a missing mount, or unmanaged-file
+review. Do not treat Hermes or another unverified runtime as active.
 
 Memory updates are agent-mediated. Bridge files tell the active agent when to
 call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
