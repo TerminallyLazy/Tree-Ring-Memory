@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "harness_id": "pi",
+  "adapter_version": "1",
+  "marker_paths": [".pi"],
+  "expected_bridge_paths": [
+    ".agents/skills/tree-ring-memory/SKILL.md",
+    ".pi/extensions/tree-ring-memory.ts"
+  ],
+  "expected_activation_state_before_proof": "needs-trust",
+  "preflight": {
+    "mode": "adapter-stdin",
+    "context_format": "pi-before-agent-start"
+  },
+  "seeded_memory": {
+    "summary": "fixture project startup constraints require deterministic source safe evidence",
+    "source_ref": "fixture://harness-activation/pi"
+  },
+  "live_executable_env": "TREE_RING_LIVE_PI_EXECUTABLE"
+}

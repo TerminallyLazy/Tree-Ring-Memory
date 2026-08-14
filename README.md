@@ -97,6 +97,52 @@ guidance.
 
 ## Quick Start
 
+### Activate project-local harnesses
+
+```bash
+tree-ring init
+tree-ring integrations status
+```
+
+Default `init` creates the canonical project-local store and configures
+maintained adapters where new project-local bridge and manifest entries can be
+created safely. It does not require copying a skill or manually running
+`integrations link`. Existing entries are never overwritten or removed; a
+contested bridge or manifest reports `needs-user-review`. A harness is `active`
+only after a fresh matching receipt shows a new session completed scoped recall
+and safe context injection; `init`, markers, and generated guidance establish
+configuration, not activation. See the [harness activation
+protocol](docs/protocol/harness-activation.md) for states, receipts, advanced
+commands, and runtime boundaries.
+
+Shared Tree Ring activation is supported only for concurrent processes on the
+same-host local filesystem with matching project-store identity. It does not
+claim safe SQLite sharing across hosts, NFS/network filesystems, or containers
+on different hosts.
+
+### Agent Zero uses its separate plugin
+
+Agent Zero is intentionally a two-part setup. `tree-ring init` creates the
+project-local, passive Agent Zero binding and records `needs-plugin`; that
+proves only that Tree Ring owns the project-side configuration. It does not
+claim that Agent Zero is installed, that the project is mounted there, or that
+an agent has used memory.
+
+For a project that will use Agent Zero, install or update the separate
+`tree_ring_memory` plugin, then configure it for the same mounted project root.
+That is the only extra user setup. The plugin owns its fixed,
+absolute `activation-capability.json` descriptor outside the project and passes
+it to Tree Ring internally. Do not copy that file into the repository, create a
+generic `.a0` marker, or try to invoke a descriptor command yourself.
+
+The plugin's descriptor-scoped status check can report
+`configured-awaiting-proof`; a new Agent Zero session's descriptor-scoped
+preflight writes the receipt required for `active`. A normal host-shell status
+without the installed plugin descriptor intentionally remains `needs-plugin`.
+The matching Tree Ring core and Agent Zero plugin release must both be
+installed; a source checkout, a passive binding, or an older bundled CLI is not
+an installed-capability claim.
+
 Source install (requires Rust and Cargo):
 
 ```bash
@@ -242,7 +288,9 @@ The CLI stores memory in `.tree-ring/` by default.
 
 Command ownership is Rust-native:
 
-- `init` creates the SQLite store plus `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+- `init` creates the SQLite store plus `.tree-ring/AGENTS.md`,
+  `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing
+  files, then attempts create-only project harness configuration.
 - `remember`, `recall`, and `forget` cover direct memory capture, retrieval, redaction, and deletion.
 - `evidence` is the Revolve-inspired improvement-loop entry point for evaluated outcomes.
 - `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
@@ -454,17 +502,17 @@ test, or run log remains authoritative. In Coordinated mode, persisting either
 adapter's result requires `TREE_RING_COORDINATOR_TOKEN`; dry-run discovery does
 not.
 
-Framework discovery is read-only:
+Harness activation starts with the project-local default flow above. For
+diagnostic evidence, use:
 
 ```bash
-tree-ring integrations scan --source-root .
-tree-ring integrations certify --source-root .
+tree-ring integrations status --verbose
+tree-ring integrations certify
 ```
 
-- `integrations certify` writes non-mutating harness evidence under
-  `target/tree-ring-certification/harness/` and updates
-  `target/tree-ring-certification/evidence-index.json`. Pass, fail, and skip
-  states are evidence records, not broad compatibility claims.
+- `integrations certify` writes JSON and Markdown evidence that keeps
+  configured, active, isolated, blocked, skipped, and failed results distinct.
+  A marker-only result cannot pass certification.
 - `recall-quality` writes non-private recall diagnostics under
   `target/tree-ring-certification/recall-quality/default-fixture-v1.json`
   and merges the result into
@@ -476,21 +524,12 @@ tree-ring integrations certify --source-root .
 tree-ring recall-quality --source-root .
 ```
 
-It looks for local markers for DOX, Revolve, Codex, Claude Code, Agent Zero/A0,
-Goose, OpenCode, Hermes, and Pi, then suggests next steps without editing those
-tools' configuration. JSON output records whether each marker came from the
-project or from the user's home configuration, so harness readiness is not
-overstated when only global config exists.
-
-Agent-mediated bridge linking is the planned next step after read-only
-discovery. The design keeps `.tree-ring` as the canonical memory root while
-adding small project-level bridge files that tell the active agent to read
-`.tree-ring/SKILL.md` and `.tree-ring/CLI.md`. Project bridges are preferred
-because they travel with the repo; global bridges affect every project and must
-remain explicit opt-in. Until `tree-ring integrations link` is implemented, add
-those references manually in the harness startup context or project instruction
-file instead of expecting `tree-ring init` to modify Codex, Claude, Pi,
-OpenCode, or other agent configuration.
+`tree-ring integrations scan --source-root .` remains a read-only diagnostic;
+it cannot establish runtime use. `integrations link` remains an advanced alias
+for controlled bridge work. Default `init` handles safe project-local adapter
+configuration, while global configuration remains explicit opt-in. Neither
+command replaces or removes an existing final bridge or activation manifest;
+entries that require mutation remain unchanged for explicit review.
 
 `tree-ring export` writes newline-delimited JSON. The first line is a
 `tree_ring_memory_export` header with schema and plugin version metadata; each
@@ -649,11 +688,13 @@ See [agent workflow proof](docs/integrations/agent-workflow-proof.md) for the
 controlled command, retained artifacts, exact structured-outcome checks, and
 interpretation limits.
 
-`scripts/package-release.sh` builds the Rust CLI in release mode, creates a
-platform tarball under `dist/`, and writes a SHA-256 checksum file. Tag pushes
-run the release artifact workflow for Linux and macOS. Linux x86_64 artifacts
-are built and executed on Debian Bookworm (glibc 2.36); older glibc systems
-must build from source.
+`scripts/package-release.sh` builds the Rust CLI in release mode, verifies its
+version and archive layout, then creates a platform tarball under `dist/` with
+a SHA-256 checksum file. A matching `v<version>` tag builds the Linux x86_64
+and macOS ARM64 archives, verifies both, and attaches them to that GitHub
+Release; a manually dispatched run remains artifact-only. Linux x86_64
+artifacts are built and executed on Debian Bookworm (glibc 2.36); older glibc
+systems must build from source.
 
 ## Design Docs
 
@@ -665,34 +706,40 @@ must build from source.
 Historical migration and planning documents are retained under `docs/superpowers/`
 and `docs/feature/`. Some of those records describe earlier Python prototype or
 binding options that have since been superseded by the Rust-native runtime.
-The current bridge-linking design is tracked in
-`docs/superpowers/specs/2026-07-06-tree-ring-agent-mediated-bridges-design.md`.
+The current activation protocol is documented in
+[`docs/protocol/harness-activation.md`](docs/protocol/harness-activation.md).
 
 ## Agent Workflow Integration
 
 - `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, remember, redact, forget, or avoid memory capture.
 - `templates/dox/AGENTS.md` is a DOX-style project contract template for repos that want Tree Ring Memory rules alongside source code.
 - `docs/integrations/agent-skill.md` explains how to use both without making memory more authoritative than local project docs.
-- `tree-ring init` and `tree-ring welcome --init` copy local guidance into `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing files.
+- `tree-ring init` creates canonical guidance and safely configures maintained
+  project-local adapters when create-only publication is possible; status
+  remains receipt-backed.
 
 For DOX-style project awareness, merge the relevant generated `.tree-ring/AGENTS.md`
 sections into the project root `AGENTS.md`. The CLI intentionally does not
 rewrite root project contracts automatically.
 
-For agent harnesses that support local skills or instruction packs, point them
-at `.tree-ring/SKILL.md` or the repository copy under `skills/`. For
-DOX-aware agents, make sure the project root `AGENTS.md` tells the agent to read
-Tree Ring Memory guidance when memory is initialized. For CLI-driven agents,
-include `.tree-ring/CLI.md` in the harness prompt or startup context so the
-agent knows the exact local commands.
+`tree-ring init` creates managed project-local bridges where an adapter can do
+so safely. It never replaces or removes an existing bridge or activation
+manifest; contested entries are preserved as `needs-user-review`. If durability
+becomes indeterminate after publication, published disk material is preserved,
+the in-memory changed harness state remains marked for review, and any manifest
+already published on disk is left intact. A bridge is not proof of runtime use.
+`tree-ring integrations status` reports the exact non-active state and one
+action, such as Pi trust, an Agent Zero plugin, a missing mount, or unmanaged-file
+review. Do not treat Hermes or another unverified runtime as active.
 
-Bridge files should be short discovery pointers, not duplicate memory stores.
-Recommended project-level bridge targets are `.agents/skills/tree-ring-memory/SKILL.md`
-for Codex/Gemini-style skill loaders, `.claude/skills/tree-ring-memory/SKILL.md`
-plus `CLAUDE.md` references for Claude Code, root `AGENTS.md` references for
-OpenCode/DOX-style agents, and `.pi/settings.json` resource references for Pi.
-Global bridge files under home directories are useful only when the user wants
-Tree Ring visible in every project.
+For Agent Zero, `init` also creates only Tree Ring's passive
+`needs-plugin` binding. The separate `tree_ring_memory` plugin owns its
+absolute, non-project `activation-capability.json` descriptor and uses it
+internally after the user selects the mounted project. Only its
+descriptor-scoped status and a new-session preflight can advance the runtime
+view to `configured-awaiting-proof` and then receipt-backed `active`. There is
+no manual descriptor workflow, and the core/plugin release pair must be
+compatible before this path is available.
 
 Memory updates are agent-mediated. Bridge files tell the active agent when to
 call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,

@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use tree_ring_memory_cli::activation;
 use tree_ring_memory_core::sensitivity::SensitivityGuard;
 use tree_ring_memory_core::{
     AuditReport, ConsolidationReport, DoxSyncReport, MaintenanceReport, RevolveSyncReport,
@@ -16,7 +18,13 @@ use actions::export_import::{
     export_jsonl as export_action, import_jsonl as import_action, ExportActionRequest,
     ImportActionRequest,
 };
-use actions::integrations::{scan as integration_scan_action, IntegrationScanRequest};
+use actions::integrations::{
+    activate as integration_activate_action, deactivate as integration_deactivate_action,
+    new_manifest as new_activation_manifest, resolve_preflight_request,
+    run_preflight as integration_preflight_action, scan as integration_scan_action,
+    status as integration_status_action, IntegrationActivationRequest, IntegrationScanRequest,
+    IntegrationStatusActionReport, IntegrationStatusRequest, PreflightIdentityInput,
+};
 use actions::lifecycle::{
     consolidate, consolidate_dry_run_from_path, maintain, ConsolidateActionRequest,
     MaintainActionRequest,
@@ -34,7 +42,6 @@ mod agent_awareness;
 mod commands;
 mod evidence;
 mod harness_evidence;
-mod integrations;
 mod recall_quality;
 mod ring_mark;
 mod tui;
@@ -67,7 +74,10 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     #[command(about = "initialize a local memory store")]
-    Init,
+    Init {
+        #[arg(long, help = "preview initialization without writing any files")]
+        dry_run: bool,
+    },
     #[command(about = "store a memory")]
     Remember {
         summary: String,
@@ -367,6 +377,61 @@ enum IntegrationCommand {
         #[arg(long, default_value = ".", help = "project root to scan")]
         source_root: PathBuf,
     },
+    #[command(about = "show project-local harness activation state")]
+    Status {
+        #[arg(long, default_value = ".", help = "project root to inspect")]
+        source_root: PathBuf,
+        #[arg(long, help = "include relative bridge paths and receipt age")]
+        verbose: bool,
+    },
+    #[command(about = "apply or preview one maintained harness bridge")]
+    Activate {
+        #[arg(long)]
+        harness: String,
+        #[arg(long, default_value = ".", help = "project root to activate")]
+        source_root: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(
+            long,
+            help = "accept adding a bounded Tree Ring block to an existing file"
+        )]
+        accept_managed_block: bool,
+    },
+    #[command(about = "advanced alias for controlled harness bridge activation")]
+    Link {
+        #[arg(long)]
+        harness: String,
+        #[arg(long, default_value = ".", help = "project root to link")]
+        source_root: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(
+            long,
+            help = "accept adding a bounded Tree Ring block to an existing file"
+        )]
+        accept_managed_block: bool,
+    },
+    #[command(about = "run identity-scoped recall and emit a preflight receipt")]
+    Preflight {
+        #[arg(long)]
+        harness: String,
+        #[arg(
+            long,
+            help = "explicit canonical project root for a direct isolated-store preflight"
+        )]
+        canonical_project_root: Option<PathBuf>,
+        #[arg(long)]
+        agent_profile: Option<String>,
+        #[arg(long)]
+        workflow_id: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long, help = "read one adapter-owned JSON request from stdin")]
+        input_json_stdin: bool,
+        #[arg(long, value_enum, default_value_t = CliPreflightContextFormat::Json)]
+        context_format: CliPreflightContextFormat,
+    },
     #[command(about = "write non-mutating harness certification evidence")]
     Certify {
         #[arg(long, default_value = ".", help = "project root to certify")]
@@ -376,7 +441,32 @@ enum IntegrationCommand {
             help = "evidence output directory; defaults to <source-root>/target/tree-ring-certification"
         )]
         out_dir: Option<PathBuf>,
+        #[arg(long, help = "include installed-harness live checks when available")]
+        live: bool,
     },
+    #[command(about = "launch Claude Code with a private Tree Ring preflight context")]
+    Launch {
+        #[arg(long, help = "harness id; only claude-code provides a launch wrapper")]
+        harness: String,
+        #[arg(long, help = "optional non-sensitive recall hint")]
+        task_hint: Option<String>,
+        #[arg(last = true, allow_hyphen_values = true)]
+        arguments: Vec<OsString>,
+    },
+    #[command(about = "deactivate only manifest-recorded Tree Ring bridge material")]
+    Deactivate {
+        #[arg(long)]
+        harness: String,
+        #[arg(long, default_value = ".", help = "project root to deactivate")]
+        source_root: PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum CliPreflightContextFormat {
+    ClaudeSessionStart,
+    PiBeforeAgentStart,
+    Json,
 }
 
 #[derive(Debug, Subcommand)]
@@ -413,7 +503,56 @@ fn main() -> std::process::ExitCode {
     if let Some((root, json_output)) = global_welcome_request(&args) {
         return exit_from_result(welcome::run(&root, false, false, json_output));
     }
-    exit_from_result(run(Cli::parse_from(args)))
+    let cli = Cli::parse_from(args);
+    if let Some(result) = run_launch_command(&cli) {
+        return exit_from_launch_result(result);
+    }
+    exit_from_result(run(cli))
+}
+
+fn run_launch_command(cli: &Cli) -> Option<Result<i32, String>> {
+    let Command::Integrations {
+        command:
+            IntegrationCommand::Launch {
+                harness,
+                task_hint,
+                arguments,
+            },
+    } = &cli.command
+    else {
+        return None;
+    };
+    Some((|| {
+        if cli.json {
+            return Err("--json is not supported with integrations launch".to_string());
+        }
+        if harness != "claude-code" {
+            return Err("only the Claude Code launch wrapper is supported".to_string());
+        }
+        let project = activation::adapters::ActivationProject::from_memory_root(cli.root.clone())?;
+        let manifest = activation::load_manifest(&cli.root)?;
+        ensure_manifest_preflight_ready(&manifest, harness, false)?;
+        let store = SQLiteMemoryStore::open_read_only(cli.root.join("memory.sqlite"))
+            .map_err(|error| error.to_string())?;
+        activation::launcher::launch_with_preflight(
+            &store,
+            &project,
+            &manifest,
+            activation::launcher::LaunchRequest::new(harness, task_hint.clone()),
+            arguments,
+        )
+        .map_err(|error| error.to_string())
+    })())
+}
+
+fn exit_from_launch_result(result: Result<i32, String>) -> std::process::ExitCode {
+    match result {
+        Ok(code) => std::process::ExitCode::from(u8::try_from(code).unwrap_or(2)),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::ExitCode::from(2)
+        }
+    }
 }
 
 fn exit_from_result(result: Result<(), String>) -> std::process::ExitCode {
@@ -461,6 +600,10 @@ fn run(cli: Cli) -> Result<(), String> {
         return welcome::run(&cli.root, *init, *no_animation, cli.json);
     }
 
+    if let Command::Init { dry_run } = &cli.command {
+        return run_init(&cli.root, *dry_run, cli.json);
+    }
+
     if let Command::Integrations {
         command: IntegrationCommand::Scan { source_root },
     } = &cli.command
@@ -474,9 +617,67 @@ fn run(cli: Cli) -> Result<(), String> {
 
     if let Command::Integrations {
         command:
+            IntegrationCommand::Status {
+                source_root,
+                verbose,
+            },
+    } = &cli.command
+    {
+        let report = integration_status_action(IntegrationStatusRequest {
+            source_root: source_root.clone(),
+            memory_root: cli.root.clone(),
+            verbose: *verbose || cli.json,
+        })?;
+        print_integration_status_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
+            IntegrationCommand::Activate {
+                harness,
+                source_root,
+                dry_run,
+                accept_managed_block,
+            }
+            | IntegrationCommand::Link {
+                harness,
+                source_root,
+                dry_run,
+                accept_managed_block,
+            },
+    } = &cli.command
+    {
+        let report = integration_activate_action(IntegrationActivationRequest {
+            harness_id: harness.clone(),
+            source_root: source_root.clone(),
+            memory_root: cli.root.clone(),
+            dry_run: *dry_run,
+            accept_managed_block: *accept_managed_block,
+        })?;
+        print_integration_lifecycle_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
+            IntegrationCommand::Deactivate {
+                harness,
+                source_root,
+            },
+    } = &cli.command
+    {
+        let report = integration_deactivate_action(harness, source_root.clone(), cli.root.clone())?;
+        print_integration_lifecycle_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
             IntegrationCommand::Certify {
                 source_root,
                 out_dir,
+                live,
             },
     } = &cli.command
     {
@@ -485,9 +686,96 @@ fn run(cli: Cli) -> Result<(), String> {
             .unwrap_or_else(|| evidence::certification_dir_for_project(source_root));
         let report = certify_harnesses(HarnessCertificationRequest {
             source_root: source_root.clone(),
+            memory_root: cli.root.clone(),
             evidence_dir,
+            live: *live,
         })?;
         print_harness_certification_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
+            IntegrationCommand::Preflight {
+                harness,
+                canonical_project_root,
+                agent_profile,
+                workflow_id,
+                session_id,
+                input_json_stdin,
+                context_format,
+            },
+    } = &cli.command
+    {
+        if canonical_project_root.is_some() && *input_json_stdin {
+            return Err(
+                "--canonical-project-root is supported only with direct identity flags".to_string(),
+            );
+        }
+        let project = if let Some(canonical_project_root) = canonical_project_root {
+            activation::adapters::ActivationProject {
+                project_root: canonical_project_root.clone(),
+                memory_root: cli.root.clone(),
+            }
+        } else {
+            activation::adapters::ActivationProject {
+                project_root: cli
+                    .root
+                    .parent()
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf(),
+                memory_root: cli.root.clone(),
+            }
+        };
+        let format = activation_context_format(*context_format);
+        let input = if *input_json_stdin {
+            let mut input = String::new();
+            std::io::stdin()
+                .take(1024 * 1024 + 1)
+                .read_to_string(&mut input)
+                .map_err(|_| "failed to read adapter preflight stdin".to_string())?;
+            if input.len() > 1024 * 1024 {
+                return Err("adapter preflight stdin exceeds 1 MiB".to_string());
+            }
+            Some(input)
+        } else {
+            None
+        };
+        let request = resolve_preflight_request(
+            &project,
+            harness,
+            PreflightIdentityInput {
+                agent_profile: agent_profile.clone(),
+                workflow_id: workflow_id.clone(),
+                session_id: session_id.clone(),
+            },
+            input.as_deref(),
+            format,
+        )?;
+        let manifest = if let Some(canonical_project_root) = canonical_project_root {
+            activation::bridge::validate_isolated_preflight_roots(
+                &cli.root,
+                canonical_project_root,
+            )?
+        } else {
+            activation::load_manifest(&cli.root)?
+        };
+        let verified_agent_zero_plugin = harness == "agent-zero"
+            && activation::adapters::agent_zero_plugin_manifest_for_project(&project.project_root)
+                .is_some();
+        ensure_manifest_preflight_ready(&manifest, harness, verified_agent_zero_plugin)?;
+        let store = SQLiteMemoryStore::open_read_only(&db_path).map_err(|error| {
+            if canonical_project_root.is_some() {
+                "isolated preflight storage unavailable".to_string()
+            } else {
+                error.to_string()
+            }
+        })?;
+        println!(
+            "{}",
+            integration_preflight_action(&store, &project, &manifest, request, format)?
+        );
         return Ok(());
     }
 
@@ -672,26 +960,7 @@ fn run(cli: Cli) -> Result<(), String> {
         SQLiteMemoryStore::open_with_context(&db_path, context).map_err(|err| err.to_string())?;
 
     match cli.command {
-        Command::Init => {
-            let awareness = agent_awareness::ensure_agent_awareness(&cli.root)
-                .map_err(|err| err.to_string())?;
-            if cli.json {
-                println!(
-                    "{}",
-                    json!({
-                        "ok": true,
-                        "root": cli.root,
-                        "sqlite_path": db_path,
-                        "message": "Tree Ring Memory initialized",
-                        "agent_awareness": awareness,
-                    })
-                );
-            } else {
-                println!("Tree Ring Memory initialized at {}", cli.root.display());
-                println!("No cloud sync; secret-like memory is blocked by default.");
-                print_agent_awareness_summary(&awareness);
-            }
-        }
+        Command::Init { .. } => unreachable!("init returns before the shared store route"),
         Command::Remember {
             summary,
             event_type,
@@ -964,6 +1233,244 @@ fn run(cli: Cli) -> Result<(), String> {
     Ok(())
 }
 
+fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String> {
+    let project = activation::adapters::ActivationProject::from_memory_root(root.to_path_buf())?;
+    let scan = integration_scan_action(IntegrationScanRequest {
+        source_root: project.project_root.clone(),
+    });
+    let mut candidates = scan
+        .report
+        .integrations
+        .iter()
+        .filter(|integration| integration.is_candidate())
+        .cloned()
+        .collect::<Vec<_>>();
+    // Agent Zero never trusts a generic project marker, but init must still
+    // publish the passive core-owned binding so its separately installed
+    // plugin can later prove capability and complete preflight.
+    if !candidates
+        .iter()
+        .any(|candidate| candidate.id == "agent-zero")
+    {
+        if let Some(agent_zero) = scan.report.by_id("agent-zero").cloned() {
+            candidates.push(agent_zero);
+        }
+    }
+
+    if dry_run {
+        let reports = candidates
+            .into_iter()
+            .map(
+                |detection| actions::integrations::IntegrationLifecycleActionReport {
+                    harness_id: detection.id,
+                    state: detection.state,
+                    changed_paths: detection
+                        .plan
+                        .writes
+                        .iter()
+                        .map(|write| match write {
+                            activation::adapters::PlannedWrite::BridgeWrite(write) => &write.path,
+                            activation::adapters::PlannedWrite::ManagedBlockUpdate(write) => {
+                                &write.path
+                            }
+                        })
+                        .map(|path| path.to_string_lossy().to_string())
+                        .collect(),
+                    dry_run: true,
+                    next_step: detection.plan.next_step,
+                },
+            )
+            .collect::<Vec<_>>();
+        if json_output {
+            println!(
+                "{}",
+                json!({"ok": true, "dry_run": true, "integrations": reports})
+            );
+        } else if reports.is_empty() {
+            println!("Tree Ring Memory init dry-run: no detected harness adapters.");
+        } else {
+            for report in &reports {
+                println!(
+                    "{}: {}",
+                    report.harness_id,
+                    activation_state_name(report.state)
+                );
+                println!("  next: {}", report.next_step);
+            }
+        }
+        return Ok(());
+    }
+
+    let awareness = agent_awareness::ensure_agent_awareness(root)?;
+    let context = write_context(None, "cli:init")?;
+    let store = SQLiteMemoryStore::open_with_context(root.join("memory.sqlite"), context)
+        .map_err(|error| error.to_string())?;
+    drop(store);
+
+    let mut manifest = activation::bridge::load_init_manifest_no_follow(&project)?
+        .unwrap_or_else(|| new_activation_manifest(&project.project_root));
+    let outcomes = activation::bridge::apply_bridge_plans_create_only(
+        &project,
+        &mut manifest,
+        candidates
+            .iter()
+            .map(|detection| detection.plan.clone())
+            .collect(),
+    )?;
+    let mut status = integration_status_action(IntegrationStatusRequest {
+        source_root: project.project_root,
+        memory_root: root.to_path_buf(),
+        verbose: true,
+    })?;
+    status.store_id = Some(manifest.store_id);
+    for outcome in outcomes {
+        if let Some(entry) = status
+            .integrations
+            .iter_mut()
+            .find(|entry| entry.id == outcome.harness_id)
+        {
+            if outcome.result.state == activation::ActivationState::NeedsUserReview {
+                entry.state = outcome.result.state;
+                entry.next_step = outcome.result.next_step;
+            }
+        }
+    }
+    status.integrations.retain(|entry| {
+        entry.id == "agent-zero"
+            || scan
+                .report
+                .by_id(&entry.id)
+                .is_some_and(|item| item.is_candidate())
+    });
+
+    if json_output {
+        println!(
+            "{}",
+            json!({
+                "ok": true,
+                "dry_run": false,
+                "store_id": status.store_id,
+                "integrations": status.integrations,
+                "agent_awareness": {
+                    "created_count": awareness.created.len(),
+                    "existing_count": awareness.existing.len(),
+                },
+            })
+        );
+    } else {
+        println!("Tree Ring Memory initialized.");
+        for entry in &status.integrations {
+            println!("{}: {}", entry.name, activation_state_name(entry.state));
+            if entry.state != activation::ActivationState::Active {
+                println!("  next: {}", entry.next_step);
+            }
+        }
+        if status.integrations.is_empty() {
+            print_agent_awareness_summary(&awareness);
+        }
+    }
+    Ok(())
+}
+
+fn activation_context_format(
+    format: CliPreflightContextFormat,
+) -> activation::PreflightContextFormat {
+    match format {
+        CliPreflightContextFormat::ClaudeSessionStart => {
+            activation::PreflightContextFormat::ClaudeSessionStart
+        }
+        CliPreflightContextFormat::PiBeforeAgentStart => {
+            activation::PreflightContextFormat::PiBeforeAgentStart
+        }
+        CliPreflightContextFormat::Json => activation::PreflightContextFormat::Json,
+    }
+}
+
+fn ensure_manifest_preflight_ready(
+    manifest: &activation::ActivationManifest,
+    harness_id: &str,
+    verified_agent_zero_plugin: bool,
+) -> Result<(), String> {
+    let activation = manifest.harnesses.get(harness_id).ok_or_else(|| {
+        "harness has no activation record; run `tree-ring init` first".to_string()
+    })?;
+    let normally_eligible = matches!(
+        activation.state,
+        activation::ActivationState::ConfiguredAwaitingProof
+            | activation::ActivationState::NeedsTrust
+            | activation::ActivationState::Active
+            | activation::ActivationState::ActiveIsolated
+    );
+    let eligible = if harness_id == "agent-zero" {
+        verified_agent_zero_plugin && activation.state == activation::ActivationState::NeedsPlugin
+    } else {
+        normally_eligible
+    };
+    if !eligible {
+        return Err("harness activation state is not eligible for preflight".to_string());
+    }
+    Ok(())
+}
+
+fn activation_state_name(state: activation::ActivationState) -> &'static str {
+    match state {
+        activation::ActivationState::Active => "active",
+        activation::ActivationState::ConfiguredAwaitingProof => "configured-awaiting-proof",
+        activation::ActivationState::ActiveIsolated => "active-isolated",
+        activation::ActivationState::NeedsTrust => "needs-trust",
+        activation::ActivationState::NeedsProjectMount => "needs-project-mount",
+        activation::ActivationState::NeedsPlugin => "needs-plugin",
+        activation::ActivationState::NeedsUserReview => "needs-user-review",
+        activation::ActivationState::Unsupported => "unsupported",
+        activation::ActivationState::Failed => "failed",
+    }
+}
+
+fn print_integration_status_report(
+    report: &IntegrationStatusActionReport,
+    json_output: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(report).map_err(|error| error.to_string())?
+        );
+    } else {
+        for entry in &report.integrations {
+            println!("{}: {}", entry.name, activation_state_name(entry.state));
+            if let Some(age) = entry.receipt_age_seconds {
+                println!("  receipt-age-seconds: {age}");
+            }
+            if !entry.managed_paths.is_empty() {
+                println!("  managed: {}", entry.managed_paths.join(", "));
+            }
+            println!("  next: {}", entry.next_step);
+        }
+    }
+    Ok(())
+}
+
+fn print_integration_lifecycle_report(
+    report: &actions::integrations::IntegrationLifecycleActionReport,
+    json_output: bool,
+) -> Result<(), String> {
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(report).map_err(|error| error.to_string())?
+        );
+    } else {
+        println!(
+            "{}: {}{}",
+            report.harness_id,
+            activation_state_name(report.state),
+            if report.dry_run { " (dry-run)" } else { "" }
+        );
+        println!("  next: {}", report.next_step);
+    }
+    Ok(())
+}
+
 const COORDINATOR_TOKEN_ENV: &str = "TREE_RING_COORDINATOR_TOKEN";
 
 fn open_policy_read_only(db_path: &Path) -> Result<SQLiteMemoryStore, String> {
@@ -1005,7 +1512,7 @@ fn command_actor_profile(command: &Command) -> Option<String> {
 
 fn command_origin(command: &Command) -> &'static str {
     match command {
-        Command::Init => "cli:init",
+        Command::Init { .. } => "cli:init",
         Command::Remember { .. } => "cli:remember",
         Command::Evidence { .. } => "cli:evidence",
         Command::Recall { .. } => "cli:recall",
@@ -1408,7 +1915,7 @@ fn print_revolve_report(
 }
 
 fn print_integration_report(
-    report: &integrations::IntegrationScanReport,
+    report: &activation::adapters::IntegrationScanReport,
     json_output: bool,
 ) -> Result<(), String> {
     if json_output {
@@ -1416,7 +1923,8 @@ fn print_integration_report(
             "{}",
             json!({
                 "ok": true,
-                "report": report,
+                "detected_count": report.detected_count,
+                "integrations": report.integrations,
             })
         );
     } else {
@@ -1427,13 +1935,15 @@ fn print_integration_report(
         );
         for integration in &report.integrations {
             println!(
-                "{} [{:?}] confidence={:.2}",
-                integration.name, integration.status, integration.confidence
+                "{} [{:?}] activation={}",
+                integration.name,
+                integration.status,
+                activation_state_name(integration.state)
             );
             if !integration.markers.is_empty() {
                 println!(
                     "  markers: {}",
-                    integrations::format_markers(&integration.markers)
+                    activation::adapters::format_markers(&integration.markers)
                 );
             }
             println!("  next: {}", integration.next_step);
@@ -1466,9 +1976,29 @@ fn format_harness_certification_report(
     json_output: bool,
 ) -> String {
     if json_output {
+        let records = report
+            .records
+            .iter()
+            .map(|record| {
+                json!({
+                    "harness_id": record.harness_id,
+                    "name": record.name,
+                    "status": record.status,
+                    "activation": record.activation,
+                    "markers": record.markers,
+                    "summary": record.summary,
+                    "next_step": record.next_step,
+                })
+            })
+            .collect::<Vec<_>>();
         json!({
             "ok": true,
-            "report": report,
+            "report": {
+                "pass_count": report.pass_count,
+                "fail_count": report.fail_count,
+                "skip_count": report.skip_count,
+                "records": records,
+            },
         })
         .to_string()
     } else {
@@ -1481,9 +2011,10 @@ fn format_harness_certification_report(
         )];
         for record in &report.records {
             lines.push(format!(
-                "{} [{}] {}",
+                "{} [{}] activation={} {}",
                 record.name,
                 record.status.as_str(),
+                activation_state_name(record.activation.state),
                 record.summary
             ));
             lines.push(format!("  next: {}", record.next_step));
@@ -1553,6 +2084,257 @@ mod tests {
     use tree_ring_memory_core::{ConsolidationPeriod, ConsolidationRequest};
     use tree_ring_memory_sqlite::MemoryRetriever;
 
+    fn harness_activation_fixture(
+        state: tree_ring_memory_cli::activation::ActivationState,
+    ) -> crate::harness_evidence::HarnessActivationEvidence {
+        crate::harness_evidence::HarnessActivationEvidence {
+            adapter_version: "1".to_string(),
+            adapter_capability: tree_ring_memory_cli::activation::AdapterCapability::GuidanceOnly,
+            state,
+            receipt_recorded_at: None,
+            receipt_age_seconds: None,
+            store_id_matches: state == tree_ring_memory_cli::activation::ActivationState::Active,
+            project_root_matches: true,
+            diagnostic: "fixture diagnostic".to_string(),
+        }
+    }
+
+    #[test]
+    fn activation_state_names_match_the_json_wire_contract() {
+        for state in [
+            activation::ActivationState::Active,
+            activation::ActivationState::ConfiguredAwaitingProof,
+            activation::ActivationState::ActiveIsolated,
+            activation::ActivationState::NeedsTrust,
+            activation::ActivationState::NeedsProjectMount,
+            activation::ActivationState::NeedsPlugin,
+            activation::ActivationState::NeedsUserReview,
+            activation::ActivationState::Unsupported,
+            activation::ActivationState::Failed,
+        ] {
+            assert_eq!(
+                serde_json::to_value(state).unwrap().as_str().unwrap(),
+                activation_state_name(state)
+            );
+        }
+    }
+
+    #[test]
+    fn integrations_preflight_parses_direct_codex_identity() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "integrations",
+            "preflight",
+            "--harness",
+            "codex",
+            "--agent-profile",
+            "worker-a",
+            "--workflow-id",
+            "fanout-1",
+            "--session-id",
+            "session-1",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Integrations {
+                command: IntegrationCommand::Preflight {
+                    harness,
+                    canonical_project_root: None,
+                    agent_profile: Some(agent_profile),
+                    workflow_id: Some(workflow_id),
+                    session_id: Some(session_id),
+                    input_json_stdin: false,
+                    context_format: CliPreflightContextFormat::Json,
+                }
+            } if harness == "codex"
+                && agent_profile == "worker-a"
+                && workflow_id == "fanout-1"
+                && session_id == "session-1"
+        ));
+    }
+
+    #[test]
+    fn init_dry_run_parser_sets_dry_run_without_creating_artifacts() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "init",
+            "--dry-run",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::Init { dry_run: true }));
+
+        run(cli).unwrap();
+        assert!(!root.join("memory.sqlite").exists());
+        assert!(!root.join("activation.json").exists());
+    }
+
+    #[test]
+    fn integrations_status_and_activation_dry_run_do_not_create_a_store() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        for arguments in [
+            vec![
+                "tree-ring",
+                "--root",
+                root.to_str().unwrap(),
+                "integrations",
+                "status",
+                "--source-root",
+                dir.path().to_str().unwrap(),
+            ],
+            vec![
+                "tree-ring",
+                "--root",
+                root.to_str().unwrap(),
+                "integrations",
+                "activate",
+                "--harness",
+                "codex",
+                "--source-root",
+                dir.path().to_str().unwrap(),
+                "--dry-run",
+            ],
+        ] {
+            run(Cli::parse_from(arguments)).unwrap();
+            assert!(!root.join("memory.sqlite").exists());
+            assert!(!root.join("activation.json").exists());
+        }
+    }
+
+    #[test]
+    fn invalid_direct_preflight_fails_before_store_open() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        let error = run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "integrations",
+            "preflight",
+            "--harness",
+            "codex",
+            "--agent-profile",
+            "worker-a",
+        ]))
+        .unwrap_err();
+
+        assert!(error.contains("requires --agent-profile, --workflow-id, and --session-id"));
+        assert!(!root.join("memory.sqlite").exists());
+        assert!(!root.join("activation.json").exists());
+    }
+
+    #[test]
+    fn ordinary_init_installs_safe_codex_bridge_but_awaits_receipt_proof() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "init",
+        ]))
+        .unwrap();
+
+        assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("activation.json").exists());
+        assert!(dir
+            .path()
+            .join(".agents/skills/tree-ring-memory/SKILL.md")
+            .exists());
+        let report = integration_status_action(IntegrationStatusRequest {
+            source_root: dir.path().to_path_buf(),
+            memory_root: root.clone(),
+            verbose: true,
+        })
+        .unwrap();
+        assert_eq!(
+            report
+                .integrations
+                .iter()
+                .find(|entry| entry.id == "codex")
+                .unwrap()
+                .state,
+            activation::ActivationState::ConfiguredAwaitingProof
+        );
+
+        run(Cli::parse_from([
+            "tree-ring",
+            "--root",
+            root.to_str().unwrap(),
+            "integrations",
+            "preflight",
+            "--harness",
+            "codex",
+            "--agent-profile",
+            "worker-a",
+            "--workflow-id",
+            "workflow-a",
+            "--session-id",
+            "session-a",
+            "--context-format",
+            "json",
+        ]))
+        .unwrap();
+        let active = integration_status_action(IntegrationStatusRequest {
+            source_root: dir.path().to_path_buf(),
+            memory_root: root,
+            verbose: true,
+        })
+        .unwrap();
+        assert_eq!(
+            active
+                .integrations
+                .iter()
+                .find(|entry| entry.id == "codex")
+                .unwrap()
+                .state,
+            activation::ActivationState::Active
+        );
+    }
+
+    #[test]
+    fn integrations_launch_parses_only_a_claude_harness_and_trailing_arguments() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "integrations",
+            "launch",
+            "--harness",
+            "claude-code",
+            "--",
+            "--model",
+            "sonnet",
+        ])
+        .unwrap();
+
+        let Command::Integrations {
+            command:
+                IntegrationCommand::Launch {
+                    harness,
+                    task_hint,
+                    arguments,
+                },
+        } = cli.command
+        else {
+            panic!("expected integrations launch command");
+        };
+        assert_eq!(harness, "claude-code");
+        assert_eq!(task_hint, None);
+        assert_eq!(
+            arguments,
+            vec![OsString::from("--model"), OsString::from("sonnet")]
+        );
+    }
+
     #[test]
     fn cli_init_creates_store() {
         let dir = tempdir().unwrap();
@@ -1560,7 +2342,7 @@ mod tests {
         run(Cli {
             root: root.clone(),
             json: false,
-            command: Command::Init,
+            command: Command::Init { dry_run: false },
         })
         .unwrap();
 
@@ -1619,7 +2401,7 @@ mod tests {
         run(Cli {
             root: root.clone(),
             json: false,
-            command: Command::Init,
+            command: Command::Init { dry_run: false },
         })
         .unwrap();
 
@@ -1729,10 +2511,11 @@ mod tests {
 
         assert!(!root.join("memory.sqlite").exists());
         assert!(out_dir.join("harness/codex.json").exists());
+        assert!(out_dir.join("harness-activation-summary.md").exists());
         let index = fs::read_to_string(out_dir.join("evidence-index.json")).unwrap();
         assert!(index.contains("\"codex\""));
         let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
-        assert_eq!(parsed["harness"]["codex"]["status"], "pass");
+        assert_eq!(parsed["harness"]["codex"]["status"], "skip");
     }
 
     #[test]
@@ -1752,6 +2535,26 @@ mod tests {
             .path()
             .join("target/tree-ring-certification/harness/codex.json")
             .exists());
+    }
+
+    #[test]
+    fn integrations_certify_live_uses_existing_parser_route() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "integrations",
+            "certify",
+            "--source-root",
+            "/tmp/project",
+            "--live",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Integrations {
+                command: IntegrationCommand::Certify { live: true, .. }
+            }
+        ));
     }
 
     #[test]
@@ -1901,6 +2704,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Active,
+                    ),
                     markers: vec![crate::harness_evidence::HarnessProbeMarker {
                         path: ".codex".to_string(),
                         origin: "project".to_string(),
@@ -1924,6 +2730,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Failed,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -1944,6 +2753,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::NeedsTrust,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -1990,6 +2802,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Active,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2010,6 +2825,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::Failed,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2030,6 +2848,9 @@ mod tests {
                     source_root: PathBuf::from("/tmp/project"),
                     command: "tree-ring integrations certify --source-root <source_root>"
                         .to_string(),
+                    activation: harness_activation_fixture(
+                        tree_ring_memory_cli::activation::ActivationState::NeedsTrust,
+                    ),
                     markers: vec![],
                     guidance: crate::harness_evidence::HarnessGuidanceEvidence {
                         agents_md: None,
@@ -2050,19 +2871,19 @@ mod tests {
             "Tree Ring Memory harness certification: pass=1 fail=1 skip=1 evidence=/tmp/project/target/tree-ring-certification"
         ));
         assert!(output.contains(
-            "Codex [pass] Codex has a project marker and generated Tree Ring recall/remember guidance."
+            "Codex [pass] activation=active Codex has a project marker and generated Tree Ring recall/remember guidance."
         ));
         assert!(output.contains(
             "  next: Merge the generated Tree Ring guidance into the active Codex instructions."
         ));
         assert!(output.contains(
-            "Goose [fail] Goose has a project marker but is missing generated Tree Ring guidance."
+            "Goose [fail] activation=failed Goose has a project marker but is missing generated Tree Ring guidance."
         ));
         assert!(output.contains(
             "  next: Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions."
         ));
         assert!(output.contains(
-            "PI [skip] PI was not detected for this project, so no compatibility claim is made."
+            "PI [skip] activation=needs-trust PI was not detected for this project, so no compatibility claim is made."
         ));
         assert!(output.contains(
             "  next: Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`."
@@ -2226,6 +3047,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("AGENTS.md"), "# Rules").unwrap();
         fs::create_dir_all(dir.path().join("revolve")).unwrap();
+        fs::create_dir_all(dir.path().join(".codex")).unwrap();
         let root = dir.path().join(".tree-ring");
 
         run(Cli {
@@ -2240,8 +3062,12 @@ mod tests {
         .unwrap();
 
         assert!(!root.exists());
-        let report = integrations::scan_integrations(dir.path());
-        assert!(report.detected_count >= 2);
+        let report = activation::adapters::scan_integrations(dir.path());
+        assert_eq!(report.detected_count, 1);
+        assert_ne!(
+            report.by_id("codex").unwrap().state,
+            activation::ActivationState::Active
+        );
     }
 
     #[test]
@@ -2405,7 +3231,7 @@ mod tests {
         run(Cli {
             root: root.clone(),
             json: false,
-            command: Command::Init,
+            command: Command::Init { dry_run: false },
         })
         .unwrap();
         let connection = rusqlite::Connection::open(&db_path).unwrap();

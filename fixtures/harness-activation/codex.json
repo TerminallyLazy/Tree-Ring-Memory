@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "harness_id": "codex",
+  "adapter_version": "1",
+  "marker_paths": [".codex"],
+  "expected_bridge_paths": [
+    ".agents/skills/tree-ring-memory/SKILL.md",
+    "AGENTS.md"
+  ],
+  "expected_activation_state_before_proof": "configured-awaiting-proof",
+  "preflight": {
+    "mode": "direct-identity",
+    "context_format": "json"
+  },
+  "isolated_root": {
+    "selected_project": "isolated-store",
+    "memory_root": ".tree-ring",
+    "canonical_project_arg": "--canonical-project-root",
+    "expected_state": "active-isolated",
+    "copy_sqlite": false
+  },
+  "seeded_memory": {
+    "summary": "fixture project startup constraints require deterministic source safe evidence",
+    "source_ref": "fixture://harness-activation/codex"
+  },
+  "live_executable_env": "TREE_RING_LIVE_CODEX_EXECUTABLE"
+}

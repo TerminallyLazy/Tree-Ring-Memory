@@ -20,6 +20,23 @@ const SKILL_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
 const SKILL_QUALITY_GATES_ANCHOR: &str = "## Ring Selection";
 const SKILL_POLICY_HEADING: &str = "## Coordinated Write Policy";
 const SKILL_POLICY_ANCHOR: &str = "## Agent-Mediated Updates";
+const PREFLIGHT_HEADING: &str = "## Harness Preflight";
+const PREFLIGHT_GUIDANCE: &str = r#"## Harness Preflight
+
+Before substantive project work in a new harness session, read this canonical
+guidance and run the project-local preflight with harness-derived identity:
+
+```bash
+tree-ring --root .tree-ring integrations preflight --harness codex --agent-profile <worker> --workflow-id <workflow> --session-id <session> --context-format json
+```
+
+If adapter preflight is unavailable, use the safe fallback
+`tree-ring --root .tree-ring recall "project startup constraints"`; this
+fallback is useful context but does not create activation proof. A matching
+receipt proves that scoped preflight recall ran for that session. It does not
+prove durable memory creation and is not an adversarial security boundary.
+
+"#;
 const CLI_REFERENCE: &str = r#"# Tree Ring Memory CLI Quick Reference
 
 Tree Ring Memory is a local-first memory lifecycle layer for AI agents.
@@ -179,6 +196,27 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
         CLI_POLICY_HEADING,
         CLI_POLICY_ANCHOR,
         extract_section(CLI_REFERENCE, CLI_POLICY_HEADING, CLI_POLICY_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("AGENTS.md"),
+        is_generated_agents_file,
+        PREFLIGHT_HEADING,
+        AGENT_QUALITY_GATES_HEADING,
+        Some(PREFLIGHT_GUIDANCE),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("SKILL.md"),
+        is_generated_skill_file,
+        PREFLIGHT_HEADING,
+        SKILL_QUALITY_GATES_HEADING,
+        Some(PREFLIGHT_GUIDANCE),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("CLI.md"),
+        is_generated_cli_file,
+        PREFLIGHT_HEADING,
+        CLI_QUALITY_GATES_HEADING,
+        Some(PREFLIGHT_GUIDANCE),
     )?;
 
     Ok(report)
@@ -572,6 +610,22 @@ mod tests {
         assert!(cli.contains("Before closeout, recall recent decisions so memory updates do not contradict already-stored lessons."));
         assert!(cli.contains("Before trusting memory, prefer source-linked"));
         assert!(cli.contains("Before writing memory, reject transient planning chatter"));
+    }
+
+    #[test]
+    fn generated_guidance_requires_preflight_and_bounds_receipt_proof() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+
+        for name in ["AGENTS.md", "SKILL.md", "CLI.md"] {
+            let content = fs::read_to_string(root.join(name)).unwrap();
+            assert!(content.contains("integrations preflight --harness codex"));
+            assert!(content.contains("recall \"project startup constraints\""));
+            assert!(content.contains("does not create activation proof"));
+            assert!(content.contains("not an adversarial security boundary"));
+        }
     }
 
     #[test]

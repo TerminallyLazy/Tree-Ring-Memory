@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "harness_id": "claude-code",
+  "adapter_version": "1",
+  "marker_paths": [".claude"],
+  "expected_bridge_paths": [
+    ".claude/skills/tree-ring-memory/SKILL.md",
+    ".claude/settings.json"
+  ],
+  "expected_activation_state_before_proof": "configured-awaiting-proof",
+  "preflight": {
+    "mode": "adapter-stdin",
+    "context_format": "claude-session-start"
+  },
+  "seeded_memory": {
+    "summary": "fixture project startup constraints require deterministic source safe evidence",
+    "source_ref": "fixture://harness-activation/claude-code"
+  },
+  "live_executable_env": "TREE_RING_LIVE_CLAUDE_CODE_EXECUTABLE"
+}

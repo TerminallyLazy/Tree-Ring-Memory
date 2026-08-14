@@ -283,8 +283,8 @@ fn render_integrations(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 .integrations
                 .iter()
                 .map(|integration| {
-                    let detected =
-                        integration.status == crate::integrations::IntegrationStatus::Detected;
+                    let detected = integration.status
+                        == tree_ring_memory_cli::activation::adapters::IntegrationStatus::Detected;
                     let marker = if detected { "*" } else { " " };
                     let style = if detected {
                         theme::selected()
@@ -295,7 +295,7 @@ fn render_integrations(frame: &mut Frame<'_>, area: Rect, app: &App) {
                         Span::styled(marker, theme::secondary_accent()),
                         Span::styled(format!(" {:<18}", integration.name), style),
                         Span::styled(
-                            format!(" {:?} {:.2}", integration.status, integration.confidence),
+                            format!(" {:?} {:?}", integration.status, integration.state),
                             theme::dim(),
                         ),
                     ]))
@@ -461,13 +461,15 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
                     Span::styled(format!("{} ", integration.name), theme::brand()),
                     Span::styled(format!("{:?}", integration.status), theme::dim()),
                 ]));
-                lines.push(Line::from(truncate(integration.next_step, 140)));
+                lines.push(Line::from(truncate(&integration.next_step, 140)));
                 if !integration.markers.is_empty() {
                     lines.push(Line::from(Span::styled(
                         truncate(
                             &format!(
                                 "markers: {}",
-                                crate::integrations::format_markers(&integration.markers)
+                                tree_ring_memory_cli::activation::adapters::format_markers(
+                                    &integration.markers,
+                                )
                             ),
                             140,
                         ),

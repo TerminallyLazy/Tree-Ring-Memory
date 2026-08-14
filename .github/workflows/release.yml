@@ -11,6 +11,9 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   package-linux:
     name: Package ubuntu-latest
@@ -28,6 +31,7 @@ jobs:
       - name: Build package on Debian Bookworm
         env:
           RUST_BOOKWORM_IMAGE: docker.io/library/rust:1.89-bookworm@sha256:c9ac3fa8945b61dede1e4500d25028aa8fd8a8fe46365fcf9c0422f8d999b9b0
+          TREE_RING_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           docker run --rm \
             --platform linux/amd64 \
@@ -35,6 +39,7 @@ jobs:
             -e HOME=/tmp \
             -e CARGO_HOME=/tmp/cargo \
             -e RUSTUP_HOME=/usr/local/rustup \
+            -e TREE_RING_RELEASE_TAG \
             -v "$GITHUB_WORKSPACE:/workspace" \
             -w /workspace/source \
             "$RUST_BOOKWORM_IMAGE" \
@@ -84,7 +89,19 @@ jobs:
 
       - name: Build package
         working-directory: source
+        env:
+          TREE_RING_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: sh ../scripts/package-release.sh
+
+      - name: Smoke-test package
+        working-directory: source
+        run: |
+          macos_binary=$(find dist -path '*-darwin-arm64/tree-ring' -type f -print)
+          test -n "$macos_binary"
+          test "$(printf '%s\n' "$macos_binary" | wc -l)" -eq 1
+          test "$(uname -m)" = "arm64"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          test "$("$macos_binary" --version)" = "tree-ring $version"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -93,3 +110,60 @@ jobs:
           path: |
             source/dist/*.tar.gz
             source/dist/*.sha256
+
+  publish-release:
+    name: Publish GitHub release assets
+    needs: [package-linux, package-macos]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: tree-ring-memory-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Verify release assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=${RELEASE_TAG#v}
+          test -n "$version"
+          test "$RELEASE_TAG" = "v$version"
+          for platform in darwin-arm64 linux-x86_64; do
+            archive="release-assets/tree-ring-memory-$version-$platform.tar.gz"
+            checksum="$archive.sha256"
+            test -f "$archive"
+            test -f "$checksum"
+            expected=$(awk '{print $1}' "$checksum")
+            actual=$(shasum -a 256 "$archive" | awk '{print $1}')
+            test "$actual" = "$expected"
+            for packaged_path in \
+              "tree-ring-memory-$version-$platform/" \
+              "tree-ring-memory-$version-$platform/tree-ring" \
+              "tree-ring-memory-$version-$platform/README.md" \
+              "tree-ring-memory-$version-$platform/LICENSE" \
+              "tree-ring-memory-$version-$platform/install.sh"; do
+              tar -tzf "$archive" | grep -F -x "$packaged_path" > /dev/null
+            done
+            entry_count=$(tar -tzf "$archive" | wc -l | tr -d '[:space:]')
+            test "$entry_count" = "5"
+          done
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/*.tar.gz release-assets/*.sha256 \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release-assets/*.tar.gz release-assets/*.sha256 \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi

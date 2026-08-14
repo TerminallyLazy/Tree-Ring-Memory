@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+pub(crate) const HARNESS_ACTIVATION_SUMMARY_FILE: &str = "harness-activation-summary.md";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceStatus {
