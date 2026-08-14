@@ -105,7 +105,8 @@ use synthetic IDs and no prompt, recalled context, capability, or absolute path.
         {
           "path": ".claude/settings.json",
           "block_id": "tree-ring-session-start-v1",
-          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "leading_separator": "\n"
         }
       ]
     }
@@ -119,13 +120,22 @@ and `bridge_fingerprint` are required for receipt-backed activation.
 UTF-8 field stream. Each field is encoded as its UTF-8 byte length followed by
 its bytes; the length is an unsigned, big-endian, platform-width integer
 (`usize::to_be_bytes`, eight bytes on the supported 64-bit CLI targets).
+This is the only executable bridge-fingerprint encoding for protocol version 1.
+Earlier draft prose described a canonical-JSON encoding before executable
+fingerprints existed; it was not a released manifest encoding and does not
+define a legacy protocol-1 variant.
 
 The stream begins with `harness_id`, then `adapter_version`. Owned files are
 sorted by `(path, sha256)` and each appends the fields `"file"`, `path`, and
 `sha256`. Managed blocks follow the files, sorted by
 `(path, block_id, sha256, leading_separator)`, and each appends the fields
 `"block"`, `path`, `block_id`, `sha256`, and `leading_separator`. No project
-root is included.
+root is included. `leading_separator` records only adapter-owned whitespace
+immediately before a managed block and is restricted to `""`, `"\n"`, or
+`"\n\n"`. It may be omitted from manifest JSON only when empty; omission
+deserializes as `""`, and the empty value still contributes a zero-length field
+to the fingerprint. For example, the manifest above contributes one LF byte
+for `leading_separator`, while an omitted field contributes no value bytes.
 
 ### Redacted receipt
 
