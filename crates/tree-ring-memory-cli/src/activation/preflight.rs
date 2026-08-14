@@ -1,5 +1,5 @@
 use super::{
-    adapters::{adapter_version, ActivationProject},
+    adapters::{adapter_capability, adapter_version, ActivationProject},
     bridge::ProjectFs,
     manifest::{
         bridge_fingerprint, fingerprint, fingerprint_path,
@@ -45,6 +45,7 @@ pub struct PreflightRequest {
 enum PreflightInputContract {
     DirectIdentityFlags,
     AdapterStdin,
+    ClaudeWrapper,
 }
 
 impl PreflightRequest {
@@ -77,6 +78,23 @@ impl PreflightRequest {
             task_hint,
             context_format,
             input_contract: PreflightInputContract::AdapterStdin,
+        }
+    }
+
+    /// Constructs the launcher-owned Claude Code request. The wrapper binds a
+    /// fresh trusted identity rather than widening the direct Codex contract.
+    pub(crate) fn claude_wrapper(task_hint: Option<String>) -> Self {
+        let invocation_id = Uuid::new_v4().hyphenated().to_string();
+        Self {
+            harness_id: "claude-code".to_string(),
+            identity: SessionIdentity {
+                agent_profile: "claude-code".to_string(),
+                workflow_id: format!("claude-launch-{invocation_id}"),
+                session_id: format!("claude-session-{invocation_id}"),
+            },
+            task_hint,
+            context_format: PreflightContextFormat::Json,
+            input_contract: PreflightInputContract::ClaudeWrapper,
         }
     }
 }
@@ -131,6 +149,37 @@ pub fn run_preflight(
     manifest: &ActivationManifest,
     request: PreflightRequest,
 ) -> Result<PreflightResponse, ActivationError> {
+    let prepared = prepare_preflight(store, project, manifest, request)?;
+    commit_prepared_preflight(store, project, manifest, prepared)
+}
+
+/// Opaque preflight material that has passed recall and render checks but has
+/// not yet produced a durable activation receipt.
+pub(crate) struct PreparedPreflight {
+    request: PreflightRequest,
+    snapshot: PreflightSnapshot,
+    receipt: ActivationReceipt,
+    response: PreflightResponse,
+}
+
+impl PreparedPreflight {
+    pub(crate) fn context(&self) -> &str {
+        &self.response.context
+    }
+
+    pub(crate) fn receipt_id(&self) -> &str {
+        &self.receipt.receipt_id
+    }
+}
+
+/// Prepares safe, rendered preflight material without persisting a receipt.
+/// Only sibling activation integrations can cross this transactional boundary.
+pub(crate) fn prepare_preflight(
+    store: &SQLiteMemoryStore,
+    project: &ActivationProject,
+    manifest: &ActivationManifest,
+    request: PreflightRequest,
+) -> Result<PreparedPreflight, ActivationError> {
     validate_request_contract(&request)?;
     validate_identity(&request.identity)?;
     validate_manifest(manifest)
@@ -197,21 +246,41 @@ pub fn run_preflight(
 
     // Force construction of the complete adapter payload before any receipt exists.
     render_for_format(&response, request.context_format)?;
-    run_pre_commit_hook(&request);
+    Ok(PreparedPreflight {
+        request,
+        snapshot,
+        receipt,
+        response,
+    })
+}
+
+/// Revalidates the complete activation contract and commits the receipt for
+/// previously prepared material.
+pub(crate) fn commit_prepared_preflight(
+    store: &SQLiteMemoryStore,
+    project: &ActivationProject,
+    manifest: &ActivationManifest,
+    prepared: PreparedPreflight,
+) -> Result<PreflightResponse, ActivationError> {
+    let receipt_project =
+        ActivationProject::from_memory_root(project.memory_root.clone()).map_err(storage_error)?;
+    let project_fs = ProjectFs::open(&receipt_project).map_err(storage_error)?;
+    run_pre_commit_hook(&prepared.request);
     commit_receipt(
         &project_fs,
         store,
         project,
         manifest,
-        &snapshot,
-        &request,
-        &receipt,
+        &prepared.snapshot,
+        &prepared.request,
+        &prepared.receipt,
     )?;
-    Ok(response)
+    Ok(prepared.response)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CurrentActivationContract {
+    adapter_capability: super::AdapterCapability,
     adapter_version: String,
     bridge_fingerprint: String,
     manifest_matches_registry: bool,
@@ -320,11 +389,15 @@ fn current_activation_contract(
     let adapter_version = adapter_version(harness_id)
         .ok_or_else(|| ActivationError::new("unknown harness adapter"))?
         .to_string();
+    let adapter_capability = adapter_capability(harness_id)
+        .ok_or_else(|| ActivationError::new("unknown harness adapter"))?;
     let mut registry_activation = activation.clone();
     registry_activation.adapter_version = adapter_version.clone();
+    registry_activation.adapter_capability = adapter_capability;
     let bridge_fingerprint = bridge_fingerprint(harness_id, &registry_activation);
     Ok(CurrentActivationContract {
-        manifest_matches_registry: activation.adapter_version == adapter_version
+        manifest_matches_registry: activation.adapter_capability == adapter_capability
+            && activation.adapter_version == adapter_version
             && activation.bridge_fingerprint == bridge_fingerprint,
         eligible_for_preflight: matches!(
             activation.state,
@@ -333,6 +406,7 @@ fn current_activation_contract(
                 | ActivationState::Active
                 | ActivationState::ActiveIsolated
         ),
+        adapter_capability,
         adapter_version,
         bridge_fingerprint,
     })
@@ -479,6 +553,13 @@ fn validate_request_contract(request: &PreflightRequest) -> Result<(), Activatio
         }
         PreflightInputContract::AdapterStdin => {
             matches_adapter_stdin_contract(&request.harness_id, request.context_format)
+        }
+        PreflightInputContract::ClaudeWrapper => {
+            request.harness_id == "claude-code"
+                && request.context_format == PreflightContextFormat::Json
+                && request.identity.agent_profile == "claude-code"
+                && request.identity.workflow_id.starts_with("claude-launch-")
+                && request.identity.session_id.starts_with("claude-session-")
         }
     };
     valid

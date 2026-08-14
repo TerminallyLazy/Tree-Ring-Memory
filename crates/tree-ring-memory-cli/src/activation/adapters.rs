@@ -216,7 +216,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         version: "1",
         display_name: "Codex",
         command: "codex",
-        capability: AdapterCapability::WrapperPreflight,
+        capability: AdapterCapability::GuidanceOnly,
         markers: &[".codex", "AGENTS.md"],
         support: AdapterSupport::Maintained,
     },
@@ -225,7 +225,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         version: "1",
         display_name: "Claude Code",
         command: "claude",
-        capability: AdapterCapability::NativePreflight,
+        capability: AdapterCapability::WrapperPreflight,
         markers: &[".claude", "CLAUDE.md"],
         support: AdapterSupport::Maintained,
     },
@@ -290,6 +290,13 @@ pub fn adapter_version(id: &str) -> Option<&'static str> {
     registered_adapters()
         .find(|adapter| adapter.id == id)
         .map(|adapter| adapter.version)
+}
+
+/// Returns the activation capability registered for a harness.
+pub(crate) fn adapter_capability(id: &str) -> Option<AdapterCapability> {
+    registered_adapters()
+        .find(|adapter| adapter.id == id)
+        .map(|adapter| adapter.capability)
 }
 
 fn registered_adapters() -> impl Iterator<Item = &'static DeclarativeAdapter> {
@@ -711,6 +718,23 @@ mod tests {
             assert_eq!(
                 plan_activation(id, &project()).unwrap().state,
                 ActivationState::Unsupported
+            );
+        }
+    }
+
+    #[test]
+    fn only_claude_code_advertises_a_tested_wrapper_preflight() {
+        let report = detect_adapters(&project(), &FakeEnvironment::default());
+
+        assert_eq!(
+            report.by_id("claude-code").unwrap().capability,
+            AdapterCapability::WrapperPreflight
+        );
+        for harness_id in ["codex", "pi", "agent-zero"] {
+            assert_ne!(
+                report.by_id(harness_id).unwrap().capability,
+                AdapterCapability::WrapperPreflight,
+                "{harness_id} must not advertise a generic launch wrapper"
             );
         }
     }

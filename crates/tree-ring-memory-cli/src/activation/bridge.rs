@@ -389,6 +389,30 @@ impl ProjectFs {
         self.ensure_root_binding()
     }
 
+    /// Creates one private launcher context at the fixed activation runtime
+    /// location. The receipt id determines the name; callers cannot select an
+    /// arbitrary filesystem target or replace an existing entry.
+    pub(crate) fn create_runtime_context_file(
+        &self,
+        receipt_id: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, String> {
+        let relative = runtime_context_target(receipt_id)?;
+        let target = self.resolve_target(&relative, true)?;
+        if target.read_optional()?.is_some() {
+            return Err("existing runtime context requires user review".to_string());
+        }
+        self.ensure_root_binding()?;
+        let publication = target
+            .publish_creation(bytes)
+            .map_err(|error| error.message)?;
+        if let Err(error) = target.sync_parent() {
+            return Err(MutationError::after_publication(error, publication).message);
+        }
+        self.ensure_root_binding()?;
+        Ok(relative)
+    }
+
     fn resolve_target_optional(
         &self,
         relative: &Path,
@@ -477,6 +501,22 @@ impl ProjectFs {
         validate_receipt_target(relative)?;
         self.ensure_root_binding()?;
         let Some(target) = self.resolve_target_optional(relative, false)? else {
+            return Ok(false);
+        };
+        if target.snapshot_optional()?.is_none() {
+            return Ok(false);
+        }
+        self.ensure_root_binding()?;
+        let removed = target.remove_validated_regular_file()?;
+        self.ensure_root_binding()?;
+        Ok(removed)
+    }
+
+    /// Removes only the fixed private runtime file for this receipt id.
+    pub(crate) fn remove_runtime_context_file(&self, receipt_id: &str) -> Result<bool, String> {
+        let relative = runtime_context_target(receipt_id)?;
+        self.ensure_root_binding()?;
+        let Some(target) = self.resolve_target_optional(&relative, false)? else {
             return Ok(false);
         };
         if target.snapshot_optional()?.is_none() {
@@ -793,6 +833,19 @@ fn validate_receipt_target(relative: &Path) -> Result<(), String> {
 }
 
 #[cfg(unix)]
+fn runtime_context_target(receipt_id: &str) -> Result<PathBuf, String> {
+    let valid_id = receipt_id.starts_with("receipt-")
+        && receipt_id.len() <= 128
+        && receipt_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+    if !valid_id {
+        return Err("invalid launcher receipt id".to_string());
+    }
+    Ok(PathBuf::from(".tree-ring/activation/runtime").join(format!("{receipt_id}.md")))
+}
+
+#[cfg(unix)]
 fn owned_file_descriptor(descriptor: libc::c_int, path: &Path) -> Result<File, String> {
     if descriptor < 0 {
         return Err(io_error(path, std::io::Error::last_os_error()));
@@ -885,6 +938,17 @@ impl ProjectFs {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
+    pub(crate) fn create_runtime_context_file(
+        &self,
+        _receipt_id: &str,
+        _bytes: &[u8],
+    ) -> Result<PathBuf, String> {
+        Err(
+            "launcher mutation requires descriptor-relative no-follow filesystem support"
+                .to_string(),
+        )
+    }
+
     pub(crate) fn directory_entries(
         &self,
         _relative: &Path,
@@ -894,6 +958,13 @@ impl ProjectFs {
 
     pub(crate) fn remove_validated_receipt_file(&self, _relative: &Path) -> Result<bool, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
+    }
+
+    pub(crate) fn remove_runtime_context_file(&self, _receipt_id: &str) -> Result<bool, String> {
+        Err(
+            "launcher mutation requires descriptor-relative no-follow filesystem support"
+                .to_string(),
+        )
     }
 }
 
@@ -2274,8 +2345,9 @@ fn sha256(bytes: &[u8]) -> String {
 
 fn capability_for(harness_id: &str) -> Result<AdapterCapability, String> {
     match harness_id {
-        "codex" => Ok(AdapterCapability::WrapperPreflight),
-        "claude-code" | "pi" | "agent-zero" => Ok(AdapterCapability::NativePreflight),
+        "codex" => Ok(AdapterCapability::GuidanceOnly),
+        "claude-code" => Ok(AdapterCapability::WrapperPreflight),
+        "pi" | "agent-zero" => Ok(AdapterCapability::NativePreflight),
         "hermes" | "opencode" | "goose" => Ok(AdapterCapability::GuidanceOnly),
         other => Err(format!("unknown harness adapter: {other}")),
     }

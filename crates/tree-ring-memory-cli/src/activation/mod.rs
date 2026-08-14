@@ -36,6 +36,7 @@ pub struct SessionIdentity {
 
 pub mod adapters;
 pub mod bridge;
+pub mod launcher;
 pub mod manifest;
 pub mod preflight;
 

@@ -377,6 +377,15 @@ enum IntegrationCommand {
         )]
         out_dir: Option<PathBuf>,
     },
+    #[command(about = "launch Claude Code with a private Tree Ring preflight context")]
+    Launch {
+        #[arg(long, help = "harness id; only claude-code provides a launch wrapper")]
+        harness: String,
+        #[arg(long, help = "optional non-sensitive recall hint")]
+        task_hint: Option<String>,
+        #[arg(last = true, allow_hyphen_values = true)]
+        arguments: Vec<OsString>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -413,7 +422,52 @@ fn main() -> std::process::ExitCode {
     if let Some((root, json_output)) = global_welcome_request(&args) {
         return exit_from_result(welcome::run(&root, false, false, json_output));
     }
-    exit_from_result(run(Cli::parse_from(args)))
+    let cli = Cli::parse_from(args);
+    if let Some(result) = run_launch_command(&cli) {
+        return exit_from_launch_result(result);
+    }
+    exit_from_result(run(cli))
+}
+
+fn run_launch_command(cli: &Cli) -> Option<Result<i32, String>> {
+    let Command::Integrations {
+        command:
+            IntegrationCommand::Launch {
+                harness,
+                task_hint,
+                arguments,
+            },
+    } = &cli.command
+    else {
+        return None;
+    };
+    Some((|| {
+        if cli.json {
+            return Err("--json is not supported with integrations launch".to_string());
+        }
+        let project = activation::adapters::ActivationProject::from_memory_root(cli.root.clone())?;
+        let manifest = activation::load_manifest(&cli.root)?;
+        let store = SQLiteMemoryStore::open_read_only(cli.root.join("memory.sqlite"))
+            .map_err(|error| error.to_string())?;
+        activation::launcher::launch_with_preflight(
+            &store,
+            &project,
+            &manifest,
+            activation::launcher::LaunchRequest::new(harness, task_hint.clone()),
+            arguments,
+        )
+        .map_err(|error| error.to_string())
+    })())
+}
+
+fn exit_from_launch_result(result: Result<i32, String>) -> std::process::ExitCode {
+    match result {
+        Ok(code) => std::process::ExitCode::from(u8::try_from(code).unwrap_or(2)),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::ExitCode::from(2)
+        }
+    }
 }
 
 fn exit_from_result(result: Result<(), String>) -> std::process::ExitCode {
@@ -1552,6 +1606,39 @@ mod tests {
     use tempfile::tempdir;
     use tree_ring_memory_core::{ConsolidationPeriod, ConsolidationRequest};
     use tree_ring_memory_sqlite::MemoryRetriever;
+
+    #[test]
+    fn integrations_launch_parses_only_a_claude_harness_and_trailing_arguments() {
+        let cli = Cli::try_parse_from([
+            "tree-ring",
+            "integrations",
+            "launch",
+            "--harness",
+            "claude-code",
+            "--",
+            "--model",
+            "sonnet",
+        ])
+        .unwrap();
+
+        let Command::Integrations {
+            command:
+                IntegrationCommand::Launch {
+                    harness,
+                    task_hint,
+                    arguments,
+                },
+        } = cli.command
+        else {
+            panic!("expected integrations launch command");
+        };
+        assert_eq!(harness, "claude-code");
+        assert_eq!(task_hint, None);
+        assert_eq!(
+            arguments,
+            vec![OsString::from("--model"), OsString::from("sonnet")]
+        );
+    }
 
     #[test]
     fn cli_init_creates_store() {
