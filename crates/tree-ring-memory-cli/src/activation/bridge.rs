@@ -1,5 +1,8 @@
 use super::{
-    adapters::{adapter_version, ActivationProject, AdapterPlan, ManagedBlockUpdate, PlannedWrite},
+    adapters::{
+        adapter_capability, adapter_version, ActivationProject, AdapterPlan, ManagedBlockUpdate,
+        PlannedWrite,
+    },
     manifest::{
         bridge_fingerprint, fingerprint_path, validate_manifest, validate_project_relative_path,
         ActivationManifest, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock,
@@ -139,6 +142,10 @@ struct TestMutationHooks {
     after_final_target_validation: Option<Box<dyn FnOnce()>>,
     fail_directory_sync_at: Vec<usize>,
     directory_syncs: usize,
+    fail_fdopendir: bool,
+    failed_fdopendir_fd: Option<libc::c_int>,
+    fail_readdir: bool,
+    fail_closedir: bool,
 }
 
 #[cfg(test)]
@@ -191,6 +198,92 @@ fn fail_directory_sync_now() -> bool {
 #[cfg(not(test))]
 fn fail_directory_sync_now() -> bool {
     false
+}
+
+#[cfg(all(unix, test))]
+fn fdopendir_for_listing(descriptor: libc::c_int) -> *mut libc::DIR {
+    let fail = TEST_MUTATION_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        if hooks.fail_fdopendir {
+            hooks.fail_fdopendir = false;
+            hooks.failed_fdopendir_fd = Some(descriptor);
+            true
+        } else {
+            false
+        }
+    });
+    if fail {
+        set_errno(libc::EIO);
+        std::ptr::null_mut()
+    } else {
+        unsafe {
+            // SAFETY: the caller transfers ownership of a valid duplicated descriptor.
+            libc::fdopendir(descriptor)
+        }
+    }
+}
+
+#[cfg(all(unix, not(test)))]
+fn fdopendir_for_listing(descriptor: libc::c_int) -> *mut libc::DIR {
+    unsafe {
+        // SAFETY: the caller transfers ownership of a valid duplicated descriptor.
+        libc::fdopendir(descriptor)
+    }
+}
+
+#[cfg(all(unix, test))]
+fn readdir_for_listing(stream: *mut libc::DIR) -> *mut libc::dirent {
+    let fail = TEST_MUTATION_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        let fail = hooks.fail_readdir;
+        hooks.fail_readdir = false;
+        fail
+    });
+    if fail {
+        set_errno(libc::EIO);
+        std::ptr::null_mut()
+    } else {
+        unsafe {
+            // SAFETY: the caller keeps the directory stream open for this call.
+            libc::readdir(stream)
+        }
+    }
+}
+
+#[cfg(all(unix, not(test)))]
+fn readdir_for_listing(stream: *mut libc::DIR) -> *mut libc::dirent {
+    unsafe {
+        // SAFETY: the caller keeps the directory stream open for this call.
+        libc::readdir(stream)
+    }
+}
+
+#[cfg(all(unix, test))]
+fn closedir_for_listing(stream: *mut libc::DIR) -> libc::c_int {
+    let status = unsafe {
+        // SAFETY: the caller transfers ownership of its open directory stream.
+        libc::closedir(stream)
+    };
+    let fail = TEST_MUTATION_HOOKS.with(|hooks| {
+        let mut hooks = hooks.borrow_mut();
+        let fail = hooks.fail_closedir;
+        hooks.fail_closedir = false;
+        fail
+    });
+    if status == 0 && fail {
+        set_errno(libc::EIO);
+        -1
+    } else {
+        status
+    }
+}
+
+#[cfg(all(unix, not(test)))]
+fn closedir_for_listing(stream: *mut libc::DIR) -> libc::c_int {
+    unsafe {
+        // SAFETY: the caller transfers ownership of its open directory stream.
+        libc::closedir(stream)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -712,20 +805,33 @@ fn list_directory_entries(directory: &File) -> Result<Vec<OsString>, String> {
     let cloned = directory
         .try_clone()
         .map_err(|error| io_error(Path::new("."), error))?;
-    let stream = unsafe {
-        // SAFETY: fdopendir assumes ownership of the duplicated descriptor.
-        libc::fdopendir(cloned.into_raw_fd())
-    };
+    let descriptor = cloned.into_raw_fd();
+    let stream = fdopendir_for_listing(descriptor);
     if stream.is_null() {
-        return Err(io_error(Path::new("."), std::io::Error::last_os_error()));
+        let open_error = std::io::Error::last_os_error();
+        let close_status = unsafe {
+            // SAFETY: fdopendir did not take ownership when it returned null.
+            libc::close(descriptor)
+        };
+        let open_message = io_error(Path::new("."), open_error);
+        if close_status != 0 {
+            return Err(format!(
+                "{open_message}; descriptor cleanup also failed: {}",
+                io_error(Path::new("."), std::io::Error::last_os_error())
+            ));
+        }
+        return Err(open_message);
     }
     let mut entries = Vec::new();
+    let mut read_error = None;
     loop {
-        let entry = unsafe {
-            // SAFETY: stream remains valid until the matching closedir below.
-            libc::readdir(stream)
-        };
+        set_errno(0);
+        let entry = readdir_for_listing(stream);
         if entry.is_null() {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(0) {
+                read_error = Some(error);
+            }
             break;
         }
         let name = unsafe {
@@ -738,15 +844,104 @@ fn list_directory_entries(directory: &File) -> Result<Vec<OsString>, String> {
         }
         entries.push(OsString::from_vec(bytes.to_vec()));
     }
-    let close_status = unsafe {
-        // SAFETY: closes the stream and its owned duplicated descriptor exactly once.
-        libc::closedir(stream)
+    let close_status = closedir_for_listing(stream);
+    let close_error = if close_status == 0 {
+        None
+    } else {
+        Some(std::io::Error::last_os_error())
     };
-    if close_status != 0 {
-        return Err(io_error(Path::new("."), std::io::Error::last_os_error()));
+    match (read_error, close_error) {
+        (Some(read_error), Some(close_error)) => {
+            return Err(format!(
+                "{}; directory close also failed: {}",
+                io_error(Path::new("."), read_error),
+                io_error(Path::new("."), close_error)
+            ));
+        }
+        (Some(error), None) | (None, Some(error)) => {
+            return Err(io_error(Path::new("."), error));
+        }
+        (None, None) => {}
     }
     entries.sort();
     Ok(entries)
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "visionos",
+    target_os = "freebsd"
+))]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::__error() = value;
+    }
+}
+
+#[cfg(any(target_os = "openbsd", target_os = "netbsd", target_os = "android"))]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::__errno() = value;
+    }
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "hurd",
+    target_os = "emscripten",
+    target_os = "redox",
+    target_os = "dragonfly"
+))]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::__errno_location() = value;
+    }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::___errno() = value;
+    }
+}
+
+#[cfg(target_os = "aix")]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::_Errno() = value;
+    }
+}
+
+#[cfg(target_os = "haiku")]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::_errnop() = value;
+    }
+}
+
+#[cfg(target_os = "nto")]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::__get_errno_ptr() = value;
+    }
+}
+
+#[cfg(any(target_os = "cygwin", target_os = "nuttx"))]
+fn set_errno(value: libc::c_int) {
+    unsafe {
+        // SAFETY: libc returns the calling thread's errno storage.
+        *libc::__errno() = value;
+    }
 }
 
 #[cfg(unix)]
@@ -1044,23 +1239,7 @@ pub fn apply_bridge_plan(
             ));
         }
         let mut next_manifest = current_manifest.clone();
-        let mut activation = next_manifest
-            .harnesses
-            .get(&plan.harness_id)
-            .cloned()
-            .unwrap_or(HarnessActivation {
-                state: plan.state,
-                adapter_capability: capability_for(&plan.harness_id)?,
-                adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
-                bridge_fingerprint: String::new(),
-                bridge_path: None,
-                owned_files: Vec::new(),
-                managed_blocks: Vec::new(),
-            });
-        activation.state = plan.state;
-        activation.adapter_capability = capability_for(&plan.harness_id)?;
-        activation.adapter_version = adapter_version_for(&plan.harness_id)?.to_string();
-        activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+        let activation = blocked_activation(&plan, next_manifest.harnesses.get(&plan.harness_id))?;
         next_manifest
             .harnesses
             .insert(plan.harness_id.clone(), activation);
@@ -1177,23 +1356,8 @@ pub fn apply_bridge_plans_create_only(
                     plan.harness_id, plan.state
                 ));
             }
-            let mut activation = next_manifest
-                .harnesses
-                .get(&plan.harness_id)
-                .cloned()
-                .unwrap_or(HarnessActivation {
-                    state: plan.state,
-                    adapter_capability: capability_for(&plan.harness_id)?,
-                    adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
-                    bridge_fingerprint: String::new(),
-                    bridge_path: None,
-                    owned_files: Vec::new(),
-                    managed_blocks: Vec::new(),
-                });
-            activation.state = plan.state;
-            activation.adapter_capability = capability_for(&plan.harness_id)?;
-            activation.adapter_version = adapter_version_for(&plan.harness_id)?.to_string();
-            activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+            let activation =
+                blocked_activation(&plan, next_manifest.harnesses.get(&plan.harness_id))?;
             next_manifest
                 .harnesses
                 .insert(plan.harness_id.clone(), activation);
@@ -1372,23 +1536,7 @@ pub fn preview_bridge_plan(
             ));
         }
         let mut next_manifest = current_manifest.clone();
-        let mut activation = next_manifest
-            .harnesses
-            .get(&plan.harness_id)
-            .cloned()
-            .unwrap_or(HarnessActivation {
-                state: plan.state,
-                adapter_capability: capability_for(&plan.harness_id)?,
-                adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
-                bridge_fingerprint: String::new(),
-                bridge_path: None,
-                owned_files: Vec::new(),
-                managed_blocks: Vec::new(),
-            });
-        activation.state = plan.state;
-        activation.adapter_capability = capability_for(&plan.harness_id)?;
-        activation.adapter_version = adapter_version_for(&plan.harness_id)?.to_string();
-        activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+        let activation = blocked_activation(&plan, next_manifest.harnesses.get(&plan.harness_id))?;
         next_manifest
             .harnesses
             .insert(plan.harness_id.clone(), activation);
@@ -1528,7 +1676,9 @@ pub fn deactivate_bridge_plan(
     {
         next.bridge_path = Some(first);
     }
-    next.adapter_version = adapter_version_for(harness_id)?.to_string();
+    let (adapter_capability, adapter_version) = adapter_contract(harness_id)?;
+    next.adapter_capability = adapter_capability;
+    next.adapter_version = adapter_version.to_string();
     next.bridge_fingerprint = bridge_fingerprint(harness_id, next);
 
     if files_require_existing_entry_mutation(&files)
@@ -1637,10 +1787,11 @@ fn prepare_apply(
         .first()
         .map(|owned| owned.path.clone())
         .or_else(|| managed_blocks.first().map(|owned| owned.path.clone()));
+    let (adapter_capability, adapter_version) = adapter_contract(&plan.harness_id)?;
     let mut activation = HarnessActivation {
         state: applied_state(&plan.harness_id, plan.state),
-        adapter_capability: capability_for(&plan.harness_id)?,
-        adapter_version: adapter_version_for(&plan.harness_id)?.to_string(),
+        adapter_capability,
+        adapter_version: adapter_version.to_string(),
         bridge_fingerprint: String::new(),
         bridge_path,
         owned_files,
@@ -2045,10 +2196,18 @@ fn remove_markdown_block(
     let Some((start, end)) = locate_markdown_block(content, block_id)? else {
         return Ok(None);
     };
+    if !content.is_char_boundary(start) || !content.is_char_boundary(end) {
+        return Ok(None);
+    }
     if sha256(&content.as_bytes()[start..end]) != expected_hash {
         return Ok(None);
     }
-    let removal_start = start.saturating_sub(leading_separator.len());
+    let Some(removal_start) = start.checked_sub(leading_separator.len()) else {
+        return Ok(None);
+    };
+    if !content.is_char_boundary(removal_start) {
+        return Ok(None);
+    }
     if &content[removal_start..start] != leading_separator {
         return Ok(None);
     }
@@ -2577,18 +2736,33 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn capability_for(harness_id: &str) -> Result<AdapterCapability, String> {
-    match harness_id {
-        "codex" => Ok(AdapterCapability::GuidanceOnly),
-        "claude-code" => Ok(AdapterCapability::WrapperPreflight),
-        "pi" | "agent-zero" => Ok(AdapterCapability::NativePreflight),
-        "hermes" | "opencode" | "goose" => Ok(AdapterCapability::GuidanceOnly),
-        other => Err(format!("unknown harness adapter: {other}")),
-    }
+fn blocked_activation(
+    plan: &AdapterPlan,
+    current: Option<&HarnessActivation>,
+) -> Result<HarnessActivation, String> {
+    let (adapter_capability, adapter_version) = adapter_contract(&plan.harness_id)?;
+    let mut activation = current.cloned().unwrap_or(HarnessActivation {
+        state: plan.state,
+        adapter_capability,
+        adapter_version: adapter_version.to_string(),
+        bridge_fingerprint: String::new(),
+        bridge_path: None,
+        owned_files: Vec::new(),
+        managed_blocks: Vec::new(),
+    });
+    activation.state = plan.state;
+    activation.adapter_capability = adapter_capability;
+    activation.adapter_version = adapter_version.to_string();
+    activation.bridge_fingerprint = bridge_fingerprint(&plan.harness_id, &activation);
+    Ok(activation)
 }
 
-fn adapter_version_for(harness_id: &str) -> Result<&'static str, String> {
-    adapter_version(harness_id).ok_or_else(|| format!("unknown harness adapter: {harness_id}"))
+fn adapter_contract(harness_id: &str) -> Result<(AdapterCapability, &'static str), String> {
+    let capability = adapter_capability(harness_id)
+        .ok_or_else(|| format!("unknown harness adapter: {harness_id}"))?;
+    let version = adapter_version(harness_id)
+        .ok_or_else(|| format!("unknown harness adapter: {harness_id}"))?;
+    Ok((capability, version))
 }
 
 fn applied_state(harness_id: &str, planned: ActivationState) -> ActivationState {
@@ -2658,7 +2832,10 @@ mod tests {
     use super::*;
     use crate::activation::{
         adapters::{plan_activation, ActivationProject, AdapterPlan, BridgeWrite, PlannedWrite},
-        manifest::{ActivationManifest, HarnessActivation, OwnedBridgeFile, OwnedManagedBlock},
+        manifest::{
+            save_manifest, ActivationManifest, HarnessActivation, OwnedBridgeFile,
+            OwnedManagedBlock,
+        },
         ActivationState, AdapterCapability, ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
     };
     use serde_json::{json, Value};
@@ -2727,6 +2904,32 @@ mod tests {
             hooks.fail_directory_sync_at = numbers.to_vec();
             hooks.directory_syncs = 0;
         });
+    }
+
+    #[cfg(unix)]
+    fn fail_fdopendir_for_test() {
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().fail_fdopendir = true);
+    }
+
+    #[cfg(unix)]
+    fn failed_fdopendir_fd_for_test() -> libc::c_int {
+        TEST_MUTATION_HOOKS.with(|hooks| {
+            hooks
+                .borrow_mut()
+                .failed_fdopendir_fd
+                .take()
+                .expect("fdopendir failure recorded its descriptor")
+        })
+    }
+
+    #[cfg(unix)]
+    fn fail_readdir_for_test() {
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().fail_readdir = true);
+    }
+
+    #[cfg(unix)]
+    fn fail_closedir_for_test() {
+        TEST_MUTATION_HOOKS.with(|hooks| hooks.borrow_mut().fail_closedir = true);
     }
 
     fn plan(harness: &str, project: &ActivationProject) -> AdapterPlan {
@@ -2977,10 +3180,8 @@ mod tests {
         };
         let canonical_manifest = make_manifest(&canonical_project, "canonical-store");
         let selected_manifest = make_manifest(&selected_project, "selected-store");
-        crate::activation::save_manifest(&canonical_project.memory_root, &canonical_manifest)
-            .unwrap();
-        crate::activation::save_manifest(&selected_project.memory_root, &selected_manifest)
-            .unwrap();
+        save_manifest(&canonical_project.memory_root, &canonical_manifest).unwrap();
+        save_manifest(&selected_project.memory_root, &selected_manifest).unwrap();
 
         assert_eq!(
             validate_isolated_preflight_roots(
@@ -3150,6 +3351,15 @@ mod tests {
         let blocked_result = apply_bridge_plan(&project, &mut manifest, blocked, false).unwrap();
         assert_eq!(blocked_result.state, ActivationState::NeedsPlugin);
         assert!(blocked_result.changed_paths.is_empty());
+        let blocked_activation = manifest.harnesses.get("agent-zero").unwrap();
+        assert_eq!(
+            blocked_activation.adapter_capability,
+            adapter_capability("agent-zero").unwrap()
+        );
+        assert_eq!(
+            blocked_activation.adapter_version,
+            adapter_version("agent-zero").unwrap()
+        );
         assert!(!project
             .project_root
             .join(".tree-ring/activation/agent-zero.json")
@@ -3566,6 +3776,66 @@ mod tests {
             .unwrap();
             assert_eq!(String::from_utf8(removed).unwrap(), original);
         }
+    }
+
+    #[test]
+    fn markdown_removal_rejects_separator_offset_inside_utf8_character() {
+        let block = markdown_block("codex");
+        let content = format!("é{block}");
+
+        let removed =
+            remove_markdown_block(content.as_bytes(), "codex", &sha256(block.as_bytes()), "x")
+                .unwrap();
+
+        assert!(removed.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_listing_closes_fdopendir_failure_descriptor() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = File::open(directory.path()).unwrap();
+        fail_fdopendir_for_test();
+
+        let error = list_directory_entries(&file).unwrap_err();
+        let descriptor = failed_fdopendir_fd_for_test();
+        let status = unsafe {
+            // SAFETY: fcntl only observes whether the recorded descriptor remains open.
+            libc::fcntl(descriptor, libc::F_GETFD)
+        };
+
+        assert!(error.contains("Input/output error"));
+        assert_eq!(status, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_listing_resets_errno_and_propagates_read_and_close_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = File::open(directory.path()).unwrap();
+
+        set_errno(libc::EIO);
+        assert!(list_directory_entries(&file).unwrap().is_empty());
+
+        fail_readdir_for_test();
+        assert!(list_directory_entries(&file)
+            .unwrap_err()
+            .contains("Input/output error"));
+
+        fail_closedir_for_test();
+        assert!(list_directory_entries(&file)
+            .unwrap_err()
+            .contains("Input/output error"));
+
+        fail_readdir_for_test();
+        fail_closedir_for_test();
+        assert!(list_directory_entries(&file)
+            .unwrap_err()
+            .contains("directory close also failed"));
     }
 
     #[cfg(unix)]
