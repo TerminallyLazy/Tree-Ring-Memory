@@ -1,6 +1,7 @@
 use crate::actions::integrations::{
     project_root_fingerprint, verify_activation_receipts, ReceiptVerificationStatus,
 };
+use crate::activation_state_name;
 use crate::evidence::{
     atomic_write, publish_indexed_evidence, rollup_index_status, EvidenceRecordRef, EvidenceStatus,
     HARNESS_ACTIVATION_SUMMARY_FILE,
@@ -504,10 +505,10 @@ fn render_harness_summary(generated_at: &str, records: &[HarnessProbeRecord]) ->
     ];
     for record in records {
         lines.push(format!(
-            "| {} | {} | {:?} | {} |",
+            "| {} | {} | {} | {} |",
             record.name,
             record.status.as_str(),
-            record.activation.state,
+            activation_state_name(record.activation.state),
             record.activation.diagnostic.replace('|', "-")
         ));
     }
@@ -529,9 +530,17 @@ mod tests {
     use tempfile::tempdir;
     use tree_ring_memory_cli::activation::manifest::bridge_fingerprint;
     use tree_ring_memory_cli::activation::{
-        save_manifest, write_receipt, ActivationReceipt, HarnessActivation, SessionIdentity,
+        write_receipt, ActivationReceipt, HarnessActivation, SessionIdentity,
         ACTIVATION_PROTOCOL_VERSION, ACTIVATION_SCHEMA_VERSION,
     };
+
+    fn write_manifest_fixture(memory_root: &Path, manifest: &ActivationManifest) {
+        fs::write(
+            memory_root.join("activation.json"),
+            serde_json::to_vec_pretty(manifest).unwrap(),
+        )
+        .unwrap();
+    }
 
     fn request(project: &Path) -> HarnessCertificationRequest {
         HarnessCertificationRequest {
@@ -571,7 +580,7 @@ mod tests {
             cli_version: env!("CARGO_PKG_VERSION").to_string(),
             harnesses: BTreeMap::from([(harness_id.to_string(), harness)]),
         };
-        save_manifest(&memory_root, &manifest).unwrap();
+        write_manifest_fixture(&memory_root, &manifest);
         manifest
     }
 
@@ -804,6 +813,8 @@ mod tests {
 
         assert!(summary.contains("# Harness activation evidence"));
         assert!(summary.contains("Markers are detection context only"));
+        assert!(summary.contains("configured-awaiting-proof"));
+        assert!(!summary.contains("ConfiguredAwaitingProof"));
         assert!(!summary.contains(dir.path().to_str().unwrap()));
         let index: crate::evidence::EvidenceIndex =
             serde_json::from_str(&fs::read_to_string(report.index_path).unwrap()).unwrap();

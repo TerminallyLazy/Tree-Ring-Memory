@@ -1912,8 +1912,10 @@ fn print_integration_report(
         );
         for integration in &report.integrations {
             println!(
-                "{} [{:?}] activation={:?}",
-                integration.name, integration.status, integration.state
+                "{} [{:?}] activation={}",
+                integration.name,
+                integration.status,
+                activation_state_name(integration.state)
             );
             if !integration.markers.is_empty() {
                 println!(
@@ -1986,10 +1988,10 @@ fn format_harness_certification_report(
         )];
         for record in &report.records {
             lines.push(format!(
-                "{} [{}] activation={:?} {}",
+                "{} [{}] activation={} {}",
                 record.name,
                 record.status.as_str(),
-                record.activation.state,
+                activation_state_name(record.activation.state),
                 record.summary
             ));
             lines.push(format!("  next: {}", record.next_step));
@@ -2071,6 +2073,26 @@ mod tests {
             store_id_matches: state == tree_ring_memory_cli::activation::ActivationState::Active,
             project_root_matches: true,
             diagnostic: "fixture diagnostic".to_string(),
+        }
+    }
+
+    #[test]
+    fn activation_state_names_match_the_json_wire_contract() {
+        for state in [
+            activation::ActivationState::Active,
+            activation::ActivationState::ConfiguredAwaitingProof,
+            activation::ActivationState::ActiveIsolated,
+            activation::ActivationState::NeedsTrust,
+            activation::ActivationState::NeedsProjectMount,
+            activation::ActivationState::NeedsPlugin,
+            activation::ActivationState::NeedsUserReview,
+            activation::ActivationState::Unsupported,
+            activation::ActivationState::Failed,
+        ] {
+            assert_eq!(
+                serde_json::to_value(state).unwrap().as_str().unwrap(),
+                activation_state_name(state)
+            );
         }
     }
 
@@ -2826,19 +2848,19 @@ mod tests {
             "Tree Ring Memory harness certification: pass=1 fail=1 skip=1 evidence=/tmp/project/target/tree-ring-certification"
         ));
         assert!(output.contains(
-            "Codex [pass] activation=Active Codex has a project marker and generated Tree Ring recall/remember guidance."
+            "Codex [pass] activation=active Codex has a project marker and generated Tree Ring recall/remember guidance."
         ));
         assert!(output.contains(
             "  next: Merge the generated Tree Ring guidance into the active Codex instructions."
         ));
         assert!(output.contains(
-            "Goose [fail] activation=Failed Goose has a project marker but is missing generated Tree Ring guidance."
+            "Goose [fail] activation=failed Goose has a project marker but is missing generated Tree Ring guidance."
         ));
         assert!(output.contains(
             "  next: Run `tree-ring init`, then reference `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` from the harness project instructions."
         ));
         assert!(output.contains(
-            "PI [skip] activation=NeedsTrust PI was not detected for this project, so no compatibility claim is made."
+            "PI [skip] activation=needs-trust PI was not detected for this project, so no compatibility claim is made."
         ));
         assert!(output.contains(
             "  next: Add a project-level harness marker or project instruction file, then rerun `tree-ring integrations certify`."

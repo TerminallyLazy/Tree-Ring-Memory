@@ -113,6 +113,30 @@ fn launch_with_spawner<S: ClaudeSpawner>(
     arguments: &[OsString],
     spawner: &mut S,
 ) -> Result<i32, LaunchError> {
+    launch_with_spawner_and_cleanup(
+        store,
+        project,
+        manifest,
+        request,
+        arguments,
+        spawner,
+        cleanup_runtime,
+    )
+}
+
+fn launch_with_spawner_and_cleanup<S, C>(
+    store: &SQLiteMemoryStore,
+    project: &ActivationProject,
+    manifest: &ActivationManifest,
+    request: LaunchRequest,
+    arguments: &[OsString],
+    spawner: &mut S,
+    cleanup: C,
+) -> Result<i32, LaunchError>
+where
+    S: ClaudeSpawner,
+    C: FnOnce(&ProjectFs, &str) -> Result<(), LaunchError>,
+{
     if adapter_capability(&request.harness_id) != Some(AdapterCapability::WrapperPreflight) {
         return Err(LaunchError::new(format!(
             "harness {} does not provide a wrapper preflight",
@@ -153,10 +177,11 @@ fn launch_with_spawner<S: ClaudeSpawner>(
     let mut child = match spawner.spawn(&mut command) {
         Ok(child) => child,
         Err(error) => {
-            cleanup_runtime(&project_fs, &receipt_id)?;
-            return Err(LaunchError::new(format!(
-                "failed to spawn Claude Code: {error}"
-            )));
+            let spawn_error = LaunchError::new(format!("failed to spawn Claude Code: {error}"));
+            return match cleanup(&project_fs, &receipt_id) {
+                Ok(()) => Err(spawn_error),
+                Err(cleanup_error) => Err(combine_launch_errors(spawn_error, cleanup_error)),
+            };
         }
     };
 
@@ -168,15 +193,34 @@ fn launch_with_spawner<S: ClaudeSpawner>(
         },
     );
     let wait_result = child.wait();
-    let cleanup_result = cleanup_runtime(&project_fs, &receipt_id);
+    let cleanup_result = cleanup(&project_fs, &receipt_id);
+    let outcome_result = wait_result
+        .map_err(|error| LaunchError::new(format!("failed to wait for Claude Code: {error}")))
+        .and_then(|outcome| {
+            outcome
+                .exit_code
+                .ok_or_else(|| LaunchError::new("Claude Code terminated without an exit code"))
+        });
 
-    cleanup_result?;
-    commit_result?;
-    let outcome = wait_result
-        .map_err(|error| LaunchError::new(format!("failed to wait for Claude Code: {error}")))?;
-    outcome
-        .exit_code
-        .ok_or_else(|| LaunchError::new("Claude Code terminated without an exit code"))
+    let mut failures = Vec::new();
+    if let Err(error) = commit_result {
+        failures.push(error);
+    }
+    if let Err(error) = cleanup_result {
+        failures.push(error);
+    }
+    let outcome = match outcome_result {
+        Ok(outcome) => Some(outcome),
+        Err(error) => {
+            failures.push(error);
+            None
+        }
+    };
+    let mut errors = failures.into_iter();
+    if let Some(primary) = errors.next() {
+        return Err(errors.fold(primary, combine_launch_errors));
+    }
+    Ok(outcome.expect("successful outcome was checked above"))
 }
 
 fn claude_command(project_root: &Path, context_path: &Path, arguments: &[OsString]) -> Command {
@@ -216,6 +260,10 @@ fn cleanup_review_error(primary: String, cleanup: String) -> LaunchError {
     LaunchError::new(format!(
         "failed to create private Claude context: {primary}; cleanup failed and runtime state is indeterminate and requires user review: {cleanup}"
     ))
+}
+
+fn combine_launch_errors(primary: LaunchError, additional: LaunchError) -> LaunchError {
+    LaunchError::new(format!("{primary}; additionally, {additional}"))
 }
 
 #[cfg(test)]
@@ -488,6 +536,34 @@ mod tests {
     }
 
     #[test]
+    fn spawn_failure_preserves_spawn_and_cleanup_errors() {
+        let fixture = fixture();
+        let (mut spawner, _captured) =
+            spawner(&fixture.project, Ok(ChildOutcome { exit_code: Some(0) }));
+        spawner.spawn_error = Some(io::ErrorKind::NotFound);
+
+        let error = launch_with_spawner_and_cleanup(
+            &fixture.store,
+            &fixture.project,
+            &fixture.manifest,
+            request_for("claude-code"),
+            &[],
+            &mut spawner,
+            |_project_fs, _receipt_id| {
+                Err(LaunchError::new(
+                    "private Claude context cleanup failed; injected cleanup failure",
+                ))
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("failed to spawn Claude Code: injected spawn failure"));
+        assert!(error.contains("injected cleanup failure"));
+        assert!(receipt_files(&fixture.project.memory_root).is_empty());
+    }
+
+    #[test]
     fn abnormal_child_outcome_removes_context_and_surfaces_failure() {
         let fixture = fixture();
         let (mut spawner, _captured) =
@@ -566,6 +642,44 @@ mod tests {
             .to_string()
             .contains("failed to commit launch receipt"));
         assert!(runtime_context_files(&fixture.project).is_empty());
+        assert!(receipt_files(&fixture.project.memory_root).is_empty());
+    }
+
+    #[test]
+    fn post_wait_failure_preserves_commit_indeterminacy_and_cleanup_error() {
+        let fixture = fixture();
+        let (mut spawner, _captured) =
+            spawner(&fixture.project, Ok(ChildOutcome { exit_code: Some(0) }));
+        let memory_root = fixture.project.memory_root.clone();
+        let mut changed = fixture.manifest.clone();
+        changed
+            .harnesses
+            .get_mut("claude-code")
+            .unwrap()
+            .adapter_capability = AdapterCapability::NativePreflight;
+        spawner.on_spawn = Some(Box::new(move || {
+            save_manifest(&memory_root, &changed).unwrap();
+        }));
+
+        let error = launch_with_spawner_and_cleanup(
+            &fixture.store,
+            &fixture.project,
+            &fixture.manifest,
+            request_for("claude-code"),
+            &[],
+            &mut spawner,
+            |_project_fs, _receipt_id| {
+                Err(LaunchError::new(
+                    "private Claude context cleanup failed; injected cleanup failure",
+                ))
+            },
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("failed to commit launch receipt"));
+        assert!(error.contains("receipt state may be indeterminate"));
+        assert!(error.contains("injected cleanup failure"));
         assert!(receipt_files(&fixture.project.memory_root).is_empty());
     }
 }
