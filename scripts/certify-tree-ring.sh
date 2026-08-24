@@ -347,13 +347,15 @@ Generated: $created_at
 - 50k extended metrics: $([ "$EXTENDED" = "1" ] && printf 'recorded in `performance-50000.out`' || printf 'skipped')
 - memory quality scenarios: passed
 - memory quality summary: \`quality/quality-summary.md\`
+- harness activation fixture: 6 explicit skips without fresh-session receipts
 - Agent Zero plugin smoke: $(printf '%s' "$agent_zero_status" | tr -d '"')
 
 Machine-readable metrics: \`metrics.json\`
 EOF
 mv -f "$SUMMARY_TMP" "$SUMMARY"
 
-HOME="$scan_home" "$BIN" --json integrations certify --source-root "$scan_root" --out-dir "$OUT_DIR" \
+HOME="$scan_home" "$BIN" --root "$scan_root/.tree-ring" --json integrations certify \
+  --source-root "$scan_root" --out-dir "$OUT_DIR" \
   > "$OUT_DIR/harness-certification.json"
 require_file "$OUT_DIR/harness/codex.json"
 require_file "$OUT_DIR/harness/claude-code.json"
@@ -361,16 +363,21 @@ require_file "$OUT_DIR/harness/opencode.json"
 require_file "$OUT_DIR/harness/goose.json"
 require_file "$OUT_DIR/harness/pi.json"
 require_file "$OUT_DIR/harness/agent-zero.json"
-grep -E '"pass_count"[[:space:]]*:[[:space:]]*5' "$OUT_DIR/harness-certification.json" > /dev/null \
-  || fail "harness certification did not report pass_count 5"
+# This fixture deliberately provides markers and generated guidance without
+# fresh-session preflight receipts. Certification must preserve that boundary:
+# every harness is skipped, and none may be promoted to pass from markers alone.
+grep -E '"pass_count"[[:space:]]*:[[:space:]]*0' "$OUT_DIR/harness-certification.json" > /dev/null \
+  || fail "harness certification did not report pass_count 0"
 grep -E '"fail_count"[[:space:]]*:[[:space:]]*0' "$OUT_DIR/harness-certification.json" > /dev/null \
   || fail "harness certification did not report fail_count 0"
-grep -E '"skip_count"[[:space:]]*:[[:space:]]*1' "$OUT_DIR/harness-certification.json" > /dev/null \
-  || fail "harness certification did not report skip_count 1"
-grep -E '"status"[[:space:]]*:[[:space:]]*"pass"' "$OUT_DIR/harness/codex.json" > /dev/null \
-  || fail "codex harness did not report pass status"
+grep -E '"skip_count"[[:space:]]*:[[:space:]]*6' "$OUT_DIR/harness-certification.json" > /dev/null \
+  || fail "harness certification did not report skip_count 6"
+grep -E '"status"[[:space:]]*:[[:space:]]*"skip"' "$OUT_DIR/harness/codex.json" > /dev/null \
+  || fail "codex harness did not report skip status"
 grep -E '"status"[[:space:]]*:[[:space:]]*"skip"' "$OUT_DIR/harness/pi.json" > /dev/null \
   || fail "pi harness did not report skip status"
+grep -E '"status"[[:space:]]*:[[:space:]]*"skip"' "$OUT_DIR/harness/agent-zero.json" > /dev/null \
+  || fail "agent-zero harness did not report skip status"
 grep -F '"harness"' "$INDEX" > /dev/null \
   || fail "evidence index did not include harness records"
 grep -F '"codex"' "$INDEX" > /dev/null \

@@ -939,7 +939,11 @@ mod tests {
 
         assert_eq!(app.mode, AppMode::Integrations);
         let report = app.integration_report.as_ref().unwrap();
-        assert_eq!(report.detected_count, 1);
+        assert!(report.detected_count >= 1);
+        assert!(report.by_id("codex").unwrap().markers.iter().any(|marker| {
+            marker.origin == crate::activation::adapters::MarkerOrigin::Project
+                && marker.path == ".codex"
+        }));
         assert!(app.status.contains("integration scan"));
     }
 
