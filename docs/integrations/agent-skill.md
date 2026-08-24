@@ -186,15 +186,18 @@ should publish only to their own agent partitions:
 
 ```bash
 tree-ring --root .tree-ring policy enable --coordinator release-coordinator
-export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+# Set and export TREE_RING_COORDINATOR_TOKEN with a history-safe, no-echo prompt
+# supported by your shell, or inject it through an approved secret manager.
 tree-ring --root .tree-ring policy status
 tree-ring --root .tree-ring policy audit --limit 100
 ```
 
 Enable prints the capability exactly once. Supply it only through
 `TREE_RING_COORDINATOR_TOKEN`; there is no token CLI flag. Do not put the token
-in memory, a source ref, a log, a retained command, or a committed file. The
-store keeps only its hash, and policy status/audit never reveal it.
+in memory, a source ref, a log, a retained command, or a committed file. Do not
+paste it into an `export` command; use a history-safe, no-echo prompt supported
+by the current shell or approved secret-manager injection. The store keeps only
+its hash, and policy status/audit never reveal it.
 Inject the variable only into coordinator processes. Ensure every ordinary
 worker is launched with `TREE_RING_COORDINATOR_TOKEN` unset so authority is not
 inherited through fan-out.
@@ -221,7 +224,8 @@ replace it immediately with the newly printed capability:
 
 ```bash
 tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
-export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+# Replace TREE_RING_COORDINATOR_TOKEN through the same history-safe, no-echo
+# input path before using the new capability.
 tree-ring --root .tree-ring policy disable
 unset TREE_RING_COORDINATOR_TOKEN
 ```

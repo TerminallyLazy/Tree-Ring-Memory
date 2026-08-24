@@ -112,14 +112,17 @@ Coordinated policy:
 
 ```bash
 tree-ring --root .tree-ring policy enable --coordinator release-coordinator
-export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+# Set and export TREE_RING_COORDINATOR_TOKEN with a history-safe, no-echo prompt
+# supported by your shell, or inject it through an approved secret manager.
 tree-ring --root .tree-ring policy status
 tree-ring --root .tree-ring policy audit --limit 100
 ```
 
 Never pass the capability as a CLI flag or store it in memory, logs, source
-refs, or committed files. Tree Ring prints it once and stores only its hash.
-Inject it only into coordinator processes; launch ordinary workers with
+refs, or committed files. Tree Ring prints it once and stores only its hash. Do
+not paste it into an `export` command; use a history-safe, no-echo prompt
+supported by the current shell or approved secret-manager injection. Inject it
+only into coordinator processes; launch ordinary workers with
 `TREE_RING_COORDINATOR_TOKEN` unset.
 
 In Coordinated mode, an ordinary worker may create only non-heartwood
@@ -139,7 +142,8 @@ Rotate and disable only while the current capability is exported:
 
 ```bash
 tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
-export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+# Replace TREE_RING_COORDINATOR_TOKEN through the same history-safe, no-echo
+# input path before using the new capability.
 tree-ring --root .tree-ring policy disable
 unset TREE_RING_COORDINATOR_TOKEN
 ```

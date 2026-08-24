@@ -20,5 +20,6 @@ AI host, operating system, source-control provider, or any other tool the user
 chooses to invoke.
 
 Support and privacy questions may be filed at
-<https://github.com/TerminallyLazy/tree-ring-memory-codex-plugin/issues>.
-Do not include secrets or private memory content in a public issue.
+<https://github.com/TerminallyLazy/Tree-Ring-Memory/issues>.
+Do not include secrets, vulnerability details, or private memory content in a
+public issue.

@@ -47,7 +47,8 @@ agent and trusted-process behavior. A coordinator can explicitly enable
 
 ```bash
 tree-ring policy enable --coordinator <label>
-export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+# Set and export TREE_RING_COORDINATOR_TOKEN with a history-safe, no-echo prompt
+# supported by your shell, or inject it through an approved secret manager.
 tree-ring policy status
 tree-ring policy audit --limit 100
 ```
@@ -55,8 +56,10 @@ tree-ring policy audit --limit 100
 The capability is accepted only through `TREE_RING_COORDINATOR_TOKEN`; it is
 never a CLI flag or event field. The store persists only a hash. Enable and
 rotate return the plaintext capability once, while status and audit never
-return it. Coordinators must keep the variable out of ordinary worker
-environments; a fan-out child that inherits the valid token inherits
+return it. Do not paste the capability into an `export` command; use a
+history-safe, no-echo prompt supported by the current shell or approved
+secret-manager injection. Coordinators must keep the variable out of ordinary
+worker environments; a fan-out child that inherits the valid token inherits
 coordinator write authority.
 
 Official Rust writers open the store with a `WriteContext` containing an
@@ -80,7 +83,8 @@ Rotate and disable require the current capability:
 
 ```bash
 tree-ring policy rotate --coordinator <label>
-export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+# Replace TREE_RING_COORDINATOR_TOKEN through the same history-safe, no-echo
+# input path before using the new capability.
 tree-ring policy disable
 unset TREE_RING_COORDINATOR_TOKEN
 ```
