@@ -407,7 +407,8 @@ existing memory, explicitly enable Coordinated mode:
 
 ```bash
 tree-ring --root .tree-ring policy enable --coordinator release-coordinator
-export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+# Set and export TREE_RING_COORDINATOR_TOKEN with a history-safe, no-echo prompt
+# supported by your shell, or inject it through an approved secret manager.
 tree-ring --root .tree-ring policy status
 tree-ring --root .tree-ring policy audit --limit 100
 ```
@@ -416,7 +417,9 @@ Enable prints the coordinator capability once. Put it only in
 `TREE_RING_COORDINATOR_TOKEN`; never pass it as a CLI flag or retain it in
 memory events, logs, source refs, scripts, or committed files. Tree Ring stores
 only a hash. `policy status` and `policy audit` are read-only and never reveal
-the capability. Inject the variable only into coordinator processes; explicitly
+the capability. Do not paste it into an `export` command; use a history-safe,
+no-echo prompt supported by the current shell or approved secret-manager
+injection. Inject the variable only into coordinator processes; explicitly
 remove it from every ordinary worker's environment so fan-out children cannot
 inherit coordinator authority.
 
@@ -441,7 +444,8 @@ replace the environment value with the newly printed capability:
 
 ```bash
 tree-ring --root .tree-ring policy rotate --coordinator release-coordinator-next
-export TREE_RING_COORDINATOR_TOKEN='<new one-time capability>'
+# Replace TREE_RING_COORDINATOR_TOKEN through the same history-safe, no-echo
+# input path before using the new capability.
 tree-ring --root .tree-ring policy disable
 unset TREE_RING_COORDINATOR_TOKEN
 ```

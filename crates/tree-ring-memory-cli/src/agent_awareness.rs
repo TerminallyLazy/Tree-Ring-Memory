@@ -95,7 +95,7 @@ Multi-agent coordination:
 Coordinated write policy:
 
 - Stores remain in backward-compatible Open mode until a coordinator explicitly runs `tree-ring policy enable --coordinator <label>`.
-- Enable and rotate print a one-time capability. Put it only in `TREE_RING_COORDINATOR_TOKEN`; there is no token CLI flag, and Tree Ring never stores the plaintext capability. Inject it only into coordinator processes and keep it unset for ordinary workers.
+- Enable and rotate print a one-time capability. Put it only in `TREE_RING_COORDINATOR_TOKEN`; there is no token CLI flag, and Tree Ring never stores the plaintext capability. Do not paste it into an `export` command; set it with a history-safe, no-echo prompt supported by the current shell or approved secret-manager injection. Inject it only into coordinator processes and keep it unset for ordinary workers.
 - In Coordinated mode, an ordinary worker may create only non-heartwood `scope=agent` memory whose `agent_profile` matches its `--agent-profile` or `TREE_RING_AGENT_PROFILE`.
 - Shared or non-agent writes, heartwood, imports, DOX/Revolve persistence, consolidation, ring changes, supersede/delete/redact, and applied maintenance require the coordinator capability.
 - `tree-ring policy status` and `tree-ring policy audit --limit 100` are read-only. Rotate with `tree-ring policy rotate --coordinator <label>` and return to Open mode with `tree-ring policy disable`; both require the current capability.
@@ -393,19 +393,24 @@ into Coordinated mode:
 
 ```bash
 tree-ring --root {root} policy enable --coordinator release-coordinator
-export TREE_RING_COORDINATOR_TOKEN='<one-time capability printed by enable>'
+# Set and export TREE_RING_COORDINATOR_TOKEN with a history-safe, no-echo prompt
+# supported by your shell, or inject it through an approved secret manager.
 tree-ring --root {root} policy status
 tree-ring --root {root} policy audit --limit 100
 tree-ring --root {root} policy rotate --coordinator release-coordinator-next
+# Replace TREE_RING_COORDINATOR_TOKEN through the same history-safe, no-echo
+# input path before using the new capability.
 tree-ring --root {root} policy disable
 unset TREE_RING_COORDINATOR_TOKEN
 ```
 
 Replace the environment value with the new one-time capability immediately
 after rotation. Never pass the capability as a CLI flag or retain it in memory
-events, logs, source refs, or committed files. Tree Ring stores only its hash.
-Inject the variable only into coordinator processes, and keep it unset in every
-ordinary worker environment.
+events, logs, source refs, or committed files. Do not paste it into an `export`
+command; use a history-safe, no-echo prompt supported by the current shell or
+approved secret-manager injection. Tree Ring stores only its hash. Inject the
+variable only into coordinator processes, and keep it unset in every ordinary
+worker environment.
 
 In Coordinated mode, an ordinary worker may create only non-heartwood
 `scope=agent` memory whose `agent_profile` matches the write context supplied by
@@ -566,6 +571,7 @@ mod tests {
         assert!(agents.contains("Coordinated Write Policy"));
         assert!(agents.contains("policy enable --coordinator"));
         assert!(agents.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(agents.contains("history-safe, no-echo"));
         assert!(agents.contains("ordinary worker may create only non-heartwood"));
         assert!(agents.contains("schema v3"));
         assert!(agents.contains("not a read ACL"));
@@ -601,6 +607,7 @@ mod tests {
         assert!(cli.contains("Coordinated write policy"));
         assert!(cli.contains("policy enable --coordinator"));
         assert!(cli.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(cli.contains("history-safe, no-echo"));
         assert!(cli.contains("memory inserts, updates, and deletes from old v0.12 writers"));
         assert!(cli.contains("Before substantial project work, recall project constraints, scars, user preferences, and unresolved seeds."));
         assert!(cli
@@ -731,6 +738,7 @@ mod tests {
         assert!(agents.contains("TREE_RING_COORDINATOR_TOKEN"));
         assert!(cli.contains("ordinary worker may create only non-heartwood"));
         assert!(skill.contains("policy enable --coordinator"));
+        assert!(cli.contains("history-safe, no-echo"));
     }
 
     #[test]

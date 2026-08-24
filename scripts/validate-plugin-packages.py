@@ -10,6 +10,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "tree-ring-memory"
+UNSAFE_TOKEN_EXPORT = "export TREE_RING_COORDINATOR_TOKEN='<"
+CANONICAL_ISSUES = "https://github.com/TerminallyLazy/Tree-Ring-Memory/issues"
+CANONICAL_ADVISORY = "https://github.com/TerminallyLazy/Tree-Ring-Memory/security/advisories/new"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -114,6 +117,7 @@ def validate_shared_contract() -> None:
             "scripts/certify-tree-ring.sh",
             "does not run certification",
             "TREE_RING_COORDINATOR_TOKEN",
+            "history-safe, no-echo",
             "configured-awaiting-proof",
             "needs-plugin",
             "same-host local-filesystem processes",
@@ -132,10 +136,30 @@ def validate_shared_contract() -> None:
     require(not (PLUGIN / "scripts" / "certify-tree-ring.sh").exists(), "source certification suite must not be bundled")
     for filename in ("LICENSE", "PRIVACY.md", "SECURITY.md", "TERMS.md", "README.md"):
         require((PLUGIN / filename).is_file(), f"plugin {filename} is missing")
+    require_markers(PLUGIN / "SECURITY.md", [CANONICAL_ADVISORY, CANONICAL_ISSUES])
+    require_markers(PLUGIN / "PRIVACY.md", [CANONICAL_ISSUES])
+    require_markers(PLUGIN / "TERMS.md", [CANONICAL_ISSUES])
+    guidance_paths = [
+        ROOT / "README.md",
+        ROOT / "skills" / "tree-ring-memory" / "SKILL.md",
+        ROOT / "templates" / "dox" / "AGENTS.md",
+        ROOT / "docs" / "integrations" / "agent-skill.md",
+        ROOT / "docs" / "protocol" / "memory-event.md",
+        ROOT / "crates" / "tree-ring-memory-cli" / "src" / "agent_awareness.rs",
+        skill,
+    ]
+    for path in guidance_paths:
+        text = path.read_text(encoding="utf-8")
+        require(UNSAFE_TOKEN_EXPORT not in text, f"unsafe token export remains in {path.relative_to(ROOT)}")
+        require("history-safe, no-echo" in text, f"safe token guidance is missing from {path.relative_to(ROOT)}")
     for path in PLUGIN.rglob("*"):
         if path.is_file() and path.suffix in {".md", ".json"}:
             text = path.read_text(encoding="utf-8")
             require("[TODO:" not in text and "Local developer" not in text, f"placeholder remains in {path.relative_to(ROOT)}")
+            require(
+                "tree-ring-memory-codex-plugin/issues" not in text,
+                f"stale support URL remains in {path.relative_to(ROOT)}",
+            )
 
 
 def main() -> None:

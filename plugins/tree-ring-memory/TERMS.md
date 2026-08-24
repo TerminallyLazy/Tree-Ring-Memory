@@ -17,4 +17,4 @@ availability, accuracy, non-infringement, or data durability, to the maximum
 extent permitted by law. The limitations in the included MIT License apply.
 
 Questions may be filed at
-<https://github.com/TerminallyLazy/tree-ring-memory-codex-plugin/issues>.
+<https://github.com/TerminallyLazy/Tree-Ring-Memory/issues>.
