@@ -60,7 +60,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.1", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.2", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     for unsupported in ("mcpServers", "apps", "hooks"):
         require(unsupported not in manifest, f"skills-only Codex plugin must not declare {unsupported}")
@@ -76,7 +76,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.0", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.1", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
