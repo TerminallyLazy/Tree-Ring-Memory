@@ -72,6 +72,9 @@ impl ActivationProject {
 pub trait HarnessEnvironment {
     fn executable_version(&self, command: &str) -> Option<String>;
     fn project_path_exists(&self, relative: &Path) -> bool;
+    fn home_path_exists(&self, _relative: &Path) -> bool {
+        false
+    }
     fn read_project_file(&self, relative: &Path) -> Result<Option<String>, String>;
     fn agent_zero_plugin_manifest(&self) -> Option<AgentZeroPluginManifest>;
 }
@@ -364,6 +367,7 @@ struct DeclarativeAdapter {
     command: &'static str,
     capability: AdapterCapability,
     markers: &'static [&'static str],
+    home_markers: &'static [&'static str],
     support: AdapterSupport,
 }
 
@@ -382,6 +386,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "codex",
         capability: AdapterCapability::GuidanceOnly,
         markers: &[".codex", "AGENTS.md"],
+        home_markers: &[".codex"],
         support: AdapterSupport::Maintained,
     },
     DeclarativeAdapter {
@@ -391,6 +396,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "claude",
         capability: AdapterCapability::WrapperPreflight,
         markers: &[".claude", "CLAUDE.md"],
+        home_markers: &[".claude"],
         support: AdapterSupport::Maintained,
     },
     DeclarativeAdapter {
@@ -400,6 +406,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "pi",
         capability: AdapterCapability::NativePreflight,
         markers: &[".pi", "pi.toml"],
+        home_markers: &[".pi"],
         support: AdapterSupport::Maintained,
     },
     DeclarativeAdapter {
@@ -412,6 +419,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         // tree_ring_memory plugin is installed or enabled. The plugin may
         // prove its capability only through the explicit descriptor below.
         markers: &[],
+        home_markers: &[],
         support: AdapterSupport::AgentZero,
     },
     DeclarativeAdapter {
@@ -421,6 +429,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "hermes",
         capability: AdapterCapability::GuidanceOnly,
         markers: &[".hermes", "hermes.toml"],
+        home_markers: &[".hermes"],
         support: AdapterSupport::Unsupported,
     },
     DeclarativeAdapter {
@@ -430,6 +439,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "opencode",
         capability: AdapterCapability::GuidanceOnly,
         markers: &[".opencode", "opencode.json", "opencode.toml"],
+        home_markers: &[".opencode"],
         support: AdapterSupport::Unsupported,
     },
     DeclarativeAdapter {
@@ -439,6 +449,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
         command: "goose",
         capability: AdapterCapability::GuidanceOnly,
         markers: &[".goose", "goosehints"],
+        home_markers: &[".goose"],
         support: AdapterSupport::Unsupported,
     },
 ];
@@ -587,6 +598,18 @@ impl HarnessAdapter for DeclarativeAdapter {
                 origin: MarkerOrigin::Project,
             })
             .collect::<Vec<_>>();
+        markers.extend(
+            self.home_markers
+                .iter()
+                .filter(|marker| env.home_path_exists(Path::new(marker)))
+                .map(|marker| IntegrationMarker {
+                    path: normalized_relative_path(marker)
+                        .expect("static home marker paths are normalized")
+                        .display()
+                        .to_string(),
+                    origin: MarkerOrigin::Home,
+                }),
+        );
         markers.sort();
         markers.dedup();
 
@@ -745,11 +768,15 @@ impl HarnessEnvironment for EmptyHarnessEnvironment {
 
 struct LocalHarnessEnvironment {
     project_root: PathBuf,
+    home_root: Option<PathBuf>,
 }
 
 impl LocalHarnessEnvironment {
     fn new(project_root: PathBuf) -> Self {
-        Self { project_root }
+        Self {
+            project_root,
+            home_root: std::env::var_os("HOME").map(PathBuf::from),
+        }
     }
 }
 
@@ -767,6 +794,12 @@ impl HarnessEnvironment for LocalHarnessEnvironment {
 
     fn project_path_exists(&self, relative: &Path) -> bool {
         self.project_root.join(relative).exists()
+    }
+
+    fn home_path_exists(&self, relative: &Path) -> bool {
+        self.home_root
+            .as_ref()
+            .is_some_and(|home| home.join(relative).exists())
     }
 
     fn read_project_file(&self, relative: &Path) -> Result<Option<String>, String> {
@@ -799,6 +832,7 @@ mod tests {
     struct FakeEnvironment {
         executable_versions: BTreeMap<String, String>,
         paths: BTreeSet<PathBuf>,
+        home_paths: BTreeSet<PathBuf>,
         files: BTreeMap<PathBuf, String>,
         agent_zero: Option<AgentZeroPluginManifest>,
     }
@@ -810,6 +844,10 @@ mod tests {
 
         fn project_path_exists(&self, relative: &Path) -> bool {
             self.paths.contains(relative)
+        }
+
+        fn home_path_exists(&self, relative: &Path) -> bool {
+            self.home_paths.contains(relative)
         }
 
         fn read_project_file(&self, relative: &Path) -> Result<Option<String>, String> {
@@ -978,6 +1016,29 @@ mod tests {
 
         assert_eq!(marker.path, ".codex");
         assert!(!Path::new(&marker.path).is_absolute());
+    }
+
+    #[test]
+    fn detection_distinguishes_project_and_home_markers_without_exposing_home_paths() {
+        let mut env = FakeEnvironment::default();
+        env.paths.insert(PathBuf::from("CLAUDE.md"));
+        env.home_paths.insert(PathBuf::from(".claude"));
+
+        let report = detect_adapters(&project(), &env);
+        let claude = report.by_id("claude-code").unwrap();
+
+        assert!(claude.markers.contains(&IntegrationMarker {
+            path: "CLAUDE.md".to_string(),
+            origin: MarkerOrigin::Project,
+        }));
+        assert!(claude.markers.contains(&IntegrationMarker {
+            path: ".claude".to_string(),
+            origin: MarkerOrigin::Home,
+        }));
+        assert!(claude
+            .markers
+            .iter()
+            .all(|marker| !Path::new(&marker.path).is_absolute()));
     }
 
     #[test]

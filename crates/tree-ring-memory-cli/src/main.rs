@@ -3063,11 +3063,12 @@ mod tests {
 
         assert!(!root.exists());
         let report = activation::adapters::scan_integrations(dir.path());
-        assert_eq!(report.detected_count, 1);
-        assert_ne!(
-            report.by_id("codex").unwrap().state,
-            activation::ActivationState::Active
-        );
+        assert!(report.detected_count >= 1);
+        let codex = report.by_id("codex").unwrap();
+        assert!(codex.markers.iter().any(|marker| {
+            marker.origin == activation::adapters::MarkerOrigin::Project && marker.path == ".codex"
+        }));
+        assert_ne!(codex.state, activation::ActivationState::Active);
     }
 
     #[test]
