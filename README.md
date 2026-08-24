@@ -121,6 +121,36 @@ same-host local filesystem with matching project-store identity. It does not
 claim safe SQLite sharing across hosts, NFS/network filesystems, or containers
 on different hosts.
 
+### Install the agent guidance plugin (optional)
+
+The repository includes an instruction-only package for ChatGPT/Codex and
+Claude Code under `plugins/tree-ring-memory/`. It adds the reviewed Tree Ring
+workflow, DOX dry-run guidance, and installed-runtime certification commands;
+it does not bundle the CLI, the full source certification script, or an MCP
+server.
+
+Add the marketplace to Codex:
+
+```bash
+codex plugin marketplace add TerminallyLazy/Tree-Ring-Memory
+```
+
+Then restart the ChatGPT desktop app and install Tree Ring Memory from the
+Plugins Directory. The repo-local `.agents/plugins/marketplace.json` is also
+available automatically when this repository is open in a supported Work or
+Codex surface.
+
+Add and install the same package in Claude Code:
+
+```text
+/plugin marketplace add TerminallyLazy/Tree-Ring-Memory
+/plugin install tree-ring-memory@tree-ring-memory
+```
+
+The plugin still requires Tree Ring Memory CLI v0.14.0 or newer. See the
+[plugin README](plugins/tree-ring-memory/README.md) for the platform manifests,
+commands, DOX contract flow, and certification boundary.
+
 ### Agent Zero uses its separate plugin
 
 Agent Zero is intentionally a two-part setup. `tree-ring init` creates the

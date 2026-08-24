@@ -1,0 +1,26 @@
+{
+  "name": "tree-ring-memory",
+  "displayName": "Tree Ring Memory",
+  "version": "0.3.0",
+  "description": "Local-first memory lifecycle and receipt-backed harness guidance for Claude Code using Tree Ring Memory v0.14+.",
+  "author": {
+    "name": "TerminallyLazy",
+    "url": "https://github.com/TerminallyLazy"
+  },
+  "homepage": "https://terminallylazy.github.io/Tree-Ring-Memory/",
+  "repository": "https://github.com/TerminallyLazy/Tree-Ring-Memory",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "agent-memory",
+    "ai-memory",
+    "local-first",
+    "harness-activation",
+    "multi-agent",
+    "privacy",
+    "recall",
+    "sqlite",
+    "skills"
+  ],
+  "skills": "./skills/"
+}
