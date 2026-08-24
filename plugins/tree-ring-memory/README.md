@@ -4,8 +4,8 @@ This directory is the repository-distributed Tree Ring Memory plugin for
 ChatGPT/Codex and Claude Code. It packages instruction files only; the local
 Tree Ring Memory CLI remains the runtime and data owner.
 
-The Codex manifest is version `0.3.1`. The Claude Code manifest is version
-`0.3.0`. Both target Tree Ring Memory CLI `0.14.0` or newer and share the same
+The Codex manifest is version `0.3.2`. The Claude Code manifest is version
+`0.3.1`. Both target Tree Ring Memory CLI `0.14.0` or newer and share the same
 reviewed wrapper skill.
 
 The package does not run a background service, scrape chats, install hooks, or

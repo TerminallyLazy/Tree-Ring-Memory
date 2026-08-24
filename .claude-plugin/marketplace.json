@@ -5,7 +5,7 @@
     "url": "https://github.com/TerminallyLazy"
   },
   "description": "Claude Code marketplace for Tree Ring Memory v0.14 local-first recall and receipt-backed harness readiness.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "plugins": [
     {
       "name": "tree-ring-memory",
