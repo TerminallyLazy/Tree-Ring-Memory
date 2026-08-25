@@ -12,7 +12,8 @@ idempotent-write semantics. The v0.13 line adds an opt-in coordinated write
 policy, protected-write audit, schema-v3 old-memory-mutation fence, and
 forward-schema rejection. The v0.14 line adds project-local harness activation
 with receipt-backed readiness, keeping configured bridges distinct from active
-memory use.
+memory use. The v0.15 line adds checksum-verified release bootstrap,
+project-root-aware generated agent guidance, and scope-preserving CLI updates.
 
 ## Current Status
 
@@ -41,7 +42,7 @@ memory use.
   scopes into deterministic per-record legacy partitions marked for review.
   Redaction retains a memory-ID tombstone, and replaced operation namespaces
   remain claimed until explicit hard deletion.
-- Rust CLI owns the full local command surface: init, remember, evidence,
+- Rust CLI owns the full local command surface: init, update, remember, evidence,
   recall, forget, import/export, audit, consolidate, maintain, DOX sync,
   Revolve sync, coordinated policy management, framework discovery, welcome
   onboarding, and TUI operation.
@@ -92,7 +93,10 @@ memory use.
   agent scope. In Coordinated mode, lifecycle actions require the coordinator
   capability inherited through `TREE_RING_COORDINATOR_TOKEN`.
 - The repository includes `install.sh` for one-line global or project-local
-  installs, plus `tree-ring welcome` for first-run terminal onboarding.
+  source installs and checksum-verified official release installs, plus
+  `tree-ring welcome` for first-run terminal onboarding. `tree-ring update
+  --check` checks without mutation; `tree-ring update` preserves the active
+  project-local, direct-prefix, or Homebrew installation scope.
 - The Rust CLI includes `tree-ring dox sync` and `tree-ring revolve sync` as
   source adapters that produce concise, source-linked memory events without
   replacing DOX contracts or Revolve evidence records.

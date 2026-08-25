@@ -1,7 +1,7 @@
 {
   "name": "tree-ring-memory",
-  "version": "0.3.2",
-  "description": "Local-first memory lifecycle and receipt-backed harness guidance for coding agents using Tree Ring Memory v0.14+.",
+  "version": "0.3.3",
+  "description": "Local-first memory lifecycle, project bootstrap, and receipt-backed harness guidance for coding agents using Tree Ring Memory v0.15+.",
   "author": {
     "name": "TerminallyLazy",
     "url": "https://github.com/TerminallyLazy"
@@ -25,7 +25,7 @@
   "interface": {
     "displayName": "Tree Ring Memory",
     "shortDescription": "Local-first memory lifecycle guidance for Codex agents.",
-    "longDescription": "Tree Ring Memory gives coding agents a lifecycle-aware practice for project recall, durable decisions, receipt-backed harness readiness, same-host fan-out/fan-in, idempotent worker writes, coordinator-authorized shared publication, explicit forgetting, and privacy-safe memory capture using Tree Ring Memory v0.14 or newer.",
+    "longDescription": "Tree Ring Memory gives coding agents a lifecycle-aware practice for verified project-local setup, project recall, durable decisions, receipt-backed harness readiness, same-host fan-out/fan-in, idempotent worker writes, coordinator-authorized shared publication, explicit forgetting, privacy-safe memory capture, and scope-preserving CLI updates using Tree Ring Memory v0.15 or newer.",
     "developerName": "TerminallyLazy",
     "category": "Developer Tools",
     "capabilities": [

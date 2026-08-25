@@ -20,6 +20,12 @@ const SKILL_QUALITY_GATES_HEADING: &str = "## Memory Quality Gates";
 const SKILL_QUALITY_GATES_ANCHOR: &str = "## Ring Selection";
 const SKILL_POLICY_HEADING: &str = "## Coordinated Write Policy";
 const SKILL_POLICY_ANCHOR: &str = "## Agent-Mediated Updates";
+const AGENT_RUNTIME_HEADING: &str = "## Local Runtime Bootstrap And Updates";
+const AGENT_RUNTIME_ANCHOR: &str = "## Harness Bridges";
+const SKILL_RUNTIME_HEADING: &str = "## Runtime Bootstrap And Updates";
+const SKILL_RUNTIME_ANCHOR: &str = "## When To Recall";
+const CLI_RUNTIME_HEADING: &str = "Runtime bootstrap and updates:";
+const CLI_RUNTIME_ANCHOR: &str = "Core commands:";
 const PREFLIGHT_HEADING: &str = "## Harness Preflight";
 const PREFLIGHT_GUIDANCE: &str = r#"## Harness Preflight
 
@@ -49,10 +55,20 @@ Use memory deliberately:
 - use seeds for future work and hypotheses
 - forget, redact, or supersede stale or sensitive memory
 
+Runtime bootstrap and updates:
+
+- Resolve the real project root before initialization. Never initialize a plugin cache, package directory, home directory, or incidental working directory.
+- Prefer `<project-root>/.tree-ring/bin/tree-ring` when present; otherwise use the active `tree-ring` on `PATH`.
+- With existing user authorization for setup, install the verified project-local release from the project root with `curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation`. Otherwise obtain permission before downloading or installing software.
+- Use `tree-ring --root .tree-ring init` for a global CLI or `.tree-ring/bin/tree-ring --root .tree-ring init` for a project-local CLI. Verify that `memory.sqlite`, `AGENTS.md`, `SKILL.md`, and `CLI.md` are under the intended project.
+- `tree-ring update --check` is read-only. Run `tree-ring update` only with update authorization; it preserves the active installation scope and verifies official release assets. Re-run project initialization afterward to backfill managed guidance.
+- A pre-0.15 CLI must be upgraded with its existing package manager or install prefix. Check `command -v tree-ring` and `which -a tree-ring` so an old binary does not shadow the update.
+
 Core commands:
 
 ```bash
 tree-ring init
+tree-ring update --check
 tree-ring recall "project startup warnings"
 tree-ring remember "Use project-scoped recall before risky changes." --event-type lesson --scope project
 tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
@@ -175,6 +191,27 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
             CLI_QUALITY_GATES_HEADING,
             CLI_QUALITY_GATES_ANCHOR,
         ),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("AGENTS.md"),
+        is_generated_agents_file,
+        AGENT_RUNTIME_HEADING,
+        AGENT_RUNTIME_ANCHOR,
+        extract_section(&agent_contract, AGENT_RUNTIME_HEADING, AGENT_RUNTIME_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("SKILL.md"),
+        is_generated_skill_file,
+        SKILL_RUNTIME_HEADING,
+        SKILL_RUNTIME_ANCHOR,
+        extract_section(SKILL_TEMPLATE, SKILL_RUNTIME_HEADING, SKILL_RUNTIME_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("CLI.md"),
+        is_generated_cli_file,
+        CLI_RUNTIME_HEADING,
+        CLI_RUNTIME_ANCHOR,
+        extract_section(CLI_REFERENCE, CLI_RUNTIME_HEADING, CLI_RUNTIME_ANCHOR),
     )?;
     maybe_backfill_generated_file(
         &root.join("AGENTS.md"),
@@ -354,6 +391,31 @@ tree-ring --root {root} revolve sync --source-root revolve --dry-run
 tree-ring --root {root} integrations scan --source-root .
 tree-ring --root {root} tui
 ```
+
+## Local Runtime Bootstrap And Updates
+
+This store belongs to the project that contains `{root}`. Do not run `init`
+from a plugin cache, downloaded package directory, home directory, or unrelated
+working directory. Prefer `{root}/bin/tree-ring` when it exists; otherwise use
+the active `tree-ring` on `PATH`.
+
+If the CLI is absent and the user's request already authorizes Tree Ring setup,
+install the official verified project-local release from the real project root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+```
+
+Otherwise obtain permission before downloading or installing software. Run
+`tree-ring --root {root} init` for a global CLI or `{root}/bin/tree-ring --root
+{root} init` for a project-local CLI. Verify all generated files remain under
+the intended root, then inspect `integrations status` with the same executable.
+
+Use `tree-ring update --check` for a read-only release check. Run `tree-ring
+update` only with update authorization; preserve the current package manager or
+install prefix and do not create a shadowing second binary. Re-run `init` after
+an update to backfill managed guidance without replacing custom files. A
+pre-0.15 CLI must be upgraded through its existing manager or prefix first.
 
 ## Harness Bridges
 
@@ -633,6 +695,68 @@ mod tests {
             assert!(content.contains("does not create activation proof"));
             assert!(content.contains("not an adversarial security boundary"));
         }
+    }
+
+    #[test]
+    fn generated_guidance_bootstraps_and_updates_from_the_project_root() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        ensure_agent_awareness(&root).unwrap();
+
+        for name in ["AGENTS.md", "SKILL.md", "CLI.md"] {
+            let content = fs::read_to_string(root.join(name)).unwrap();
+            assert!(
+                content.contains("Runtime Bootstrap And Updates")
+                    || content.contains("Runtime bootstrap and updates:")
+            );
+            assert!(content.contains("--project --init --release latest --no-animation"));
+            assert!(content.contains("tree-ring update --check"));
+            assert!(content.contains("project root"));
+            assert!(content.contains("shadow"));
+        }
+    }
+
+    #[test]
+    fn generated_backfills_runtime_guidance_into_recognized_stale_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+
+        fs::write(
+            root.join("AGENTS.md"),
+            remove_managed_section(
+                &canonical_agents,
+                AGENT_RUNTIME_HEADING,
+                AGENT_RUNTIME_ANCHOR,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("CLI.md"),
+            remove_managed_section(CLI_REFERENCE, CLI_RUNTIME_HEADING, CLI_RUNTIME_ANCHOR).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            remove_managed_section(SKILL_TEMPLATE, SKILL_RUNTIME_HEADING, SKILL_RUNTIME_ANCHOR)
+                .unwrap(),
+        )
+        .unwrap();
+
+        ensure_agent_awareness(&root).unwrap();
+
+        let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        let cli = fs::read_to_string(root.join("CLI.md")).unwrap();
+        let skill = fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert_eq!(agents.matches(AGENT_RUNTIME_HEADING).count(), 1);
+        assert_eq!(cli.matches(CLI_RUNTIME_HEADING).count(), 1);
+        assert_eq!(skill.matches(SKILL_RUNTIME_HEADING).count(), 1);
+        assert!(agents.contains("--project --init --release latest"));
+        assert!(cli.contains("tree-ring update --check"));
+        assert!(skill.contains("which -a tree-ring"));
     }
 
     #[test]

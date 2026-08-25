@@ -6,15 +6,16 @@ allowed-tools: ["Bash", "Read"]
 # Tree Ring Status
 
 Read project-local `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` when present,
-then confirm the local runtime is Tree Ring Memory 0.14.0 or newer:
+then follow the skill's Runtime Bootstrap And Updates procedure and confirm the
+selected project-local or global runtime is Tree Ring Memory 0.15.0 or newer:
 
 ```bash
 tree-ring --version
 ```
 
-If the runtime is missing or older, explain the limitation. Do not install or
-upgrade software, edit shell configuration, or invent a status without the
-user's explicit permission.
+Bootstrap or upgrade when the user's request already authorizes it; otherwise
+obtain permission before downloading or changing software. Never invent a
+status.
 
 Inspect receipt-backed readiness without changing it:
 

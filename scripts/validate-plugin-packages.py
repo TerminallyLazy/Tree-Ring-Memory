@@ -60,7 +60,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.2", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.3", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     for unsupported in ("mcpServers", "apps", "hooks"):
         require(unsupported not in manifest, f"skills-only Codex plugin must not declare {unsupported}")
@@ -76,7 +76,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.1", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.2", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
@@ -97,6 +97,7 @@ def validate_claude() -> None:
         "tree-ring-dox-sync.md",
         "tree-ring-recall.md",
         "tree-ring-status.md",
+        "tree-ring-update.md",
     }
     actual_commands = {path.name for path in (PLUGIN / "commands").glob("*.md")}
     require(actual_commands == expected_commands, "Claude command package is incomplete")
@@ -107,8 +108,11 @@ def validate_shared_contract() -> None:
     require_markers(
         skill,
         [
-            "Runtime Preflight",
-            "0.14.0 or newer",
+            "Runtime Bootstrap And Updates",
+            "0.15.0 or newer",
+            "--project --init --release latest --no-animation",
+            "tree-ring update --check",
+            "which -a tree-ring",
             "DOX Contract Flow",
             "tree-ring dox sync --source-root <path> --dry-run",
             "Certification Boundary",
@@ -131,6 +135,15 @@ def validate_shared_contract() -> None:
     require_markers(
         PLUGIN / "commands" / "tree-ring-certify.md",
         ["tree-ring integrations certify", "tree-ring recall-quality", "repository-only", "does not execute the suite"],
+    )
+    require_markers(
+        PLUGIN / "commands" / "tree-ring-update.md",
+        [
+            "tree-ring update --check",
+            "preserve the active",
+            "CLIs older than 0.15.0",
+            "--root .tree-ring init",
+        ],
     )
     require((ROOT / "scripts" / "certify-tree-ring.sh").is_file(), "source certification script is missing")
     require(not (PLUGIN / "scripts" / "certify-tree-ring.sh").exists(), "source certification suite must not be bundled")

@@ -1,20 +1,11 @@
 ---
 name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
-version: 0.14.0
-tags: ["memory", "agents", "recall", "privacy", "projects", "dox", "revolve", "skills", "cli"]
-triggers:
-  - "remember this"
-  - "recall what we decided"
-  - "what did we learn"
-  - "tree ring memory"
-  - "consolidate memory"
-  - "forget this"
-  - "project memory"
-  - "sync DOX"
-  - "sync Revolve"
-  - "evidence loop"
-  - "multi-agent memory"
+license: MIT
+metadata:
+  version: "0.15.0"
+  tags: "memory, agents, recall, privacy, projects, dox, revolve, skills, cli"
+  triggers: "remember this; recall what we decided; what did we learn; tree ring memory; consolidate memory; forget this; project memory; sync DOX; sync Revolve; evidence loop; multi-agent memory"
 ---
 
 # Tree Ring Memory
@@ -29,6 +20,57 @@ Tree Ring Memory preserves meaningful agent learning like tree rings:
 - durable truths become heartwood
 - speculative future work stays as seeds
 - sensitive data is blocked, redacted, or kept out by default
+
+## Runtime Bootstrap And Updates
+
+Resolve the actual project root before running Tree Ring. Never initialize a
+plugin cache, downloaded package directory, home directory, or arbitrary
+working directory by accident.
+
+1. If `<project-root>/.tree-ring/bin/tree-ring` exists, prefer that binary for
+   this project. Otherwise check `command -v tree-ring` and run
+   `tree-ring --version`.
+2. Read existing `<project-root>/.tree-ring/SKILL.md` and `CLI.md` when present.
+3. If no CLI is available and the user's request already authorizes Tree Ring
+   setup, install the verified current release project-locally from the project
+   root. Otherwise explain the exact operation and obtain permission before the
+   network download or software installation:
+
+   ```bash
+   cd <project-root>
+   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+   ```
+
+4. For an existing global CLI, initialize from the project root with
+   `tree-ring --root .tree-ring init`. For a project-local CLI, use
+   `.tree-ring/bin/tree-ring --root .tree-ring init`. This must place
+   `memory.sqlite`, `AGENTS.md`, `SKILL.md`, and `CLI.md` under that project's
+   `.tree-ring/` directory.
+5. Verify the created paths and run the same binary with
+   `--root .tree-ring integrations status`. Initialization creates safe local
+   guidance and bridge material; it is not receipt-backed activation proof.
+
+Check for releases without changing files:
+
+```bash
+tree-ring update --check
+```
+
+Run `tree-ring update` only when the user has authorized an update. It updates
+the active binary in its existing project-local, direct, or Homebrew-managed
+scope, verifies official release assets, and must not create a second binary
+that shadows the active one. After an update, return to each project root and
+run `tree-ring --root .tree-ring init` (or the project-local equivalent) to
+backfill managed agent guidance without replacing custom files.
+
+CLIs older than 0.15.0 do not have `tree-ring update`. Upgrade those with the
+same manager or prefix that installed them: `brew upgrade tree-ring` for
+Homebrew, `--project --release latest` for an existing project-local install,
+or `--install-dir <existing-prefix> --release latest` for another direct
+install. Check `command -v tree-ring` and `which -a tree-ring` afterward so an
+older shadowing binary is not mistaken for the updated runtime. Do not edit a
+shell profile or change global installation scope without separate user
+authorization.
 
 ## When To Recall
 

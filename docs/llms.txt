@@ -5,14 +5,14 @@
 
 Website: https://terminallylazy.github.io/Tree-Ring-Memory/
 Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
-Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0
+Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0
 Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 Homebrew tap: https://github.com/TerminallyLazy/homebrew-tree-ring
 Feedback: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26
 Feed: https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml
 License: MIT
 Status: protocol-preview
-Current version: 0.14.0
+Current version: 0.15.0
 
 ## Summary
 
@@ -37,19 +37,18 @@ ideas stay as seeds.
 - DOX and Revolve sync adapters.
 - Read-only agent-framework discovery.
 - Terminal onboarding and a Ratatui operator console.
+- Verified prebuilt bootstrap and scope-preserving CLI updates.
 
-## Install From Source (Requires Rust and Cargo)
+## Verified Prebuilt Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --release latest
 ```
 
-Linux x86_64 prebuilt install (glibc 2.36 or newer):
+Recommended project-local setup from the project root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
-  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.14.0/tree-ring-memory-0.14.0-linux-x86_64.tar.gz \
-  --archive-sha256 c72191aca81f195472272a1962df354fe0af04a08b01a7472a1faf987cd177fa
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
 ```
 
 macOS ARM64 Homebrew install:
@@ -58,6 +57,19 @@ macOS ARM64 Homebrew install:
 brew tap TerminallyLazy/tree-ring
 brew install tree-ring
 ```
+
+Source install requires Rust and Cargo and omits `--release latest`.
+
+## Update
+
+```bash
+tree-ring update --check
+tree-ring update
+tree-ring --root .tree-ring init
+```
+
+The updater verifies official assets and preserves the active install scope.
+Pre-0.15 CLIs must first be upgraded with their existing manager or prefix.
 
 ## First Commands
 
@@ -91,7 +103,7 @@ writes are explicit.
 - Rust article: https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md
 - Press kit: https://terminallylazy.github.io/Tree-Ring-Memory/press-kit.md
 - Repository: https://github.com/TerminallyLazy/Tree-Ring-Memory
-- Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0
+- Launch release: https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0
 - Launch discussion: https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27
 - Homebrew tap: https://github.com/TerminallyLazy/homebrew-tree-ring
 - Feedback issue: https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26

@@ -23,6 +23,32 @@ generated guidance instead of duplicating memory data. Prefer project-level
 bridges for the current repo. Treat global Tree Ring bridges as explicit user
 configuration that affects every project.
 
+## Runtime Bootstrap And Updates
+
+Resolve the real project root before setup. Never initialize Tree Ring inside a
+plugin cache, package directory, home directory, or incidental working
+directory. Prefer `<project-root>/.tree-ring/bin/tree-ring` when it exists;
+otherwise use the active `tree-ring` on `PATH`.
+
+When no CLI exists and the user's request already authorizes setup, run the
+official verified-release installer from the project root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+```
+
+Otherwise obtain permission before downloading or installing software. A
+global CLI initializes with `tree-ring --root .tree-ring init`; a project-local
+CLI initializes with `.tree-ring/bin/tree-ring --root .tree-ring init`. Verify
+that the generated files and `memory.sqlite` are under the intended project's
+`.tree-ring/`, then run `integrations status` with the same binary and root.
+
+Use `tree-ring update --check` for a read-only release check and, only after
+update authorization, `tree-ring update`. Preserve the current manager and
+install prefix; never create a second shadowing binary. After updating, rerun
+`init` in each project to safely backfill managed guidance. For a pre-0.15 CLI,
+use the same installer scope or package manager that originally installed it.
+
 ## Recall Rules
 
 Before substantial work, recall project-scoped memory for:
