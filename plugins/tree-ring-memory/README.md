@@ -17,10 +17,17 @@ privacy-safe memory action is warranted.
 The safe default is a verified project-local install. From the actual project
 root, after the user has authorized Tree Ring setup:
 
+Download the official version-pinned `v0.15.0/install.sh` to a temporary file,
+verify its SHA-256 is
+`ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`, inspect
+it, then run these commands from the project root:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+sh <verified-installer-path> --project --init --release latest --no-animation
 .tree-ring/bin/tree-ring --root .tree-ring integrations status --verbose
 ```
+
+Do not pipe a network response directly to a shell.
 
 The installer downloads the official platform release and verifies its SHA-256
 asset. A global Homebrew install remains available on macOS ARM64 through
