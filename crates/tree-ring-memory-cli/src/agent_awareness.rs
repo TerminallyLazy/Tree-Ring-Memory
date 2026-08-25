@@ -293,13 +293,28 @@ fn maybe_backfill_generated_file(
     };
 
     let existing = fs::read_to_string(path).map_err(|err| err.to_string())?;
-    if !recognizer(&existing) || existing.contains(section_heading) {
+    if !recognizer(&existing) {
         return Ok(());
     }
 
-    let Some(updated) = insert_section_before_anchor(&existing, section, anchor) else {
-        return Ok(());
-    };
+    let updated =
+        if let Some((start, end)) = managed_section_range(&existing, section_heading, anchor) {
+            let section = if existing.contains("\r\n") {
+                Cow::Owned(section.replace('\n', "\r\n"))
+            } else {
+                Cow::Borrowed(section)
+            };
+            let mut updated = String::with_capacity(existing.len() + section.len() - (end - start));
+            updated.push_str(&existing[..start]);
+            updated.push_str(&section);
+            updated.push_str(&existing[end..]);
+            updated
+        } else {
+            let Some(updated) = insert_section_before_anchor(&existing, section, anchor) else {
+                return Ok(());
+            };
+            updated
+        };
     if updated != existing {
         fs::write(path, updated).map_err(|err| err.to_string())?;
     }
@@ -723,6 +738,55 @@ mod tests {
             assert!(content.contains("tree-ring update --check"));
             assert!(content.contains("project root"));
             assert!(content.contains("shadow"));
+        }
+    }
+
+    #[test]
+    fn generated_init_refreshes_existing_managed_runtime_sections() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+        let custom_note = "\nCustom project note: preserve me.\n";
+
+        for (name, canonical, heading, anchor) in [
+            (
+                "AGENTS.md",
+                canonical_agents.as_str(),
+                AGENT_RUNTIME_HEADING,
+                AGENT_RUNTIME_ANCHOR,
+            ),
+            (
+                "SKILL.md",
+                SKILL_TEMPLATE,
+                SKILL_RUNTIME_HEADING,
+                SKILL_RUNTIME_ANCHOR,
+            ),
+            (
+                "CLI.md",
+                CLI_REFERENCE,
+                CLI_RUNTIME_HEADING,
+                CLI_RUNTIME_ANCHOR,
+            ),
+        ] {
+            let (start, end) = managed_section_range(canonical, heading, anchor).unwrap();
+            let mut stale = String::new();
+            stale.push_str(&canonical[..start]);
+            stale.push_str(heading);
+            stale.push_str("\n\nLegacy installer: main/install.sh | sh\n\n");
+            stale.push_str(&canonical[end..]);
+            stale.push_str(custom_note);
+            fs::write(root.join(name), stale).unwrap();
+        }
+
+        ensure_agent_awareness(&root).unwrap();
+
+        for name in ["AGENTS.md", "SKILL.md", "CLI.md"] {
+            let content = fs::read_to_string(root.join(name)).unwrap();
+            assert!(content
+                .contains("ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade"));
+            assert!(!content.contains("main/install.sh | sh"));
+            assert!(content.ends_with(custom_note));
         }
     }
 
