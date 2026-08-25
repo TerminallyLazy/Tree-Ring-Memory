@@ -15,9 +15,8 @@ pub const AGENT_ZERO_PLUGIN_MANIFEST_ENV: &str = "TREE_RING_AGENT_ZERO_PLUGIN_MA
 
 const AGENT_ZERO_CAPABILITY_FILE: &str = "activation-capability.json";
 const AGENT_ZERO_CAPABILITY_KIND: &str = "tree-ring-agent-zero-plugin-capability";
-const AGENT_ZERO_PLUGIN_VERSION: &str = "3.1.0";
-const AGENT_ZERO_TREE_RING_MIN_VERSION: &str = "0.14.0";
-const AGENT_ZERO_TREE_RING_MINOR_VERSION: &str = "0.14";
+const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] =
+    &[("3.1.0", "0.14.0", "0.14"), ("3.2.0", "0.15.3", "0.15")];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
 /// Project paths used by activation. Adapter plans always target this root.
@@ -163,13 +162,18 @@ fn read_agent_zero_plugin_manifest(
         &read_regular_file_no_follow(&descriptor)?,
     )
     .ok()?;
+    let trusted_contract = AGENT_ZERO_CAPABILITY_CONTRACTS.iter().any(
+        |(plugin_version, minimum_version, minor_version)| {
+            capability.plugin_version == *plugin_version
+                && capability.tree_ring_version.min == *minimum_version
+                && capability.tree_ring_version.minor == *minor_version
+        },
+    );
     if capability.schema_version != 1
         || capability.kind != AGENT_ZERO_CAPABILITY_KIND
         || capability.plugin_id != AGENT_ZERO_PLUGIN_ID
-        || capability.plugin_version != AGENT_ZERO_PLUGIN_VERSION
         || capability.activation_protocol_version != ACTIVATION_PROTOCOL_VERSION
-        || capability.tree_ring_version.min != AGENT_ZERO_TREE_RING_MIN_VERSION
-        || capability.tree_ring_version.minor != AGENT_ZERO_TREE_RING_MINOR_VERSION
+        || !trusted_contract
         || !capability.enabled
     {
         return None;
@@ -177,8 +181,11 @@ fn read_agent_zero_plugin_manifest(
 
     let plugin_yaml = descriptor.parent()?.join("plugin.yaml");
     let plugin_yaml = read_regular_file_no_follow(&plugin_yaml)?;
-    plugin_yaml_matches_capability(std::str::from_utf8(&plugin_yaml).ok()?)
-        .then_some(AgentZeroPluginManifest::compatible())
+    plugin_yaml_matches_capability(
+        std::str::from_utf8(&plugin_yaml).ok()?,
+        &capability.plugin_version,
+    )
+    .then_some(AgentZeroPluginManifest::compatible())
 }
 
 /// Opens one regular capability file without following its final path entry.
@@ -215,7 +222,7 @@ fn read_regular_file_no_follow(_path: &Path) -> Option<Vec<u8>> {
     None
 }
 
-fn plugin_yaml_matches_capability(plugin_yaml: &str) -> bool {
+fn plugin_yaml_matches_capability(plugin_yaml: &str, expected_version: &str) -> bool {
     let mut name = None;
     let mut version = None;
     for line in plugin_yaml.lines() {
@@ -237,7 +244,7 @@ fn plugin_yaml_matches_capability(plugin_yaml: &str) -> bool {
             _ => {}
         }
     }
-    name == Some(AGENT_ZERO_PLUGIN_ID) && version == Some(AGENT_ZERO_PLUGIN_VERSION)
+    name == Some(AGENT_ZERO_PLUGIN_ID) && version == Some(expected_version)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -1106,6 +1113,37 @@ mod tests {
             Some(AgentZeroPluginManifest::compatible())
         );
 
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.1.0\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.14.0","minor":"0.14"},"enabled":true}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(&descriptor, capability_document(true)).unwrap();
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.2.0\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            capability_document(true).replace(
+                "\"min\":\"0.15.3\",\"minor\":\"0.15\"",
+                "\"min\":\"0.14.0\",\"minor\":\"0.14\"",
+            ),
+        )
+        .unwrap();
+        assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
+
         fs::write(&descriptor, capability_document(false)).unwrap();
         assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
 
@@ -1125,7 +1163,7 @@ mod tests {
         assert!(read_agent_zero_plugin_manifest(&project, &descriptor).is_none());
         fs::write(
             plugin.join("plugin.yaml"),
-            "name: tree_ring_memory\nversion: 3.1.0\n",
+            "name: tree_ring_memory\nversion: 3.2.0\n",
         )
         .unwrap();
         assert!(
@@ -1145,7 +1183,7 @@ mod tests {
             fs::create_dir_all(&symlink_parent).unwrap();
             fs::write(
                 symlink_parent.join("plugin.yaml"),
-                "name: tree_ring_memory\nversion: 3.1.0\n",
+                "name: tree_ring_memory\nversion: 3.2.0\n",
             )
             .unwrap();
             let symlink_descriptor = symlink_parent.join(AGENT_ZERO_CAPABILITY_FILE);
@@ -1157,7 +1195,7 @@ mod tests {
     fn write_capability_descriptor(plugin: &Path, enabled: bool) -> PathBuf {
         fs::write(
             plugin.join("plugin.yaml"),
-            "name: tree_ring_memory\nversion: 3.1.0\n",
+            "name: tree_ring_memory\nversion: 3.2.0\n",
         )
         .unwrap();
         let descriptor = plugin.join(AGENT_ZERO_CAPABILITY_FILE);
@@ -1167,7 +1205,7 @@ mod tests {
 
     fn capability_document(enabled: bool) -> String {
         format!(
-            r#"{{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{{"min":"0.14.0","minor":"0.14"}},"enabled":{enabled}}}"#
+            r#"{{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.2.0","activation_protocol_version":1,"tree_ring_version":{{"min":"0.15.3","minor":"0.15"}},"enabled":{enabled}}}"#
         )
     }
 }

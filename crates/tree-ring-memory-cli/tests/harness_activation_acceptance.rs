@@ -500,7 +500,7 @@ fn agent_zero_plugin_descriptor_bootstraps_passive_binding_then_receipt_backed_a
     // state until a live compatible descriptor is available again.
     fs::write(
         &descriptor,
-        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.14.0","minor":"0.14"},"enabled":false}"#,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.2.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.3","minor":"0.15"},"enabled":false}"#,
     )
     .unwrap();
     let disabled =
@@ -918,13 +918,13 @@ fn install_agent_zero_plugin(base: &Path) -> PathBuf {
     fs::create_dir_all(&plugin).unwrap();
     fs::write(
         plugin.join("plugin.yaml"),
-        "name: tree_ring_memory\nversion: 3.1.0\n",
+        "name: tree_ring_memory\nversion: 3.2.0\n",
     )
     .unwrap();
     let descriptor = plugin.join("activation-capability.json");
     fs::write(
         &descriptor,
-        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.1.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.14.0","minor":"0.14"},"enabled":true}"#,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.2.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.3","minor":"0.15"},"enabled":true}"#,
     )
     .unwrap();
     descriptor

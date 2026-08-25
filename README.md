@@ -17,7 +17,7 @@ framework-agnostic and does not replace either protocol.
 Tree Ring Memory is in protocol-preview status. Current launch links:
 
 - Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.2>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.3>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -259,8 +259,8 @@ sh install.sh --project --init --release latest
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
-sh install.sh --release 0.15.2
-sh install.sh --archive-url https://example/tree-ring-memory-0.15.2-darwin-arm64.tar.gz --archive-sha256 <sha256>
+sh install.sh --release 0.15.3
+sh install.sh --archive-url https://example/tree-ring-memory-0.15.3-darwin-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
 After install, rerun onboarding anytime:
