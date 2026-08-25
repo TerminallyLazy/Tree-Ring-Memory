@@ -10,9 +10,11 @@ Capture only durable, useful memory. Do not store transcripts, secrets,
 credentials, raw chain-of-thought, or unverified claims as truth.
 
 Read project-local `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` first when
-present. Confirm `tree-ring --version` reports 0.14.0 or newer. If the runtime
-is missing or older, stop and explain the limitation; do not install, upgrade,
-or invent a stored memory without explicit user permission.
+present. Follow the skill's Runtime Bootstrap And Updates procedure and confirm
+the selected project-local or global binary reports 0.15.0 or newer. Bootstrap
+or upgrade when the user's request already authorizes it; otherwise obtain
+permission before downloading or changing software. Never invent a stored
+memory.
 
 For a single agent or a store in Open mode, use the user's argument as the
 memory summary:

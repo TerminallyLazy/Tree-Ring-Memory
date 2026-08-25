@@ -28,7 +28,7 @@
       "programmingLanguage": "Rust",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "macOS, Linux",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "image": "https://terminallylazy.github.io/Tree-Ring-Memory/assets/tree-ring-memory-og.png",
       "isAccessibleForFree": true
     }
@@ -436,19 +436,18 @@
           <li>Feedback flows through GitHub issue #26.</li>
         </ul>
       </div>
-      <pre><code># Source install (requires Rust and Cargo)
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+      <pre><code># Verified prebuilt install (macOS ARM64 or Linux x86_64)
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --release latest
 
-# Linux x86_64 prebuilt (glibc 2.36+)
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
-  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.14.0/tree-ring-memory-0.14.0-linux-x86_64.tar.gz \
-  --archive-sha256 c72191aca81f195472272a1962df354fe0af04a08b01a7472a1faf987cd177fa
+# Project-local install and initialization
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
 
 # macOS ARM64 Homebrew tap
 brew tap TerminallyLazy/tree-ring
 brew install tree-ring
 
 tree-ring init
+tree-ring update --check
 tree-ring remember "Use project-scoped recall before risky changes." --event-type lesson --scope project
 tree-ring recall "risky changes"
 tree-ring evidence "The eval passed after the fix." --outcome promoted --evidence-ref evals/run-042

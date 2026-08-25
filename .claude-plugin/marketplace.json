@@ -4,14 +4,14 @@
     "name": "TerminallyLazy",
     "url": "https://github.com/TerminallyLazy"
   },
-  "description": "Claude Code marketplace for Tree Ring Memory v0.14 local-first recall and receipt-backed harness readiness.",
-  "version": "0.3.1",
+  "description": "Claude Code marketplace for Tree Ring Memory v0.15 verified bootstrap, local-first recall, and receipt-backed harness readiness.",
+  "version": "0.3.2",
   "plugins": [
     {
       "name": "tree-ring-memory",
       "source": "./plugins/tree-ring-memory",
       "displayName": "Tree Ring Memory",
-      "description": "Local-first memory lifecycle and receipt-backed harness guidance for Claude Code using Tree Ring Memory v0.14+.",
+      "description": "Local-first memory lifecycle, project bootstrap, and receipt-backed harness guidance for Claude Code using Tree Ring Memory v0.15+.",
       "author": {
         "name": "TerminallyLazy",
         "url": "https://github.com/TerminallyLazy"

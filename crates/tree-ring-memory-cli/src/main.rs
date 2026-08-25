@@ -45,6 +45,7 @@ mod harness_evidence;
 mod recall_quality;
 mod ring_mark;
 mod tui;
+mod update;
 mod welcome;
 
 #[derive(Debug, Parser)]
@@ -77,6 +78,11 @@ enum Command {
     Init {
         #[arg(long, help = "preview initialization without writing any files")]
         dry_run: bool,
+    },
+    #[command(about = "check for or install the latest verified Tree Ring release")]
+    Update {
+        #[arg(long, help = "check for an update without changing any files")]
+        check: bool,
     },
     #[command(about = "store a memory")]
     Remember {
@@ -604,6 +610,10 @@ fn run(cli: Cli) -> Result<(), String> {
         return run_init(&cli.root, *dry_run, cli.json);
     }
 
+    if let Command::Update { check } = &cli.command {
+        return update::run(*check, cli.json);
+    }
+
     if let Command::Integrations {
         command: IntegrationCommand::Scan { source_root },
     } = &cli.command
@@ -961,6 +971,7 @@ fn run(cli: Cli) -> Result<(), String> {
 
     match cli.command {
         Command::Init { .. } => unreachable!("init returns before the shared store route"),
+        Command::Update { .. } => unreachable!("update returns before the shared store route"),
         Command::Remember {
             summary,
             event_type,
@@ -1513,6 +1524,7 @@ fn command_actor_profile(command: &Command) -> Option<String> {
 fn command_origin(command: &Command) -> &'static str {
     match command {
         Command::Init { .. } => "cli:init",
+        Command::Update { .. } => "cli:update",
         Command::Remember { .. } => "cli:remember",
         Command::Evidence { .. } => "cli:evidence",
         Command::Recall { .. } => "cli:recall",
@@ -2172,6 +2184,12 @@ mod tests {
         run(cli).unwrap();
         assert!(!root.join("memory.sqlite").exists());
         assert!(!root.join("activation.json").exists());
+    }
+
+    #[test]
+    fn update_check_parser_selects_a_non_mutating_release_check() {
+        let cli = Cli::try_parse_from(["tree-ring", "update", "--check"]).unwrap();
+        assert!(matches!(cli.command, Command::Update { check: true }));
     }
 
     #[test]

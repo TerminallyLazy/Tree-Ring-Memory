@@ -51,6 +51,29 @@ The CLI does not modify a project root `AGENTS.md` automatically. Merge the
 generated `.tree-ring/AGENTS.md` guidance manually when you want DOX-aware
 agents to encounter Tree Ring Memory instructions before entering `.tree-ring/`.
 
+## Runtime Bootstrap And Updates
+
+Agents must resolve the real project root before setup. If the user has already
+authorized Tree Ring installation, the safe default is the verified
+project-local release installer, run from that root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+```
+
+Without existing setup authorization, the agent should explain that exact
+operation and ask before downloading or installing software. It must not
+initialize a plugin cache, package directory, home directory, or unrelated
+working directory. Existing project-local installs should use
+`.tree-ring/bin/tree-ring --root .tree-ring init`; global installs should use
+`tree-ring --root .tree-ring init` from the project root.
+
+`tree-ring update --check` checks for a release without changing files. With
+update authorization, `tree-ring update` verifies official assets and preserves
+the active project-local, direct-prefix, or Homebrew scope. Afterward, rerun
+`init` in each project to backfill managed guidance. CLIs older than v0.15 must
+first be upgraded through their existing package manager or install prefix.
+
 ## Minimal CLI Flow
 
 ```bash

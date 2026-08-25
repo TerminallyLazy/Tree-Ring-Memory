@@ -7,9 +7,10 @@ allowed-tools: ["Bash", "Read"]
 # Tree Ring Certify
 
 Read project-local `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` when present,
-then confirm `tree-ring --version` reports 0.14.0 or newer. If the runtime is
-missing or older, explain the limitation and do not install or upgrade it,
-edit shell configuration, or invent certification results.
+then follow the skill's Runtime Bootstrap And Updates procedure and confirm the
+selected binary reports 0.15.0 or newer. Bootstrap or upgrade when the user's
+request already authorizes it; otherwise obtain permission before downloading
+or changing software. Never invent certification results.
 
 For an installed runtime, choose the requested self-contained evidence path:
 

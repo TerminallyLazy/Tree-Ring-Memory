@@ -8,6 +8,7 @@ INSTALL_DIR=${TREE_RING_INSTALL_DIR:-""}
 SOURCE_DIR=${TREE_RING_SOURCE:-""}
 ARCHIVE_URL=${TREE_RING_ARCHIVE_URL:-""}
 ARCHIVE_SHA256=${TREE_RING_ARCHIVE_SHA256:-""}
+RELEASE_VERSION=${TREE_RING_RELEASE:-""}
 MEMORY_ROOT=${TREE_RING_ROOT:-".tree-ring"}
 RUN_INIT=${TREE_RING_INIT:-"0"}
 RUN_ONBOARDING=${TREE_RING_ONBOARDING:-"1"}
@@ -45,7 +46,7 @@ Tree Ring Memory installer
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
-  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
+  curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest
 
 Options:
   --global              Install to $HOME/.local/bin (default).
@@ -61,6 +62,7 @@ Options:
   --repo URL            Git repository used by cargo install.
   --ref REF             Git branch used by cargo install (default main).
   --source DIR          Install from a local checkout instead of git.
+  --release VERSION     Install a verified prebuilt release; use latest for newest.
   --archive-url URL     Install from a release tarball containing tree-ring.
   --archive-sha256 SUM  Required SHA-256 for --archive-url.
   -h, --help            Show this help.
@@ -72,6 +74,7 @@ Environment:
   TREE_RING_REPO=https://github.com/TerminallyLazy/Tree-Ring-Memory
   TREE_RING_REF=main
   TREE_RING_SOURCE=/path/to/checkout
+  TREE_RING_RELEASE=latest
   TREE_RING_ARCHIVE_URL=https://example/tree-ring-memory.tar.gz
   TREE_RING_ARCHIVE_SHA256=...
   TREE_RING_INIT=1
@@ -132,6 +135,11 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || die "--source requires a value"
       SOURCE_DIR=$1
       ;;
+    --release)
+      shift
+      [ "$#" -gt 0 ] || die "--release requires a value"
+      RELEASE_VERSION=$1
+      ;;
     --archive-url)
       shift
       [ "$#" -gt 0 ] || die "--archive-url requires a value"
@@ -153,6 +161,12 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
+if [ "$RELEASE_VERSION" != "" ] && [ "$SOURCE_DIR" != "" ]; then
+  die "--release cannot be combined with --source"
+fi
+if [ "$RELEASE_VERSION" != "" ] && [ "$ARCHIVE_URL" != "" ]; then
+  die "--release cannot be combined with --archive-url"
+fi
 if [ "$ARCHIVE_URL" != "" ] && [ "$ARCHIVE_SHA256" = "" ]; then
   die "--archive-sha256 is required with --archive-url"
 fi
@@ -206,6 +220,55 @@ download() {
   else
     die "curl or wget is required for --archive-url"
   fi
+}
+
+release_platform() {
+  os=$(uname -s)
+  arch=$(uname -m)
+  case "$os/$arch" in
+    Darwin/arm64) printf '%s' "darwin-arm64" ;;
+    Linux/x86_64) printf '%s' "linux-x86_64" ;;
+    *) die "no prebuilt Tree Ring release is available for $os/$arch" ;;
+  esac
+}
+
+resolve_release_archive() {
+  [ "$RELEASE_VERSION" != "" ] || return 0
+  case "$REPO_URL" in
+    https://github.com/*) ;;
+    *) die "--release requires a https://github.com/OWNER/REPO repository URL" ;;
+  esac
+
+  repo_path=${REPO_URL#https://github.com/}
+  repo_path=${repo_path%.git}
+  case "$repo_path" in
+    */*) ;;
+    *) die "could not determine the GitHub repository for --release" ;;
+  esac
+
+  version=$RELEASE_VERSION
+  if [ "$version" = "latest" ]; then
+    release_tmp=$(mktemp "${TMPDIR:-/tmp}/tree-ring-release.XXXXXX")
+    download "https://api.github.com/repos/$repo_path/releases/latest" "$release_tmp"
+    version=$(sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' "$release_tmp" | head -n 1)
+    rm -f "$release_tmp"
+    [ "$version" != "" ] || die "latest GitHub release did not contain a version tag"
+  else
+    version=${version#v}
+  fi
+  case "$version" in
+    ""|*[!0-9A-Za-z.+-]*) die "invalid release version: $version" ;;
+  esac
+
+  platform=$(release_platform)
+  archive_name="tree-ring-memory-$version-$platform.tar.gz"
+  release_base="$REPO_URL/releases/download/v$version"
+  checksum_tmp=$(mktemp "${TMPDIR:-/tmp}/tree-ring-checksum.XXXXXX")
+  download "$release_base/$archive_name.sha256" "$checksum_tmp"
+  ARCHIVE_SHA256=$(awk 'NR == 1 { print $1 }' "$checksum_tmp")
+  rm -f "$checksum_tmp"
+  [ "$ARCHIVE_SHA256" != "" ] || die "release checksum file was empty"
+  ARCHIVE_URL="$release_base/$archive_name"
 }
 
 verify_sha256() {
@@ -329,6 +392,7 @@ update_shell_path() {
 }
 
 intro
+resolve_release_archive
 require_cargo
 
 PREFIX=$(install_prefix)

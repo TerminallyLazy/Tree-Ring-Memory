@@ -17,7 +17,7 @@ framework-agnostic and does not replace either protocol.
 Tree Ring Memory is in protocol-preview status. Current launch links:
 
 - Launch page: <https://terminallylazy.github.io/Tree-Ring-Memory/>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.14.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Rust-native CLI article: <https://terminallylazy.github.io/Tree-Ring-Memory/launch/rust-native-agent-memory-cli.md>
 - Feedback issue: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>
@@ -40,6 +40,7 @@ Tree Ring Memory is in protocol-preview status. Current launch links:
 - v0.12 adds a controlled, retained agent-workflow proof with explicit model identity and exact structured-output checks; it reports observed outcomes without claiming a universal memory advantage.
 - v0.13 adds same-host multi-agent identities and idempotency, opt-in coordinator authorization for shared writes, a protected-write audit, and a schema-v3 fence for old memory inserts, updates, and deletes.
 - v0.14 adds project-local harness activation with receipt-backed readiness, so configured bridges do not imply that an agent has used memory.
+- v0.15 adds verified release bootstrap, project-root-aware agent guidance, and scope-preserving CLI updates.
 
 </details>
 
@@ -147,7 +148,9 @@ Add and install the same package in Claude Code:
 /plugin install tree-ring-memory@tree-ring-memory
 ```
 
-The plugin still requires Tree Ring Memory CLI v0.14.0 or newer. See the
+The plugin requires Tree Ring Memory CLI v0.15.0 or newer and teaches agents how
+to install a verified project-local runtime when setup is already authorized.
+See the
 [plugin README](plugins/tree-ring-memory/README.md) for the platform manifests,
 commands, DOX contract flow, and certification boundary.
 
@@ -174,18 +177,17 @@ The matching Tree Ring core and Agent Zero plugin release must both be
 installed; a source checkout, a passive binding, or an older bundled CLI is not
 an installed-capability claim.
 
-Source install (requires Rust and Cargo):
+Verified prebuilt install for macOS ARM64 or Linux x86_64:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --release latest
 ```
 
-Linux x86_64 prebuilt install (glibc 2.36 or newer):
+Recommended project-local install with first-run initialization:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- \
-  --archive-url https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/download/v0.14.0/tree-ring-memory-0.14.0-linux-x86_64.tar.gz \
-  --archive-sha256 c72191aca81f195472272a1962df354fe0af04a08b01a7472a1faf987cd177fa
+cd <project-root>
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
 ```
 
 macOS ARM64 install with Homebrew:
@@ -195,10 +197,10 @@ brew tap TerminallyLazy/tree-ring
 brew install tree-ring
 ```
 
-Project-local source install with first-run initialization (requires Cargo):
+Source install (requires Rust and Cargo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init
+curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh
 ```
 
 Store the first project memory:
@@ -222,11 +224,13 @@ tree-ring tui
 
 ## Install Details
 
-The installer builds the Rust CLI with `cargo`, installs `tree-ring`, then shows
-one stable terminal onboarding screen with a branded terminal ring and the next
-useful commands. For global installs, it also adds the install bin directory to your
-shell profile when that directory is not already on `PATH`. It does not
-initialize memory unless `--init` is passed.
+With `--release latest`, the installer downloads the official platform archive,
+downloads its published SHA-256, verifies it, and installs `tree-ring` without
+requiring Rust. Without `--release`, it builds the Rust CLI with `cargo`. It then
+shows one terminal onboarding screen with a branded terminal ring and useful
+commands. For global installs, it can add the install bin directory to the shell
+profile when that directory is not already on `PATH`. It does not initialize
+memory unless `--init` is passed.
 
 The installer command streams only the installer script into `sh`. It does not
 put memory in a temporary location and it does not remove `.tree-ring`,
@@ -251,11 +255,12 @@ Useful installer options:
 
 ```bash
 sh install.sh --help
-sh install.sh --project --init
+sh install.sh --project --init --release latest
 sh install.sh --global --install-dir "$HOME/.local"
 sh install.sh --no-animation  # stable output; kept for explicit script usage
 sh install.sh --no-path-update
-sh install.sh --archive-url https://example/tree-ring-memory-0.14.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
+sh install.sh --release 0.15.0
+sh install.sh --archive-url https://example/tree-ring-memory-0.15.0-darwin-arm64.tar.gz --archive-sha256 <sha256>
 ```
 
 After install, rerun onboarding anytime:
@@ -267,8 +272,41 @@ tree-ring
 ```
 
 By default, the installer uses `cargo install` from the Git repository or a
-local `--source` checkout. Release builds can use `--archive-url` plus
-`--archive-sha256` to install a prebuilt `tree-ring` binary archive.
+local `--source` checkout. `--release latest` or `--release <version>` resolves
+and verifies the matching official prebuilt archive. Advanced callers can still
+use `--archive-url` plus `--archive-sha256` explicitly.
+
+## Update Tree Ring Memory
+
+Check the official release without changing files:
+
+```bash
+tree-ring update --check
+```
+
+After authorizing an update, update the active executable in its existing
+project-local, direct-prefix, or Homebrew-managed scope:
+
+```bash
+tree-ring update
+tree-ring --version
+```
+
+The updater verifies the official release archive and checksum and does not
+install a second copy in a different prefix. After updating, return to each
+project root and safely backfill its managed guidance:
+
+```bash
+tree-ring --root .tree-ring init
+tree-ring --root .tree-ring integrations status --verbose
+```
+
+CLIs older than v0.15 do not contain `tree-ring update`. Upgrade those with the
+same manager or install prefix first: Homebrew with `brew upgrade tree-ring`, a
+project-local install with `install.sh --project --release latest`, or another
+direct install with `install.sh --install-dir <existing-prefix> --release
+latest`. Use `command -v tree-ring` and `which -a tree-ring` afterward to find
+an older binary that may still shadow the updated executable.
 
 Open the terminal console after a global install:
 

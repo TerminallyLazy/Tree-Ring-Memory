@@ -15,9 +15,10 @@ Recall useful project memory before acting on context-dependent work.
    test -f .tree-ring/CLI.md && sed -n '1,520p' .tree-ring/CLI.md
    ```
 
-   Confirm `tree-ring --version` reports 0.14.0 or newer. If the runtime is
-   missing or older, explain the limitation and do not fabricate recall or
-   install software without explicit user permission.
+   Follow the skill's Runtime Bootstrap And Updates procedure and confirm the
+   selected binary reports 0.15.0 or newer. Bootstrap or upgrade when the
+   user's request already authorizes it; otherwise obtain permission before
+   downloading or changing software. Never fabricate recall.
 
 2. Use the user's argument as the focused recall query when present:
 

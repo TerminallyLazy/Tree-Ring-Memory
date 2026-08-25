@@ -10,9 +10,10 @@ Audit memory when work is closing, when privacy may matter, or when older
 entries may be stale.
 
 Read project-local `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` first when
-present. Confirm `tree-ring --version` reports 0.14.0 or newer. If the runtime
-is missing or older, stop and explain the limitation; do not install, upgrade,
-or invent results without explicit user permission.
+present. Follow the skill's Runtime Bootstrap And Updates procedure and confirm
+the selected project-local or global binary reports 0.15.0 or newer. Bootstrap
+or upgrade when the user's request already authorizes it; otherwise obtain
+permission before downloading or changing software. Never invent results.
 
 Before any current command other than `policy status` or `policy audit` opens
 an existing pre-v0.13 store, stop every Tree Ring process, checkpoint and back

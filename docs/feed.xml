@@ -5,11 +5,19 @@
   <id>https://terminallylazy.github.io/Tree-Ring-Memory/</id>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/" rel="alternate"/>
   <link href="https://terminallylazy.github.io/Tree-Ring-Memory/feed.xml" rel="self"/>
-  <updated>2026-08-14T08:25:58Z</updated>
+  <updated>2026-08-25T20:56:04Z</updated>
   <author>
     <name>Tree Ring Memory</name>
     <uri>https://github.com/TerminallyLazy/Tree-Ring-Memory</uri>
   </author>
+
+  <entry>
+    <title>Tree Ring Memory v0.15.0 adds verified bootstrap and CLI updates</title>
+    <id>https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0</id>
+    <link href="https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0"/>
+    <updated>2026-08-25T20:56:04Z</updated>
+    <summary>Tree Ring Memory v0.15.0 adds checksum-verified project-local bootstrap, project-root-aware agent instructions, a read-only update check, and scope-preserving CLI updates for direct, project-local, and Homebrew-managed installs.</summary>
+  </entry>
 
   <entry>
     <title>Tree Ring Memory v0.14.0 adds receipt-backed harness activation</title>
