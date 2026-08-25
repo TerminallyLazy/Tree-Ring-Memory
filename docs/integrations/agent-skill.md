@@ -54,15 +54,19 @@ agents to encounter Tree Ring Memory instructions before entering `.tree-ring/`.
 ## Runtime Bootstrap And Updates
 
 Agents must resolve the real project root before setup. If the user has already
-authorized Tree Ring installation, the safe default is the verified
-project-local release installer, run from that root:
+authorized Tree Ring installation, download the official version-pinned
+`v0.15.0/install.sh` installer to a temporary file, verify its SHA-256 is
+`ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`, inspect
+it, and only then run it from that root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+sh <verified-installer-path> --project --init --release latest --no-animation
 ```
 
-Without existing setup authorization, the agent should explain that exact
-operation and ask before downloading or installing software. It must not
+Agents must not pipe a network response directly to a shell; the installer
+verifies the selected release archive against its published SHA-256. Without
+existing setup authorization, the agent should explain that exact operation
+and ask before downloading or installing software. It must not
 initialize a plugin cache, package directory, home directory, or unrelated
 working directory. Existing project-local installs should use
 `.tree-ring/bin/tree-ring --root .tree-ring init`; global installs should use

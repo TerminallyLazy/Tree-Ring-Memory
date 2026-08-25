@@ -3,7 +3,7 @@ name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
 license: MIT
 metadata:
-  version: "0.15.0"
+  version: "0.15.1"
   tags: "memory, agents, recall, privacy, projects, dox, revolve, skills, cli"
   triggers: "remember this; recall what we decided; what did we learn; tree ring memory; consolidate memory; forget this; project memory; sync DOX; sync Revolve; evidence loop; multi-agent memory"
 ---
@@ -35,12 +35,20 @@ working directory by accident.
    CLI is available and the user's request already authorizes Tree Ring setup,
    install the verified current release project-locally from the project root.
    Otherwise explain the exact operation and obtain permission before the
-   network download or software installation:
+   network download or software installation. Download the official,
+   version-pinned `v0.15.0/install.sh` installer to a temporary file, verify its
+   SHA-256 is
+   `ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`,
+   inspect it, and only then run:
 
    ```bash
    cd <project-root>
-   curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+   sh <verified-installer-path> --project --init --release latest --no-animation
    ```
+
+   Do not pipe a network response directly to a shell. The installer verifies
+   the selected release archive against its published SHA-256 before placing
+   the binary at `<project-root>/.tree-ring/bin/tree-ring`.
 
 4. For an existing global CLI, initialize from the project root with
    `tree-ring --root .tree-ring init`. For a project-local CLI, use

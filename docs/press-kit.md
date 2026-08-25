@@ -23,10 +23,10 @@ DOX/Revolve adapters, framework discovery, and a terminal TUI.
 - Category: AI agents, developer tools, local-first software, Rust CLI
 - License: MIT
 - Status: protocol-preview
-- Current version: 0.15.0
+- Current version: 0.15.1
 - Website: <https://terminallylazy.github.io/Tree-Ring-Memory/>
 - Repository: <https://github.com/TerminallyLazy/Tree-Ring-Memory>
-- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.0>
+- Launch release: <https://github.com/TerminallyLazy/Tree-Ring-Memory/releases/tag/v0.15.1>
 - Launch discussion: <https://github.com/TerminallyLazy/Tree-Ring-Memory/discussions/27>
 - Homebrew tap: <https://github.com/TerminallyLazy/homebrew-tree-ring>
 - Feedback: <https://github.com/TerminallyLazy/Tree-Ring-Memory/issues/26>

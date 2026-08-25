@@ -30,18 +30,23 @@ plugin cache, package directory, home directory, or incidental working
 directory. Prefer `<project-root>/.tree-ring/bin/tree-ring` when it exists;
 otherwise use the active `tree-ring` on `PATH`.
 
-When no CLI exists and the user's request already authorizes setup, run the
-official verified-release installer from the project root:
+When no CLI exists and the user's request already authorizes setup, download
+the official version-pinned `v0.15.0/install.sh` installer to a temporary file,
+verify its SHA-256 is
+`ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`,
+inspect it, and only then run it from the project root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+sh <verified-installer-path> --project --init --release latest --no-animation
 ```
 
-Otherwise obtain permission before downloading or installing software. A
-global CLI initializes with `tree-ring --root .tree-ring init`; a project-local
-CLI initializes with `.tree-ring/bin/tree-ring --root .tree-ring init`. Verify
-that the generated files and `memory.sqlite` are under the intended project's
-`.tree-ring/`, then run `integrations status` with the same binary and root.
+Do not pipe a network response directly to a shell. The installer verifies the
+selected release archive against its published SHA-256. Otherwise obtain
+permission before downloading or installing software. A global CLI initializes
+with `tree-ring --root .tree-ring init`; a project-local CLI initializes with
+`.tree-ring/bin/tree-ring --root .tree-ring init`. Verify that the generated
+files and `memory.sqlite` are under the intended project's `.tree-ring/`, then
+run `integrations status` with the same binary and root.
 
 Use `tree-ring update --check` for a read-only release check and, only after
 update authorization, `tree-ring update`. Preserve the current manager and

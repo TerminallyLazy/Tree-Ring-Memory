@@ -59,7 +59,7 @@ Runtime bootstrap and updates:
 
 - Resolve the real project root before initialization. Never initialize a plugin cache, package directory, home directory, or incidental working directory.
 - Prefer `<project-root>/.tree-ring/bin/tree-ring` when present; otherwise use the active `tree-ring` on `PATH`.
-- With existing user authorization for setup, install the verified project-local release from the project root with `curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation`. Otherwise obtain permission before downloading or installing software.
+- With existing user authorization for setup, download the official version-pinned `v0.15.0/install.sh` installer to a temporary file, verify its SHA-256 is `ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`, inspect it, and run `sh <verified-installer-path> --project --init --release latest --no-animation` from the project root. Never pipe a network response directly to a shell. Otherwise obtain permission before downloading or installing software.
 - Use `tree-ring --root .tree-ring init` for a global CLI or `.tree-ring/bin/tree-ring --root .tree-ring init` for a project-local CLI. Verify that `memory.sqlite`, `AGENTS.md`, `SKILL.md`, and `CLI.md` are under the intended project.
 - `tree-ring update --check` is read-only. Run `tree-ring update` only with update authorization; it preserves the active installation scope and verifies official release assets. Re-run project initialization afterward to backfill managed guidance.
 - A pre-0.15 CLI must be upgraded with its existing package manager or install prefix. Check `command -v tree-ring` and `which -a tree-ring` so an old binary does not shadow the update.
@@ -400,13 +400,18 @@ working directory. Prefer `{root}/bin/tree-ring` when it exists; otherwise use
 the active `tree-ring` on `PATH`.
 
 If the CLI is absent and the user's request already authorizes Tree Ring setup,
-install the official verified project-local release from the real project root:
+download the official version-pinned `v0.15.0/install.sh` installer to a
+temporary file, verify its SHA-256 is
+`ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade`, inspect
+it, and run it from the real project root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TerminallyLazy/Tree-Ring-Memory/main/install.sh | sh -s -- --project --init --release latest --no-animation
+sh <verified-installer-path> --project --init --release latest --no-animation
 ```
 
-Otherwise obtain permission before downloading or installing software. Run
+Never pipe a network response directly to a shell. The installer verifies the
+selected release archive against its published SHA-256. Otherwise obtain
+permission before downloading or installing software. Run
 `tree-ring --root {root} init` for a global CLI or `{root}/bin/tree-ring --root
 {root} init` for a project-local CLI. Verify all generated files remain under
 the intended root, then inspect `integrations status` with the same executable.
@@ -711,6 +716,10 @@ mod tests {
                     || content.contains("Runtime bootstrap and updates:")
             );
             assert!(content.contains("--project --init --release latest --no-animation"));
+            assert!(content
+                .contains("ef0d5eb8f09cbe2e4c3abe80ee9a98a56759c89ad4ddd103d6c68314cd653ade"));
+            assert!(content.contains("pipe a network response directly to a shell"));
+            assert!(!content.contains("main/install.sh | sh"));
             assert!(content.contains("tree-ring update --check"));
             assert!(content.contains("project root"));
             assert!(content.contains("shadow"));
