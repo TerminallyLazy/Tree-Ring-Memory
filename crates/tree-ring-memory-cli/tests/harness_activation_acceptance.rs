@@ -918,13 +918,13 @@ fn install_agent_zero_plugin(base: &Path) -> PathBuf {
     fs::create_dir_all(&plugin).unwrap();
     fs::write(
         plugin.join("plugin.yaml"),
-        "name: tree_ring_memory\nversion: 3.2.0\n",
+        "name: tree_ring_memory\nversion: 3.3.1\n",
     )
     .unwrap();
     let descriptor = plugin.join("activation-capability.json");
     fs::write(
         &descriptor,
-        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.2.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.3","minor":"0.15"},"enabled":true}"#,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.3.1","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.3","minor":"0.15"},"enabled":true}"#,
     )
     .unwrap();
     descriptor
