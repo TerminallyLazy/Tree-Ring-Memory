@@ -15,8 +15,12 @@ pub const AGENT_ZERO_PLUGIN_MANIFEST_ENV: &str = "TREE_RING_AGENT_ZERO_PLUGIN_MA
 
 const AGENT_ZERO_CAPABILITY_FILE: &str = "activation-capability.json";
 const AGENT_ZERO_CAPABILITY_KIND: &str = "tree-ring-agent-zero-plugin-capability";
-const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] =
-    &[("3.1.0", "0.14.0", "0.14"), ("3.2.0", "0.15.3", "0.15")];
+const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] = &[
+    ("3.1.0", "0.14.0", "0.14"),
+    ("3.2.0", "0.15.3", "0.15"),
+    ("3.3.0", "0.15.3", "0.15"),
+    ("3.3.1", "0.15.3", "0.15"),
+];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
 /// Project paths used by activation. Adapter plans always target this root.
@@ -1108,6 +1112,24 @@ mod tests {
         fs::create_dir_all(&plugin).unwrap();
 
         let descriptor = write_capability_descriptor(&plugin, true);
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.3.1\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            capability_document(true).replace(
+                "\"plugin_version\":\"3.2.0\"",
+                "\"plugin_version\":\"3.3.1\"",
+            ),
+        )
+        .unwrap();
         assert_eq!(
             read_agent_zero_plugin_manifest(&project, &descriptor),
             Some(AgentZeroPluginManifest::compatible())
