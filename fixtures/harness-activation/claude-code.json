@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "harness_id": "claude-code",
-  "adapter_version": "1",
+  "adapter_version": "3",
   "marker_paths": [".claude"],
   "expected_bridge_paths": [
     ".claude/skills/tree-ring-memory/SKILL.md",

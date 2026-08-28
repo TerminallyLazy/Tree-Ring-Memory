@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "harness_id": "codex",
-  "adapter_version": "1",
+  "adapter_version": "3",
   "marker_paths": [".codex"],
   "expected_bridge_paths": [
     ".agents/skills/tree-ring-memory/SKILL.md",
+    ".codex/hooks.json",
     "AGENTS.md"
   ],
   "expected_activation_state_before_proof": "configured-awaiting-proof",

@@ -213,7 +213,7 @@ Web UI/API response, or receipt.
   "protocol_version": 1,
   "receipt_id": "receipt-01",
   "harness_id": "claude-code",
-  "adapter_version": "1",
+  "adapter_version": "3",
   "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "store_id": "01234567-89ab-4def-8123-456789abcdef",
   "project_root_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -240,29 +240,50 @@ and persists the receipt.
 Receipt freshness is derived from `recorded_at` and the 30-day retention
 window; no expiry timestamp is serialized.
 
-### Claude Code SessionStart input
+### Codex and Claude Code lifecycle-hook input
 
-The managed Claude command consumes only this privacy-safe projection of the
-host's SessionStart event:
+The managed Codex and Claude Code commands accept exactly `SessionStart`,
+`SubagentStart`, `Stop`, and `SubagentStop`. Start hooks perform receipt-backed
+recall. Stop hooks enforce one agent-mediated automatic capture checkpoint. A
+session-start hook consumes this privacy-safe projection of the host event:
 
 ```json
 {
   "session_id": "session-01",
   "cwd": ".",
-  "agent_type": "claude-code"
+  "hook_event_name": "SessionStart",
+  "source": "startup"
 }
 ```
 
-`session_id` and `cwd` are required; `agent_type` is optional and defaults
-to `claude-code`. `cwd` is resolved by the running hook and is not copied into
-a receipt. Claude may include `transcript_path` in its original event, but Tree
-Ring ignores it completely: it is not read, forwarded, logged, persisted, or
-included in recall. No other event field is part of the preflight request.
+`session_id`, `cwd`, and `hook_event_name` are required. `source` is host
+metadata and is ignored after the host has selected the hook. `cwd` must resolve
+inside the activated project and is not copied into a receipt. Compaction is
+rehydrated by the host firing `SessionStart` again with `source: "compact"`.
 
-### Claude Code SessionStart output
+A subagent hook adds only the host-owned worker identity fields:
 
-Claude's managed `SessionStart` command reads its event input from stdin and
-writes exactly this JSON object to stdout on successful preflight:
+```json
+{
+  "session_id": "session-01",
+  "cwd": ".",
+  "hook_event_name": "SubagentStart",
+  "agent_id": "agent-01",
+  "agent_type": "reviewer"
+}
+```
+
+Tree Ring derives a distinct worker identity from `agent_id` and `agent_type`;
+neither field is accepted as a store, project, capability, or coordinator
+identity. Both hosts may include transcript paths, model names, turn IDs, or
+other benign metadata. Tree Ring ignores those fields completely: it does not
+read, forward, log, persist, or include them in recall. Capability-bearing or
+root-selecting fields are rejected instead of ignored.
+
+### Codex and Claude Code lifecycle-hook output
+
+The managed command reads its event input from stdin and writes exactly one JSON
+object to stdout on successful preflight:
 
 ```json
 {
@@ -273,10 +294,41 @@ writes exactly this JSON object to stdout on successful preflight:
 }
 ```
 
-`additionalContext` contains only the safe context produced for the live
-session. It must not echo hook input, task prompts, receipt JSON, capabilities,
-or unredacted recalled content. The command fails without emitting a successful
-SessionStart object if receipt verification fails.
+For a worker, `hookEventName` is `SubagentStart`. `additionalContext` contains
+only the safe context produced for that live session or worker. It must not echo
+hook input, task prompts, receipt JSON, capabilities, or unredacted recalled
+content. The command fails without emitting a successful lifecycle object if
+receipt verification fails.
+
+### Codex and Claude Code automatic capture checkpoint
+
+`Stop` and `SubagentStop` events require the same host-owned session and worker
+identity fields plus `stop_hook_active`. Tree Ring ignores transcript paths and
+`last_assistant_message`; neither contributes to a candidate, checkpoint,
+receipt, or query. On the first stop attempt, the hook returns a non-error
+continuation decision:
+
+```json
+{
+  "decision": "block",
+  "reason": "Tree Ring automatic capture checkpoint ..."
+}
+```
+
+The reason directs the active agent to review only outcomes already in its
+working context and submit zero to three concise durable candidates through the
+strict `tree-ring capture` command. Zero is correct when nothing reusable
+occurred. `capture` fixes scope to `agent`; requires project, agent, workflow,
+session, idempotency, and `agent-checkpoint:` provenance; accepts only
+normal-sensitivity cambium, scar, or seed candidates; and passes through the
+existing coordinated write policy. `remember` and `evidence` remain available
+as explicit manual surfaces outside this automatic checkpoint.
+
+When the host re-runs the hook with `stop_hook_active: true`, Tree Ring emits an
+empty JSON object so the response can finish without a loop. Hook definitions
+are synchronous and bounded to ten seconds. Tree Ring does not register prompt,
+tool, or `SessionEnd` capture hooks, inspect a transcript, or run a background
+recorder.
 
 ### Pi JSON stdin request
 
@@ -328,7 +380,7 @@ claim a store, root, bridge fingerprint, harness identity, or receipt state are
 also rejected; those values come only from the local manifest and adapter.
 The Agent Zero descriptor is separate from stdin: it is accepted only through
 the installed plugin's internal absolute-path transport, never through a
-generic CLI option or an input field. Raw stdin and SessionStart input are
+generic CLI option or an input field. Raw stdin and lifecycle-hook input are
 transient: Tree Ring does not persist or log them, regardless of whether
 validation succeeds.
 

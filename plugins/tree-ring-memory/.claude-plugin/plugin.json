@@ -1,7 +1,7 @@
 {
   "name": "tree-ring-memory",
   "displayName": "Tree Ring Memory",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Local-first memory lifecycle, project bootstrap, and receipt-backed harness guidance for Claude Code using Tree Ring Memory v0.15+.",
   "author": {
     "name": "TerminallyLazy",
@@ -22,5 +22,6 @@
     "sqlite",
     "skills"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-hooks.json"
 }

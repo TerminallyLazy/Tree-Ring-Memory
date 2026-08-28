@@ -244,8 +244,9 @@ files in the memory root:
 - `.tree-ring/AGENTS.md`: DOX-style Tree Ring Memory guidance and root
   `AGENTS.md` merge notes.
 - `.tree-ring/SKILL.md`: portable skill instructions for agent runtimes.
-- `.tree-ring/CLI.md`: quick command reference for recall, remember, evidence,
-  DOX/Revolve sync, import/export, audit, maintenance, and TUI usage.
+- `.tree-ring/CLI.md`: quick command reference for recall, strict automatic
+  capture, remember, evidence, DOX/Revolve sync, import/export, audit,
+  maintenance, and TUI usage.
 
 Existing awareness files are left untouched. Tree Ring Memory does not modify a
 project's root `AGENTS.md`; merge the generated guidance manually when you want
@@ -337,6 +338,7 @@ The `tree-ring` command is the Rust CLI.
 ```bash
 tree-ring init
 tree-ring remember "Use protocol-first design." --event-type decision --tag architecture
+tree-ring capture "Use receipt-backed lifecycle checkpoints." --event-type decision --ring cambium --project example-service --agent-profile codex --workflow-id workflow-1 --session-id session-1 --operation-id auto-checkpoint-1 --source-ref agent-checkpoint:checkpoint
 tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
 tree-ring recall "protocol design"
 tree-ring forget mem_example --mode delete --reason "example cleanup"
@@ -361,6 +363,9 @@ Command ownership is Rust-native:
   `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` without overwriting existing
   files, then attempts create-only project harness configuration.
 - `remember`, `recall`, and `forget` cover direct memory capture, retrieval, redaction, and deletion.
+- `capture` is the strict automatic lifecycle-write path: agent-scoped only,
+  normal sensitivity only, bounded cambium/scar/seed classifications, and
+  required checkpoint identity, idempotency, and provenance.
 - `evidence` is the Revolve-inspired improvement-loop entry point for evaluated outcomes.
 - `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
 - `integrations scan` discovers nearby agent-framework markers and suggests setup paths without changing their config.
@@ -784,7 +789,7 @@ The current activation protocol is documented in
 
 ## Agent Workflow Integration
 
-- `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, remember, redact, forget, or avoid memory capture.
+- `skills/tree-ring-memory/SKILL.md` gives agents portable guidance for when to recall, automatically capture, remember, redact, forget, or avoid memory capture.
 - `templates/dox/AGENTS.md` is a DOX-style project contract template for repos that want Tree Ring Memory rules alongside source code.
 - `docs/integrations/agent-skill.md` explains how to use both without making memory more authoritative than local project docs.
 - `tree-ring init` creates canonical guidance and safely configures maintained
@@ -814,11 +819,13 @@ view to `configured-awaiting-proof` and then receipt-backed `active`. There is
 no manual descriptor workflow, and the core/plugin release pair must be
 compatible before this path is available.
 
-Memory updates are agent-mediated. Bridge files tell the active agent when to
-call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
-`tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
-Tree Ring does not scrape transcripts, run a hidden recorder, or turn TUI
-event-stream pulses into durable memory without an explicit write command.
+Memory updates are agent-mediated. Maintained lifecycle bridges perform recall
+at session and subagent start, then enforce one automatic checkpoint at stop.
+The active agent submits zero to three concise durable normal-sensitivity
+candidates through strict `tree-ring capture`; manual `remember` and `evidence`
+remain separate surfaces. Zero is correct when nothing reusable occurred.
+Tree Ring does not scrape transcripts, run a hidden recorder, or turn TUI event
+streams into durable memory without a validated write command.
 
 ## Brand Assets
 

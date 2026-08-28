@@ -638,7 +638,7 @@ fn allowed_owned_file(harness_id: &str, path: &str) -> bool {
     match harness_id {
         "codex" => matches!(
             path,
-            ".agents/skills/tree-ring-memory/SKILL.md" | "AGENTS.md"
+            ".agents/skills/tree-ring-memory/SKILL.md" | ".codex/hooks.json" | "AGENTS.md"
         ),
         "claude-code" => matches!(
             path,

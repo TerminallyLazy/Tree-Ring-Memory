@@ -410,11 +410,12 @@ repo. Global bridge files under `~/.agents`, `~/.codex`, `~/.claude`,
 `~/.gemini`, or `~/.pi` affect every project and should be written only through
 an explicit global opt-in flow.
 
-The bridge-linking design is agent-mediated: bridge files teach the active
-agent when to call Tree Ring, but Tree Ring does not run a background recorder
-or autonomously persist chat transcripts. Durable writes happen only when a
-user, agent, adapter, import, TUI action, consolidation command, or explicit
-maintenance command calls the CLI.
+The bridge-linking design is agent-mediated: start hooks perform receipt-backed
+recall, and maintained stop hooks require the active agent to evaluate zero to
+three structured automatic-capture candidates. Accepted candidates still cross
+the strict CLI write boundary with lifecycle identity, idempotency, provenance,
+sensitivity filtering, and coordinated-policy enforcement. Tree Ring does not
+run a background recorder or autonomously persist chat transcripts.
 
 `integrations link` is an advanced alias for controlled bridge work; it is not
 required after default initialization. `tree-ring integrations activate --harness

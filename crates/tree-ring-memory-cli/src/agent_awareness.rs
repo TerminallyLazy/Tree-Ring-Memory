@@ -27,6 +27,9 @@ const SKILL_RUNTIME_ANCHOR: &str = "## When To Recall";
 const CLI_RUNTIME_HEADING: &str = "Runtime bootstrap and updates:";
 const CLI_RUNTIME_ANCHOR: &str = "Core commands:";
 const PREFLIGHT_HEADING: &str = "## Harness Preflight";
+const AGENT_CAPTURE_HEADING: &str = "## Automatic Capture Checkpoint";
+const SKILL_CAPTURE_HEADING: &str = "## Automatic Capture Checkpoint";
+const CLI_CAPTURE_HEADING: &str = "Automatic capture checkpoint:";
 const PREFLIGHT_GUIDANCE: &str = r#"## Harness Preflight
 
 Before substantive project work in a new harness session, read this canonical
@@ -71,6 +74,7 @@ tree-ring init
 tree-ring update --check
 tree-ring recall "project startup warnings"
 tree-ring remember "Use project-scoped recall before risky changes." --event-type lesson --scope project
+tree-ring capture "Use bounded lifecycle checkpoints." --event-type decision --ring cambium --project example --agent-profile worker --workflow-id workflow --session-id session --operation-id auto-checkpoint-1 --source-ref agent-checkpoint:checkpoint
 tree-ring evidence "Snapshot invalidation fixed stale unread chat state." --outcome promoted --evidence-ref evals/chat-state/run-042 --score 0.91
 tree-ring evidence "Aggressive caching caused stale multi-chat state." --outcome rejected --evidence-ref evals/cache-branch/run-013
 tree-ring forget mem_example --mode redact --reason "remove sensitive detail"
@@ -117,6 +121,14 @@ Coordinated write policy:
 - `tree-ring policy status` and `tree-ring policy audit --limit 100` are read-only. Rotate with `tree-ring policy rotate --coordinator <label>` and return to Open mode with `tree-ring policy disable`; both require the current capability.
 - This is operational write authorization in official Rust/CLI paths, not a read ACL or protection against an adversary who controls the local files or process environment.
 - Before opening a pre-v0.13 store with a v0.13/schema-v3 binary, stop every Tree Ring process, checkpoint and back up the store, and upgrade every CLI, plugin, and bundled worker. Schema v3 fences memory inserts, updates, and deletes from old v0.12 writers; all mixed-version operation is unsupported. Roll back only by restoring the backup.
+
+Automatic capture checkpoint:
+
+- Maintained Codex and Claude lifecycle bridges enforce one checkpoint at `Stop` and `SubagentStop`; Agent Zero injects the same checkpoint contract through its native prompt lifecycle.
+- Select zero to three concise durable normal-sensitivity candidates. Zero is correct for transient chatter, duplicates, unsupported claims, or work with no reusable outcome.
+- Use `tree-ring capture` only with the lifecycle-supplied project, agent, workflow, session, indexed operation ID, and `agent-checkpoint:` source. The command fixes scope to `agent` and permits only cambium, scar, or seed candidates.
+- Use only `tree-ring capture` for this automatic checkpoint. Manual `remember` and `evidence` remain separate surfaces and never bypass coordinated write policy.
+- Never derive automatic memory from raw prompts, transcripts, or tool logs, and never start a background recorder.
 
 Memory quality gates:
 
@@ -237,9 +249,42 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
     maybe_backfill_generated_file(
         &root.join("AGENTS.md"),
         is_generated_agents_file,
+        AGENT_CAPTURE_HEADING,
+        AGENT_QUALITY_GATES_HEADING,
+        extract_section(
+            &agent_contract,
+            AGENT_CAPTURE_HEADING,
+            AGENT_QUALITY_GATES_HEADING,
+        ),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("AGENTS.md"),
+        is_generated_agents_file,
         PREFLIGHT_HEADING,
         AGENT_QUALITY_GATES_HEADING,
         Some(PREFLIGHT_GUIDANCE),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("SKILL.md"),
+        is_generated_skill_file,
+        SKILL_CAPTURE_HEADING,
+        SKILL_QUALITY_GATES_HEADING,
+        extract_section(
+            SKILL_TEMPLATE,
+            SKILL_CAPTURE_HEADING,
+            SKILL_QUALITY_GATES_HEADING,
+        ),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("CLI.md"),
+        is_generated_cli_file,
+        CLI_CAPTURE_HEADING,
+        CLI_QUALITY_GATES_HEADING,
+        extract_section(
+            CLI_REFERENCE,
+            CLI_CAPTURE_HEADING,
+            CLI_QUALITY_GATES_HEADING,
+        ),
     )?;
     maybe_backfill_generated_file(
         &root.join("SKILL.md"),
@@ -453,7 +498,10 @@ user opt-in configuration.
 Tree Ring Memory is agent-mediated. Bridge files tell the active agent when to
 call `tree-ring recall`, `tree-ring remember`, `tree-ring evidence`,
 `tree-ring forget`, `tree-ring consolidate --dry-run`, or `tree-ring maintain`.
-They do not authorize hidden transcript scraping or autonomous durable writes.
+Maintained lifecycle bridges also enforce one strict automatic capture
+checkpoint through `tree-ring capture`. They do not authorize transcript
+scraping, hidden recording, shared automatic writes, or bypassing quality and
+coordinated-policy gates.
 
 ## Multi-Agent Coordination
 
@@ -519,6 +567,22 @@ and bundled worker before reopening it. Schema v3 rejects memory inserts,
 updates, and deletes from old v0.12 writers; all mixed-version operation is
 unsupported. Roll back only by stopping all processes and restoring the
 pre-upgrade backup.
+
+## Automatic Capture Checkpoint
+
+Maintained Codex and Claude bridges enforce one checkpoint at `Stop` and
+`SubagentStop`; Agent Zero injects the same contract through its native prompt
+lifecycle. Review only outcomes already available in working context and select
+zero to three concise durable normal-sensitivity candidates. Zero is correct
+when nothing reusable occurred.
+
+Use `tree-ring --root {root} capture` only with the lifecycle-supplied project,
+agent, workflow, session, indexed operation ID, and `agent-checkpoint:` source.
+Automatic capture is always agent-scoped and permits only cambium, scar, or
+seed candidates. Use only `tree-ring capture` for this automatic checkpoint;
+manual `remember` and `evidence` remain separate surfaces. Never store raw prompts,
+transcripts, tool logs, secrets, or sensitive data. Never start a background recorder,
+and never claim a capture unless the write command succeeds.
 
 ## Memory Quality Gates
 
@@ -714,6 +778,53 @@ mod tests {
             assert!(content.contains("recall \"project startup constraints\""));
             assert!(content.contains("does not create activation proof"));
             assert!(content.contains("not an adversarial security boundary"));
+        }
+    }
+
+    #[test]
+    fn generated_files_backfill_the_strict_automatic_capture_checkpoint() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let canonical_agents = agent_contract(&root);
+
+        for (name, canonical, heading, anchor) in [
+            (
+                "AGENTS.md",
+                canonical_agents.as_str(),
+                AGENT_CAPTURE_HEADING,
+                AGENT_QUALITY_GATES_HEADING,
+            ),
+            (
+                "SKILL.md",
+                SKILL_TEMPLATE,
+                SKILL_CAPTURE_HEADING,
+                SKILL_QUALITY_GATES_HEADING,
+            ),
+            (
+                "CLI.md",
+                CLI_REFERENCE,
+                CLI_CAPTURE_HEADING,
+                CLI_QUALITY_GATES_HEADING,
+            ),
+        ] {
+            let mut stale = stale_fixture(canonical, heading, anchor);
+            stale.push_str("\nCustom project note: preserve me.\n");
+            fs::write(root.join(name), stale).unwrap();
+        }
+
+        ensure_agent_awareness(&root).unwrap();
+
+        for name in ["AGENTS.md", "SKILL.md", "CLI.md"] {
+            let content = fs::read_to_string(root.join(name)).unwrap();
+            assert!(
+                content.contains("Automatic Capture Checkpoint")
+                    || content.contains("Automatic capture checkpoint:")
+            );
+            assert!(content.contains("tree-ring capture"));
+            assert!(content.contains("zero to three"));
+            assert!(content.contains("background recorder"));
+            assert!(content.contains("Custom project note: preserve me."));
         }
     }
 

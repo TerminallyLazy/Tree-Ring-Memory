@@ -20,6 +20,7 @@ const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] = &[
     ("3.2.0", "0.15.3", "0.15"),
     ("3.3.0", "0.15.3", "0.15"),
     ("3.3.1", "0.15.3", "0.15"),
+    ("3.4.0", "0.15.5", "0.15"),
 ];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
@@ -392,20 +393,20 @@ enum AdapterSupport {
 const ADAPTERS: [DeclarativeAdapter; 7] = [
     DeclarativeAdapter {
         id: "codex",
-        version: "1",
+        version: "3",
         display_name: "Codex",
         command: "codex",
-        capability: AdapterCapability::GuidanceOnly,
+        capability: AdapterCapability::NativePreflight,
         markers: &[".codex", "AGENTS.md"],
         home_markers: &[".codex"],
         support: AdapterSupport::Maintained,
     },
     DeclarativeAdapter {
         id: "claude-code",
-        version: "1",
+        version: "3",
         display_name: "Claude Code",
         command: "claude",
-        capability: AdapterCapability::WrapperPreflight,
+        capability: AdapterCapability::NativePreflight,
         markers: &[".claude", "CLAUDE.md"],
         home_markers: &[".claude"],
         support: AdapterSupport::Maintained,
@@ -704,6 +705,7 @@ fn adapter_writes(adapter: &DeclarativeAdapter) -> Vec<PlannedWrite> {
     match adapter.id {
         "codex" => vec![
             bridge_write(".agents/skills/tree-ring-memory/SKILL.md"),
+            bridge_write(".codex/hooks.json"),
             managed_block("AGENTS.md", "codex"),
         ],
         "claude-code" => vec![
@@ -952,10 +954,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex", "claude-code", "pi", "agent-zero"]
         );
-        assert!(maintained.iter().all(|adapter| adapter.version() == "1"));
-        assert!(maintained
-            .iter()
-            .all(|adapter| adapter_version(adapter.id()) == Some("1")));
+        assert_eq!(adapter_version("codex"), Some("3"));
+        assert_eq!(adapter_version("claude-code"), Some("3"));
+        assert_eq!(adapter_version("pi"), Some("1"));
+        assert_eq!(adapter_version("agent-zero"), Some("1"));
         for id in ["hermes", "opencode", "goose"] {
             assert_eq!(
                 plan_activation(id, &project()).unwrap().state,
@@ -965,18 +967,14 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_code_advertises_a_tested_wrapper_preflight() {
+    fn maintained_hook_harnesses_advertise_native_preflight() {
         let report = detect_adapters(&project(), &FakeEnvironment::default());
 
-        assert_eq!(
-            report.by_id("claude-code").unwrap().capability,
-            AdapterCapability::WrapperPreflight
-        );
-        for harness_id in ["codex", "pi", "agent-zero"] {
-            assert_ne!(
+        for harness_id in ["codex", "claude-code", "pi", "agent-zero"] {
+            assert_eq!(
                 report.by_id(harness_id).unwrap().capability,
-                AdapterCapability::WrapperPreflight,
-                "{harness_id} must not advertise a generic launch wrapper"
+                AdapterCapability::NativePreflight,
+                "{harness_id} must advertise its tested native lifecycle bridge"
             );
         }
     }
@@ -1112,6 +1110,21 @@ mod tests {
         fs::create_dir_all(&plugin).unwrap();
 
         let descriptor = write_capability_descriptor(&plugin, true);
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.4.0\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.4.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.5","minor":"0.15"},"enabled":true}"#,
+        )
+        .unwrap();
         assert_eq!(
             read_agent_zero_plugin_manifest(&project, &descriptor),
             Some(AgentZeroPluginManifest::compatible())

@@ -24,6 +24,20 @@ pub struct RememberReport {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureRequest {
+    pub summary: String,
+    pub event_type: String,
+    pub ring: String,
+    pub project: String,
+    pub agent_profile: String,
+    pub workflow_id: String,
+    pub session_id: String,
+    pub operation_id: String,
+    pub source_ref: String,
+    pub tags: Vec<String>,
+}
+
 pub fn remember(
     store: &mut SQLiteMemoryStore,
     request: RememberRequest,
@@ -69,6 +83,96 @@ pub fn remember(
     event.validate().map_err(|err| err.to_string())?;
     let (memory, created) = store_event_idempotently(store, &event)?;
     Ok(RememberReport { memory, created })
+}
+
+/// Stores one strict agent-mediated automatic capture candidate.
+///
+/// Automatic capture deliberately cannot create shared, heartwood, evaluation,
+/// or sensitive memory. The lifecycle hook supplies the trusted routing and
+/// checkpoint provenance; the active agent supplies only the concise durable
+/// candidate and its bounded classification.
+pub fn capture(
+    store: &mut SQLiteMemoryStore,
+    mut request: CaptureRequest,
+) -> ActionResult<RememberReport> {
+    let allowed = matches!(
+        (request.event_type.as_str(), request.ring.as_str()),
+        ("preference" | "decision", "cambium")
+            | ("lesson" | "correction", "cambium" | "scar")
+            | ("warning", "scar")
+            | ("seed", "seed")
+    );
+    if !allowed {
+        if !matches!(request.ring.as_str(), "cambium" | "scar" | "seed") {
+            return Err("automatic capture uses an unsupported ring".to_string());
+        }
+        return Err("automatic capture uses an unsupported event type or ring pairing".to_string());
+    }
+    let checkpoint_id = request
+        .source_ref
+        .strip_prefix("agent-checkpoint:")
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character))
+        })
+        .ok_or_else(|| {
+            "automatic capture source-ref must contain a safe agent-checkpoint id".to_string()
+        })?;
+    let operation_prefix = format!("auto-{checkpoint_id}-");
+    let slot = request
+        .operation_id
+        .strip_prefix(&operation_prefix)
+        .filter(|slot| matches!(*slot, "1" | "2" | "3"));
+    if slot.is_none() {
+        return Err(
+            "automatic capture operation-id must match its checkpoint and slot 1, 2, or 3"
+                .to_string(),
+        );
+    }
+
+    let guard = SensitivityGuard::default();
+    let values = [
+        request.summary.as_str(),
+        request.event_type.as_str(),
+        request.ring.as_str(),
+        request.project.as_str(),
+        request.agent_profile.as_str(),
+        request.workflow_id.as_str(),
+        request.session_id.as_str(),
+        request.operation_id.as_str(),
+        request.source_ref.as_str(),
+    ]
+    .into_iter()
+    .chain(request.tags.iter().map(String::as_str));
+    let sensitivity = guard
+        .detect_text_sensitivity(values)
+        .map_err(|_| "automatic capture accepts only normal-sensitivity candidates".to_string())?;
+    if sensitivity != "normal" {
+        return Err("automatic capture accepts only normal-sensitivity candidates".to_string());
+    }
+    if !request.tags.iter().any(|tag| tag == "automatic-capture") {
+        request.tags.push("automatic-capture".to_string());
+    }
+
+    remember(
+        store,
+        RememberRequest {
+            summary: request.summary,
+            event_type: request.event_type,
+            ring: request.ring,
+            scope: "agent".to_string(),
+            project: Some(request.project),
+            agent_profile: Some(request.agent_profile),
+            workflow_id: Some(request.workflow_id),
+            session_id: Some(request.session_id),
+            operation_id: Some(request.operation_id),
+            source_ref: Some(request.source_ref),
+            tags: request.tags,
+        },
+    )
 }
 
 pub fn store_event_idempotently(
@@ -205,6 +309,85 @@ mod tests {
             Some("finding-storage-lock")
         );
         assert_eq!(report.memory.source.ref_, "runs/fanout-42/reviewer-2.json");
+    }
+
+    #[test]
+    fn automatic_capture_stores_only_agent_scoped_checkpoint_memory() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+
+        let report = capture(
+            &mut store,
+            CaptureRequest {
+                summary: "Use receipt-backed lifecycle hooks for automatic recall.".to_string(),
+                event_type: "decision".to_string(),
+                ring: "cambium".to_string(),
+                project: "tree-ring-memory".to_string(),
+                agent_profile: "codex".to_string(),
+                workflow_id: "workflow-1".to_string(),
+                session_id: "session-1".to_string(),
+                operation_id: "auto-checkpoint-1-1".to_string(),
+                source_ref: "agent-checkpoint:checkpoint-1".to_string(),
+                tags: vec!["hooks".to_string()],
+            },
+        )
+        .unwrap();
+
+        assert!(report.created);
+        assert_eq!(report.memory.scope, "agent");
+        assert_eq!(report.memory.agent_profile.as_deref(), Some("codex"));
+        assert!(report
+            .memory
+            .tags
+            .iter()
+            .any(|tag| tag == "automatic-capture"));
+    }
+
+    #[test]
+    fn automatic_capture_rejects_sensitive_or_unbounded_candidates() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let request = |summary: &str, event_type: &str, ring: &str| CaptureRequest {
+            summary: summary.to_string(),
+            event_type: event_type.to_string(),
+            ring: ring.to_string(),
+            project: "tree-ring-memory".to_string(),
+            agent_profile: "codex".to_string(),
+            workflow_id: "workflow-1".to_string(),
+            session_id: "session-1".to_string(),
+            operation_id: "auto-checkpoint-1-1".to_string(),
+            source_ref: "agent-checkpoint:checkpoint-1".to_string(),
+            tags: Vec::new(),
+        };
+
+        assert!(capture(
+            &mut store,
+            request(
+                "token = sk-proj-abcdefghijklmnopqrstuvwxyz1234567890",
+                "lesson",
+                "cambium"
+            )
+        )
+        .unwrap_err()
+        .contains("normal-sensitivity"));
+        assert!(capture(
+            &mut store,
+            request("Promote this automatically.", "decision", "heartwood")
+        )
+        .unwrap_err()
+        .contains("unsupported ring"));
+        assert!(capture(
+            &mut store,
+            request("Store a transcript summary.", "transcript", "cambium")
+        )
+        .unwrap_err()
+        .contains("unsupported event type"));
+        let mut mismatched = request("Store a fourth candidate.", "lesson", "cambium");
+        mismatched.operation_id = "auto-checkpoint-1-4".to_string();
+        assert!(capture(&mut store, mismatched)
+            .unwrap_err()
+            .contains("slot 1, 2, or 3"));
+        assert!(store.list_all(false).unwrap().is_empty());
     }
 
     #[test]

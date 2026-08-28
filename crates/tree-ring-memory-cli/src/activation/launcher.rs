@@ -137,18 +137,17 @@ where
     S: ClaudeSpawner,
     C: FnOnce(&ProjectFs, &str) -> Result<(), LaunchError>,
 {
-    if adapter_capability(&request.harness_id) != Some(AdapterCapability::WrapperPreflight) {
+    if request.harness_id != "claude-code"
+        || !matches!(
+            adapter_capability(&request.harness_id),
+            Some(AdapterCapability::WrapperPreflight | AdapterCapability::NativePreflight)
+        )
+    {
         return Err(LaunchError::new(format!(
             "harness {} does not provide a wrapper preflight",
             request.harness_id
         )));
     }
-    if request.harness_id != "claude-code" {
-        return Err(LaunchError::new(
-            "only the Claude Code wrapper is supported",
-        ));
-    }
-
     let prepared = prepare_preflight(
         store,
         project,
@@ -299,8 +298,8 @@ mod tests {
         fs::create_dir_all(&project.memory_root).unwrap();
         let mut activation = HarnessActivation {
             state: ActivationState::ConfiguredAwaitingProof,
-            adapter_capability: AdapterCapability::WrapperPreflight,
-            adapter_version: "1".to_string(),
+            adapter_capability: AdapterCapability::NativePreflight,
+            adapter_version: "3".to_string(),
             bridge_fingerprint: String::new(),
             bridge_path: Some(".claude/skills/tree-ring-memory/SKILL.md".to_string()),
             owned_files: vec![OwnedBridgeFile {
@@ -623,7 +622,7 @@ mod tests {
             .harnesses
             .get_mut("claude-code")
             .unwrap()
-            .adapter_capability = AdapterCapability::NativePreflight;
+            .adapter_capability = AdapterCapability::WrapperPreflight;
         spawner.on_spawn = Some(Box::new(move || {
             save_manifest(&memory_root, &changed).unwrap();
         }));
@@ -656,7 +655,7 @@ mod tests {
             .harnesses
             .get_mut("claude-code")
             .unwrap()
-            .adapter_capability = AdapterCapability::NativePreflight;
+            .adapter_capability = AdapterCapability::WrapperPreflight;
         spawner.on_spawn = Some(Box::new(move || {
             save_manifest(&memory_root, &changed).unwrap();
         }));

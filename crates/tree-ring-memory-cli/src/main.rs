@@ -30,7 +30,10 @@ use actions::lifecycle::{
     MaintainActionRequest,
 };
 use actions::recall::{recall as recall_action, RecallRequest};
-use actions::remember::{remember as remember_action, store_event_idempotently, RememberRequest};
+use actions::remember::{
+    capture as capture_action, remember as remember_action, store_event_idempotently,
+    CaptureRequest, RememberRequest,
+};
 use harness_evidence::{
     certify_harnesses, HarnessCertificationReport, HarnessCertificationRequest,
 };
@@ -123,6 +126,28 @@ enum Command {
             help = "source artifact, task, run, message, or result reference"
         )]
         source_ref: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    #[command(about = "store one strict agent-mediated automatic memory candidate")]
+    Capture {
+        summary: String,
+        #[arg(long)]
+        event_type: String,
+        #[arg(long, default_value = "cambium")]
+        ring: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        agent_profile: String,
+        #[arg(long)]
+        workflow_id: String,
+        #[arg(long)]
+        session_id: String,
+        #[arg(long)]
+        operation_id: String,
+        #[arg(long)]
+        source_ref: String,
         #[arg(long = "tag")]
         tags: Vec<String>,
     },
@@ -438,6 +463,13 @@ enum IntegrationCommand {
         #[arg(long, value_enum, default_value_t = CliPreflightContextFormat::Json)]
         context_format: CliPreflightContextFormat,
     },
+    #[command(about = "run a validated harness lifecycle hook and emit context")]
+    Hook {
+        #[arg(long)]
+        harness: String,
+        #[arg(long, help = "read one harness-owned lifecycle JSON event from stdin")]
+        input_json_stdin: bool,
+    },
     #[command(about = "write non-mutating harness certification evidence")]
     Certify {
         #[arg(long, default_value = ".", help = "project root to certify")]
@@ -701,6 +733,46 @@ fn run(cli: Cli) -> Result<(), String> {
             live: *live,
         })?;
         print_harness_certification_report(&report, cli.json)?;
+        return Ok(());
+    }
+
+    if let Command::Integrations {
+        command:
+            IntegrationCommand::Hook {
+                harness,
+                input_json_stdin,
+            },
+    } = &cli.command
+    {
+        if !input_json_stdin {
+            return Err("integrations hook requires --input-json-stdin".to_string());
+        }
+        let mut input = String::new();
+        std::io::stdin()
+            .take(1024 * 1024 + 1)
+            .read_to_string(&mut input)
+            .map_err(|_| "failed to read lifecycle hook stdin".to_string())?;
+        if input.len() > 1024 * 1024 {
+            return Err("lifecycle hook stdin exceeds 1 MiB".to_string());
+        }
+        let project = activation::adapters::ActivationProject::from_memory_root(cli.root.clone())?;
+        let request = activation::parse_lifecycle_hook(&project, harness, &input)?;
+        let manifest = activation::load_manifest(&cli.root)?;
+        ensure_manifest_preflight_ready(&manifest, harness, false)?;
+        if let Some(preflight) = request.preflight {
+            let store =
+                SQLiteMemoryStore::open_read_only(&db_path).map_err(|error| error.to_string())?;
+            let response = activation::run_preflight(&store, &project, &manifest, preflight)
+                .map_err(|error| error.to_string())?;
+            println!(
+                "{}",
+                activation::render_lifecycle_hook(request.event, &response)?
+            );
+        } else if let Some(checkpoint) = request.capture_checkpoint {
+            println!("{}", activation::render_capture_checkpoint(&checkpoint)?);
+        } else {
+            return Err("lifecycle hook action unavailable".to_string());
+        }
         return Ok(());
     }
 
@@ -992,6 +1064,42 @@ fn run(cli: Cli) -> Result<(), String> {
                     event_type,
                     ring,
                     scope,
+                    project,
+                    agent_profile,
+                    workflow_id,
+                    session_id,
+                    operation_id,
+                    source_ref,
+                    tags,
+                },
+            )?;
+            if cli.json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report.memory).map_err(|err| err.to_string())?
+                );
+            } else {
+                println!("{}", report.memory.id);
+            }
+        }
+        Command::Capture {
+            summary,
+            event_type,
+            ring,
+            project,
+            agent_profile,
+            workflow_id,
+            session_id,
+            operation_id,
+            source_ref,
+            tags,
+        } => {
+            let report = capture_action(
+                &mut store,
+                CaptureRequest {
+                    summary,
+                    event_type,
+                    ring,
                     project,
                     agent_profile,
                     workflow_id,
@@ -1517,6 +1625,7 @@ fn command_actor_profile(command: &Command) -> Option<String> {
         | Command::Evidence { agent_profile, .. }
         | Command::Recall { agent_profile, .. }
         | Command::Consolidate { agent_profile, .. } => agent_profile.clone(),
+        Command::Capture { agent_profile, .. } => Some(agent_profile.clone()),
         _ => None,
     }
 }
@@ -1526,6 +1635,7 @@ fn command_origin(command: &Command) -> &'static str {
         Command::Init { .. } => "cli:init",
         Command::Update { .. } => "cli:update",
         Command::Remember { .. } => "cli:remember",
+        Command::Capture { .. } => "cli:capture",
         Command::Evidence { .. } => "cli:evidence",
         Command::Recall { .. } => "cli:recall",
         Command::Forget { .. } => "cli:forget",

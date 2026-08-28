@@ -26,8 +26,8 @@ semver.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
-tree-ring-memory-core = { path = "../tree-ring-memory-core", version = "0.15.4" }
-tree-ring-memory-sqlite = { path = "../tree-ring-memory-sqlite", version = "0.15.4" }
+tree-ring-memory-core = { path = "../tree-ring-memory-core", version = "0.15.5" }
+tree-ring-memory-sqlite = { path = "../tree-ring-memory-sqlite", version = "0.15.5" }
 
 [dev-dependencies]
 rusqlite.workspace = true

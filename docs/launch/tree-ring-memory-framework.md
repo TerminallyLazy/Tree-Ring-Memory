@@ -63,8 +63,11 @@ The point is not to store more. The point is to keep memory useful as it ages.
 Tree Ring Memory is local-first by default. It does not scrape transcripts, run
 a hidden recorder, or turn terminal event pulses into durable memory.
 
-Durable writes are explicit: `remember`, `evidence`, `import`, consolidation,
-maintenance, TUI action, or deliberate agent action.
+Durable writes always cross a validated action boundary: `remember`, strict
+agent-mediated lifecycle `capture`, `evidence`, `import`, consolidation,
+maintenance, or a TUI action. Automatic capture evaluates zero to three concise
+normal-sensitivity candidates at stop; it does not scrape transcripts or run a
+background recorder.
 
 ## Feedback Wanted
 
