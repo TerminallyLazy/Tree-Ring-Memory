@@ -54,6 +54,7 @@ enum PreflightInputContract {
     DirectIdentityFlags,
     AdapterStdin,
     ClaudeWrapper,
+    LifecycleHook,
 }
 
 impl PreflightRequest {
@@ -103,6 +104,18 @@ impl PreflightRequest {
             task_hint,
             context_format: PreflightContextFormat::Json,
             input_contract: PreflightInputContract::ClaudeWrapper,
+        }
+    }
+
+    /// Constructs a request from a validated, harness-owned lifecycle event.
+    /// Callers must sanitize the vendor payload before crossing this boundary.
+    pub(crate) fn lifecycle_hook(harness_id: impl Into<String>, identity: SessionIdentity) -> Self {
+        Self {
+            harness_id: harness_id.into(),
+            identity,
+            task_hint: None,
+            context_format: PreflightContextFormat::Json,
+            input_contract: PreflightInputContract::LifecycleHook,
         }
     }
 }
@@ -625,6 +638,10 @@ fn validate_request_contract(request: &PreflightRequest) -> Result<(), Activatio
                 && request.identity.agent_profile == "claude-code"
                 && request.identity.workflow_id.starts_with("claude-launch-")
                 && request.identity.session_id.starts_with("claude-session-")
+        }
+        PreflightInputContract::LifecycleHook => {
+            matches!(request.harness_id.as_str(), "codex" | "claude-code")
+                && request.context_format == PreflightContextFormat::Json
         }
     };
     valid

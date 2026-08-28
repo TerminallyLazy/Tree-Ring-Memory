@@ -205,6 +205,24 @@ Evidence outcome mapping:
 - `deferred`: seed for promising unresolved options
 - `observed`: outer-ring evaluation result
 
+## Automatic Capture Checkpoint
+
+Maintained Codex and Claude bridges enforce one agent-mediated checkpoint at
+`Stop` and `SubagentStop`; the Agent Zero plugin injects the same requirement
+through its native prompt lifecycle. Review only durable outcomes already in
+working context and select zero to three normal-sensitivity candidates. Zero is
+correct for transient planning, duplicates, unsupported claims, or work with no
+reusable result.
+
+Use the lifecycle-supplied strict `tree-ring capture` command for preferences,
+decisions, validated lessons, warnings, corrections, and future seeds. It fixes
+scope to `agent`, requires project and worker identity, uses distinct indexed
+operation IDs plus `agent-checkpoint:` provenance, and permits only cambium,
+scar, or seed. Use only `tree-ring capture` for this automatic checkpoint;
+manual `remember` and `evidence` remain separate surfaces. Never store raw prompts,
+transcripts, tool logs, secrets, or sensitive data; never invent filler memory;
+and never start a background recorder.
+
 ## Memory Quality Gates
 
 Use these gates before relying on or writing memory.

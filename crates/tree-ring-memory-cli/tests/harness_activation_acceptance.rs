@@ -67,7 +67,11 @@ fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() 
             "codex",
             (
                 "configured-awaiting-proof",
-                vec![".agents/skills/tree-ring-memory/SKILL.md", "AGENTS.md"],
+                vec![
+                    ".agents/skills/tree-ring-memory/SKILL.md",
+                    ".codex/hooks.json",
+                    "AGENTS.md",
+                ],
             ),
         ),
         (
@@ -85,7 +89,12 @@ fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() 
     for (id, fixture) in fixture_map {
         assert_eq!(fixture["schema_version"], 1, "{id}");
         assert_eq!(fixture["harness_id"], id, "{id}");
-        assert_eq!(fixture["adapter_version"], "1", "{id}");
+        let expected_adapter_version = if matches!(id.as_str(), "codex" | "claude-code") {
+            "3"
+        } else {
+            "1"
+        };
+        assert_eq!(fixture["adapter_version"], expected_adapter_version, "{id}");
         assert_eq!(
             fixture["expected_activation_state_before_proof"],
             expected[id.as_str()].0,
@@ -164,6 +173,151 @@ fn default_relative_root_initializes_from_the_project_root() {
     assert!(project
         .join(".agents/skills/tree-ring-memory/SKILL.md")
         .exists());
+    let codex_hooks = fs::read_to_string(project.join(".codex/hooks.json")).unwrap();
+    assert!(codex_hooks.contains("SessionStart"));
+    assert!(codex_hooks.contains("SubagentStart"));
+    assert!(codex_hooks.contains("\"Stop\""));
+    assert!(codex_hooks.contains("SubagentStop"));
+    assert!(!codex_hooks.contains("UserPromptSubmit"));
+    assert!(!codex_hooks.contains("SessionEnd"));
+
+    let mut hook_child = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .arg("integrations")
+        .args(["hook", "--harness", "codex", "--input-json-stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(
+        hook_child.stdin.take().unwrap(),
+        &json!({
+            "session_id": "hook-session",
+            "cwd": project,
+            "hook_event_name": "SessionStart",
+            "source": "startup",
+            "transcript_path": "/private/must-not-be-read.jsonl"
+        }),
+    )
+    .unwrap();
+    let hook = hook_child.wait_with_output().unwrap();
+    assert_success("Codex lifecycle hook", &hook);
+    let hook_json = output_json("Codex lifecycle hook", &hook);
+    assert_eq!(
+        hook_json["hookSpecificOutput"]["hookEventName"],
+        "SessionStart"
+    );
+    assert!(hook_json["hookSpecificOutput"]["additionalContext"].is_string());
+
+    let mut subagent_hook_child = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .arg("integrations")
+        .args(["hook", "--harness", "codex", "--input-json-stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(
+        subagent_hook_child.stdin.take().unwrap(),
+        &json!({
+            "session_id": "hook-session",
+            "cwd": project,
+            "hook_event_name": "SubagentStart",
+            "agent_id": "worker-1",
+            "agent_type": "reviewer",
+            "transcript_path": "/private/must-not-be-read.jsonl"
+        }),
+    )
+    .unwrap();
+    let subagent_hook = subagent_hook_child.wait_with_output().unwrap();
+    assert_success("Codex subagent lifecycle hook", &subagent_hook);
+    let subagent_hook_json = output_json("Codex subagent lifecycle hook", &subagent_hook);
+    assert_eq!(
+        subagent_hook_json["hookSpecificOutput"]["hookEventName"],
+        "SubagentStart"
+    );
+    assert!(subagent_hook_json["hookSpecificOutput"]["additionalContext"].is_string());
+
+    let mut stop_child = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .arg("integrations")
+        .args(["hook", "--harness", "codex", "--input-json-stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(
+        stop_child.stdin.take().unwrap(),
+        &json!({
+            "session_id": "hook-session",
+            "cwd": project,
+            "hook_event_name": "Stop",
+            "stop_hook_active": false,
+            "last_assistant_message": "private output must stay opaque",
+            "transcript_path": "/private/must-not-be-read.jsonl"
+        }),
+    )
+    .unwrap();
+    let stop = stop_child.wait_with_output().unwrap();
+    assert_success("Codex stop checkpoint", &stop);
+    let stop_json = output_json("Codex stop checkpoint", &stop);
+    assert_eq!(stop_json["decision"], "block");
+    assert!(stop_json["reason"]
+        .as_str()
+        .unwrap()
+        .contains(" tree-ring --root "));
+    assert!(stop_json["reason"].as_str().unwrap().contains(" capture "));
+    assert!(!stop_json["reason"]
+        .as_str()
+        .unwrap()
+        .contains("private output"));
+
+    let capture = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", OsString::from(empty_path.as_os_str()))
+        .env("HOME", project.join("fixture-home"))
+        .args([
+            "--json",
+            "capture",
+            "Lifecycle capture stores only concise durable candidates.",
+            "--event-type",
+            "decision",
+            "--ring",
+            "cambium",
+            "--project",
+            "relative-default-root",
+            "--agent-profile",
+            "codex",
+            "--workflow-id",
+            "hook-session",
+            "--session-id",
+            "hook-session",
+            "--operation-id",
+            "auto-checkpoint-acceptance-1",
+            "--source-ref",
+            "agent-checkpoint:checkpoint-acceptance",
+        ])
+        .output()
+        .unwrap();
+    assert_success("strict automatic capture", &capture);
+    let captured = output_json("strict automatic capture", &capture);
+    assert_eq!(captured["scope"], "agent");
+    assert_eq!(captured["agent_profile"], "codex");
+    assert_eq!(captured["sensitivity"], "normal");
+    assert!(captured["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tag| tag == "automatic-capture"));
 
     let preflight = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
         .current_dir(&project)
@@ -918,13 +1072,13 @@ fn install_agent_zero_plugin(base: &Path) -> PathBuf {
     fs::create_dir_all(&plugin).unwrap();
     fs::write(
         plugin.join("plugin.yaml"),
-        "name: tree_ring_memory\nversion: 3.3.1\n",
+        "name: tree_ring_memory\nversion: 3.4.0\n",
     )
     .unwrap();
     let descriptor = plugin.join("activation-capability.json");
     fs::write(
         &descriptor,
-        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.3.1","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.3","minor":"0.15"},"enabled":true}"#,
+        r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.4.0","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.5","minor":"0.15"},"enabled":true}"#,
     )
     .unwrap();
     descriptor

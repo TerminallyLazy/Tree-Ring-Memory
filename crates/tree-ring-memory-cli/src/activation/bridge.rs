@@ -39,8 +39,14 @@ use std::{
 use uuid::Uuid;
 
 const CODEX_RETRY: &str = "tree-ring integrations activate --harness codex --accept-managed-block";
-const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed preflight v1";
-const CLAUDE_COMMAND: &str = "tree-ring --root .tree-ring integrations preflight --harness claude-code --input-json-stdin --context-format claude-session-start";
+const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed lifecycle v3";
+const CLAUDE_SUBAGENT_DESCRIPTION: &str = "Tree Ring Memory managed subagent lifecycle v3";
+const CLAUDE_STOP_DESCRIPTION: &str = "Tree Ring Memory managed capture checkpoint v3";
+const CLAUDE_SUBAGENT_STOP_DESCRIPTION: &str =
+    "Tree Ring Memory managed subagent capture checkpoint v3";
+const CLAUDE_LEGACY_DESCRIPTION: &str = "Tree Ring Memory managed lifecycle v2";
+const CLAUDE_LEGACY_SUBAGENT_DESCRIPTION: &str = "Tree Ring Memory managed subagent lifecycle v2";
+const CLAUDE_COMMAND: &str = "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness claude-code --input-json-stdin";
 
 const SKILL_BRIDGE: &str = r#"---
 name: tree-ring-memory
@@ -54,8 +60,51 @@ Read `.tree-ring/SKILL.md`, `.tree-ring/AGENTS.md`, and `.tree-ring/CLI.md` from
 
 const CODEX_BLOCK_BODY: &str = r#"## Tree Ring Memory
 
-Read `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` before substantive work. Use `tree-ring --root .tree-ring integrations preflight --harness codex` with the later preflight identity interface, and do not claim memory is active without a valid project-local recall receipt.
+Read `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` before substantive work. The project lifecycle hook runs receipt-backed recall at session boundaries and one strict automatic capture checkpoint before a session or subagent turn stops. Do not claim memory is active without a valid project-local recall receipt. Capture zero to three concise durable candidates; never store a transcript or invent memory.
 "#;
+
+fn codex_hooks() -> Value {
+    json!({
+        "description": "Tree Ring Memory managed lifecycle v3",
+        "hooks": {
+            "SessionStart": [{
+                "matcher": "startup|resume|clear|compact",
+                "hooks": [{
+                    "type": "command",
+                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "timeout": 10,
+                    "statusMessage": "Loading Tree Ring memory",
+                    "additionalContextLimit": 2500
+                }]
+            }],
+            "SubagentStart": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "timeout": 10,
+                    "statusMessage": "Loading Tree Ring memory",
+                    "additionalContextLimit": 2500
+                }]
+            }],
+            "Stop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "timeout": 10,
+                    "statusMessage": "Checking durable Tree Ring memory"
+                }]
+            }],
+            "SubagentStop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "timeout": 10,
+                    "statusMessage": "Checking durable Tree Ring worker memory"
+                }]
+            }]
+        }
+    })
+}
 
 const PI_EXTENSION: &str = r#"import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -1945,8 +1994,9 @@ fn prepare_claude_settings(
 ) -> Result<Option<PreparedFile>, String> {
     let before = project_fs.read_optional(&write.path)?;
     let path = relative_string(&write.path)?;
-    let handler = claude_handler();
-    let handler_hash = sha256(&serde_json::to_vec(&handler).map_err(json_error)?);
+    let handler_hash = sha256(&serde_json::to_vec(&claude_handlers()).map_err(json_error)?);
+    let legacy_handler_hash =
+        sha256(&serde_json::to_vec(&legacy_claude_handlers()).map_err(json_error)?);
     if before.is_none() {
         if owned_files.iter().any(|owned| owned.path == path)
             || managed_blocks
@@ -1956,7 +2006,7 @@ fn prepare_claude_settings(
             return Ok(None);
         }
         let mut root = Map::new();
-        insert_claude_handler(&mut root, handler)?;
+        insert_claude_handlers(&mut root)?;
         let bytes = pretty_json(&Value::Object(root))?;
         upsert_owned_file(owned_files, path, sha256(&bytes));
         return Ok(Some(PreparedFile {
@@ -1978,11 +2028,15 @@ fn prepare_claude_settings(
         match state {
             ClaudeHandlerState::Exact => {}
             ClaudeHandlerState::Absent => {
-                if insert_claude_handler(&mut root, handler).is_err() {
+                if insert_claude_handlers(&mut root).is_err() {
                     return Ok(None);
                 }
             }
-            ClaudeHandlerState::Conflict => return Ok(None),
+            ClaudeHandlerState::Conflict => {
+                if !replace_legacy_claude_handlers(&mut root)? {
+                    return Ok(None);
+                }
+            }
         }
         let desired = pretty_json(&Value::Object(root))?;
         upsert_owned_file(owned_files, path, sha256(&desired));
@@ -2002,11 +2056,20 @@ fn prepare_claude_settings(
         Ok(state) => state,
         Err(_) => return Ok(None),
     };
+    let owns_legacy_bundle = managed_blocks.iter().any(|owned| {
+        owned.path == path
+            && owned.block_id == write.block_id
+            && owned.sha256 == legacy_handler_hash
+    });
     match state {
-        ClaudeHandlerState::Conflict => return Ok(None),
+        ClaudeHandlerState::Conflict => {
+            if !owns_legacy_bundle || !replace_legacy_claude_handlers(&mut root)? {
+                return Ok(None);
+            }
+        }
         ClaudeHandlerState::Exact => {}
         ClaudeHandlerState::Absent => {
-            if insert_claude_handler(&mut root, handler).is_err() {
+            if insert_claude_handlers(&mut root).is_err() {
                 return Ok(None);
             }
         }
@@ -2036,6 +2099,7 @@ fn render_complete_file(
         | ("claude-code", Some(".claude/skills/tree-ring-memory/SKILL.md")) => {
             Ok(SKILL_BRIDGE.as_bytes().to_vec())
         }
+        ("codex", Some(".codex/hooks.json")) => pretty_json(&codex_hooks()),
         ("pi", Some(".pi/extensions/tree-ring-memory.ts")) => Ok(PI_EXTENSION.as_bytes().to_vec()),
         ("agent-zero", Some(".tree-ring/activation/agent-zero.json")) => {
             let binding = json!({
@@ -2075,6 +2139,7 @@ fn validate_plan(plan: &AdapterPlan) -> Result<(), String> {
         match plan.harness_id.as_str() {
             "codex" => vec![
                 ("file", ".agents/skills/tree-ring-memory/SKILL.md", ""),
+                ("file", ".codex/hooks.json", ""),
                 ("block", "AGENTS.md", "codex"),
             ],
             "claude-code" => vec![
@@ -2244,51 +2309,121 @@ fn claude_handler() -> Value {
     json!({
         "type": "command",
         "command": CLAUDE_COMMAND,
-        "description": CLAUDE_DESCRIPTION
+        "description": CLAUDE_DESCRIPTION,
+        "timeout": 10
     })
+}
+
+fn claude_subagent_handler() -> Value {
+    json!({
+        "type": "command",
+        "command": CLAUDE_COMMAND,
+        "description": CLAUDE_SUBAGENT_DESCRIPTION,
+        "timeout": 10
+    })
+}
+
+fn claude_stop_handler() -> Value {
+    json!({
+        "type": "command",
+        "command": CLAUDE_COMMAND,
+        "description": CLAUDE_STOP_DESCRIPTION,
+        "timeout": 10
+    })
+}
+
+fn claude_subagent_stop_handler() -> Value {
+    json!({
+        "type": "command",
+        "command": CLAUDE_COMMAND,
+        "description": CLAUDE_SUBAGENT_STOP_DESCRIPTION,
+        "timeout": 10
+    })
+}
+
+fn legacy_claude_handlers() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "SessionStart",
+            json!({
+                "type": "command",
+                "command": CLAUDE_COMMAND,
+                "description": CLAUDE_LEGACY_DESCRIPTION,
+                "timeout": 10
+            }),
+        ),
+        (
+            "SubagentStart",
+            json!({
+                "type": "command",
+                "command": CLAUDE_COMMAND,
+                "description": CLAUDE_LEGACY_SUBAGENT_DESCRIPTION,
+                "timeout": 10
+            }),
+        ),
+    ]
+}
+
+fn claude_handlers() -> Vec<(&'static str, Value)> {
+    vec![
+        ("SessionStart", claude_handler()),
+        ("SubagentStart", claude_subagent_handler()),
+        ("Stop", claude_stop_handler()),
+        ("SubagentStop", claude_subagent_stop_handler()),
+    ]
 }
 
 fn inspect_claude_handler(root: &Map<String, Value>) -> Result<ClaudeHandlerState, String> {
     validate_claude_hook_shape(root)?;
-    let expected = claude_handler();
+    let expected = claude_handlers();
     let mut exact = 0usize;
+    let mut claimed = 0usize;
     let mut conflict = false;
-    if let Some(entries) = root
-        .get("hooks")
-        .and_then(Value::as_object)
-        .and_then(|hooks| hooks.get("SessionStart"))
-        .and_then(Value::as_array)
-    {
-        for entry in entries {
-            let handlers = entry
-                .get("hooks")
-                .and_then(Value::as_array)
-                .expect("validated SessionStart handler array");
-            for handler in handlers {
-                let object = handler
-                    .as_object()
-                    .expect("validated SessionStart handler object");
-                let description = object.get("description").and_then(Value::as_str);
-                let command = object.get("command").and_then(Value::as_str);
-                let claims_description = description == Some(CLAUDE_DESCRIPTION);
-                let claims_command = command.is_some_and(|command| {
-                    command.contains("tree-ring")
-                        && command.contains("integrations preflight")
-                        && command.contains("--harness claude-code")
-                });
-                if claims_description || claims_command {
-                    if handler == &expected {
-                        exact += 1;
-                    } else {
-                        conflict = true;
+    for (event, expected_handler) in &expected {
+        if let Some(entries) = root
+            .get("hooks")
+            .and_then(Value::as_object)
+            .and_then(|hooks| hooks.get(*event))
+            .and_then(Value::as_array)
+        {
+            for entry in entries {
+                let handlers = entry
+                    .get("hooks")
+                    .and_then(Value::as_array)
+                    .expect("validated Claude lifecycle handler array");
+                for handler in handlers {
+                    let object = handler
+                        .as_object()
+                        .expect("validated Claude lifecycle handler object");
+                    let description = object.get("description").and_then(Value::as_str);
+                    let command = object.get("command").and_then(Value::as_str);
+                    let claims_description = matches!(
+                        description,
+                        Some(
+                            CLAUDE_DESCRIPTION
+                                | CLAUDE_SUBAGENT_DESCRIPTION
+                                | CLAUDE_STOP_DESCRIPTION
+                                | CLAUDE_SUBAGENT_STOP_DESCRIPTION
+                        )
+                    );
+                    let claims_command = command.is_some_and(|command| {
+                        command.contains("tree-ring") && command.contains("--harness claude-code")
+                    });
+                    if claims_description || claims_command {
+                        claimed += 1;
+                        if handler == expected_handler {
+                            exact += 1;
+                        } else {
+                            conflict = true;
+                        }
                     }
                 }
             }
         }
     }
-    if conflict || exact > 1 {
+    if conflict || claimed > expected.len() || (claimed != 0 && exact != expected.len()) {
         Ok(ClaudeHandlerState::Conflict)
-    } else if exact == 1 {
+    } else if exact == expected.len() {
         Ok(ClaudeHandlerState::Exact)
     } else {
         Ok(ClaudeHandlerState::Absent)
@@ -2302,27 +2437,30 @@ fn validate_claude_hook_shape(root: &Map<String, Value>) -> Result<(), String> {
     let hooks = hooks
         .as_object()
         .ok_or_else(|| "Claude settings hooks must be an object".to_string())?;
-    if let Some(session_start) = hooks.get("SessionStart") {
-        let entries = session_start
+    for event in ["SessionStart", "SubagentStart", "Stop", "SubagentStop"] {
+        let Some(event_value) = hooks.get(event) else {
+            continue;
+        };
+        let entries = event_value
             .as_array()
-            .ok_or_else(|| "Claude SessionStart hooks must be an array".to_string())?;
+            .ok_or_else(|| format!("Claude {event} hooks must be an array"))?;
         for entry in entries {
             let entry = entry
                 .as_object()
-                .ok_or_else(|| "Claude SessionStart entry must be an object".to_string())?;
+                .ok_or_else(|| format!("Claude {event} entry must be an object"))?;
             let handlers = entry
                 .get("hooks")
                 .and_then(Value::as_array)
-                .ok_or_else(|| "Claude SessionStart entry hooks must be an array".to_string())?;
+                .ok_or_else(|| format!("Claude {event} entry hooks must be an array"))?;
             if handlers.iter().any(|handler| !handler.is_object()) {
-                return Err("Claude SessionStart command handler must be an object".to_string());
+                return Err(format!("Claude {event} command handler must be an object"));
             }
         }
     }
     Ok(())
 }
 
-fn insert_claude_handler(root: &mut Map<String, Value>, handler: Value) -> Result<(), String> {
+fn insert_claude_handlers(root: &mut Map<String, Value>) -> Result<(), String> {
     if !root.contains_key("hooks") {
         root.insert("hooks".to_string(), Value::Object(Map::new()));
     }
@@ -2330,15 +2468,56 @@ fn insert_claude_handler(root: &mut Map<String, Value>, handler: Value) -> Resul
         .get_mut("hooks")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "Claude settings hooks must be an object".to_string())?;
-    if !hooks.contains_key("SessionStart") {
-        hooks.insert("SessionStart".to_string(), Value::Array(Vec::new()));
+    for (event, handler) in claude_handlers() {
+        if !hooks.contains_key(event) {
+            hooks.insert(event.to_string(), Value::Array(Vec::new()));
+        }
+        let entries = hooks
+            .get_mut(event)
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| format!("Claude {event} hooks must be an array"))?;
+        entries.push(json!({"matcher": "", "hooks": [handler]}));
     }
-    let session_start = hooks
-        .get_mut("SessionStart")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "Claude SessionStart hooks must be an array".to_string())?;
-    session_start.push(json!({"matcher": "", "hooks": [handler]}));
     Ok(())
+}
+
+fn replace_legacy_claude_handlers(root: &mut Map<String, Value>) -> Result<bool, String> {
+    let legacy = legacy_claude_handlers();
+    let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return Ok(false);
+    };
+    let mut removed = 0usize;
+    for (event, expected_handler) in &legacy {
+        let Some(entries) = hooks.get_mut(*event).and_then(Value::as_array_mut) else {
+            return Ok(false);
+        };
+        for entry in entries.iter_mut() {
+            let Some(handlers) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            handlers.retain(|handler| {
+                let matches = handler == expected_handler;
+                if matches {
+                    removed += 1;
+                }
+                !matches
+            });
+        }
+        entries.retain(|entry| {
+            entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_none_or(|handlers| !handlers.is_empty())
+        });
+        if entries.is_empty() {
+            hooks.remove(*event);
+        }
+    }
+    if removed != legacy.len() {
+        return Ok(false);
+    }
+    insert_claude_handlers(root)?;
+    Ok(true)
 }
 
 fn remove_claude_handler(bytes: &[u8], expected_hash: &str) -> Result<Option<Vec<u8>>, String> {
@@ -2349,40 +2528,42 @@ fn remove_claude_handler(bytes: &[u8], expected_hash: &str) -> Result<Option<Vec
     if validate_claude_hook_shape(&root).is_err() {
         return Ok(None);
     }
+    let expected = claude_handlers();
+    if sha256(&serde_json::to_vec(&expected).map_err(json_error)?) != expected_hash {
+        return Ok(None);
+    }
     let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else {
         return Ok(None);
     };
-    let Some(entries) = hooks.get_mut("SessionStart").and_then(Value::as_array_mut) else {
-        return Ok(None);
-    };
     let mut removed = 0usize;
-    for entry in entries.iter_mut() {
-        let Some(handlers) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
-            continue;
+    for (event, expected_handler) in expected {
+        let Some(entries) = hooks.get_mut(event).and_then(Value::as_array_mut) else {
+            return Ok(None);
         };
-        handlers.retain(|handler| {
-            let matches = handler.get("description").and_then(Value::as_str)
-                == Some(CLAUDE_DESCRIPTION)
-                && serde_json::to_vec(handler)
-                    .map(|bytes| sha256(&bytes) == expected_hash)
-                    .unwrap_or(false);
-            if matches {
-                removed += 1;
-            }
-            !matches
+        for entry in entries.iter_mut() {
+            let Some(handlers) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            handlers.retain(|handler| {
+                let matches = handler == &expected_handler;
+                if matches {
+                    removed += 1;
+                }
+                !matches
+            });
+        }
+        entries.retain(|entry| {
+            entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_none_or(|handlers| !handlers.is_empty())
         });
+        if entries.is_empty() {
+            hooks.remove(event);
+        }
     }
-    if removed != 1 {
+    if removed != 4 {
         return Ok(None);
-    }
-    entries.retain(|entry| {
-        entry
-            .get("hooks")
-            .and_then(Value::as_array)
-            .is_none_or(|handlers| !handlers.is_empty())
-    });
-    if entries.is_empty() {
-        hooks.remove("SessionStart");
     }
     if hooks.is_empty() {
         root.remove("hooks");
@@ -3005,7 +3186,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            2
+            3
         );
         for owned in serialized["harnesses"]["codex"]["owned_files"]
             .as_array()
@@ -3502,6 +3683,43 @@ mod tests {
     }
 
     #[test]
+    fn exact_legacy_claude_bundle_upgrades_without_touching_user_settings() {
+        let mut root = json!({
+            "permissions": {"allow": ["Read"]},
+            "hooks": {
+                "SessionStart": [],
+                "SubagentStart": [],
+                "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "keep-me"}]}]
+            }
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        for (event, handler) in legacy_claude_handlers() {
+            root.get_mut("hooks")
+                .and_then(Value::as_object_mut)
+                .and_then(|hooks| hooks.get_mut(event))
+                .and_then(Value::as_array_mut)
+                .unwrap()
+                .push(json!({"matcher": "", "hooks": [handler]}));
+        }
+
+        assert!(replace_legacy_claude_handlers(&mut root).unwrap());
+
+        assert_eq!(
+            inspect_claude_handler(&root).unwrap(),
+            ClaudeHandlerState::Exact
+        );
+        assert_eq!(root["permissions"]["allow"][0], "Read");
+        assert_eq!(
+            root["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "keep-me"
+        );
+        assert!(root["hooks"]["Stop"].is_array());
+        assert!(root["hooks"]["SubagentStop"].is_array());
+    }
+
+    #[test]
     fn unsafe_or_unexpected_plan_paths_are_rejected_before_writes() {
         let (_temp, project, mut manifest) = fixture();
         for path in ["../outside", "/tmp/outside", "AGENTS.md"] {
@@ -3656,7 +3874,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_only_plans_handlers_in_the_exact_session_start_hook_location() {
+    fn claude_only_plans_handlers_in_the_exact_lifecycle_hook_locations() {
         let (_temp, project, mut manifest) = fixture();
         let settings = project.project_root.join(".claude/settings.json");
         write(

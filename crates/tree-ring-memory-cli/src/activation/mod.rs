@@ -37,9 +37,14 @@ pub struct SessionIdentity {
 pub mod adapters;
 pub mod bridge;
 pub mod launcher;
+pub mod lifecycle;
 pub mod manifest;
 pub mod preflight;
 
+pub use lifecycle::{
+    parse_lifecycle_hook, render_capture_checkpoint, render_lifecycle_hook, CaptureCheckpoint,
+    LifecycleHookEvent, LifecycleHookRequest,
+};
 #[allow(unused_imports)]
 pub use manifest::{
     load_manifest, load_or_create_manifest, prune_receipts, write_receipt, ActivationManifest,

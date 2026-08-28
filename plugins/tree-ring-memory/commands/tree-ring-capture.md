@@ -9,6 +9,43 @@ allowed-tools: ["Bash"]
 Capture only durable, useful memory. Do not store transcripts, secrets,
 credentials, raw chain-of-thought, or unverified claims as truth.
 
+## Lifecycle Stop Checkpoint
+
+`Stop` and `SubagentStop` hooks enforce one agent-mediated checkpoint. The hook
+never inspects or persists `transcript_path`, `last_assistant_message`, prompts,
+or transcript content. Evaluate the grounded work already in the active agent's
+context. If there is no durable, normal-sensitivity candidate, do not write a
+memory.
+
+For each qualifying candidate, use the exact identity-bound template returned
+by the lifecycle handler. Its strict shape is:
+
+```bash
+tree-ring --root .tree-ring capture "<concise summary>" \
+  --event-type <preference|decision|lesson|warning|correction|seed> \
+  --ring <cambium|scar|seed> \
+  --project <project> \
+  --agent-profile <profile> \
+  --workflow-id <workflow> \
+  --session-id <session> \
+  --operation-id auto-<checkpoint>-<1..3> \
+  --source-ref agent-checkpoint:<checkpoint> \
+  [--tag <tag>]
+```
+
+Do not invent or edit the supplied identity, checkpoint, operation, or source
+values. Strict capture fixes `scope=agent`, requires identity and provenance,
+adds the automatic-capture tag, and accepts normal sensitivity only. Use no more
+than three candidates in the single checkpoint. Never replace this with a raw
+transcript summary, `remember`, `evidence`, or an import.
+
+Use `cambium` for preferences, decisions, lessons, and corrections; `scar` for
+warnings; and `seed` for future work. A candidate still must be durable and
+grounded regardless of its ring.
+
+The manual command flow below remains available for an explicit user-directed
+capture outside a lifecycle checkpoint.
+
 Read project-local `.tree-ring/SKILL.md` and `.tree-ring/CLI.md` first when
 present. Follow the skill's Runtime Bootstrap And Updates procedure and confirm
 the selected project-local or global binary reports 0.15.0 or newer. Bootstrap
