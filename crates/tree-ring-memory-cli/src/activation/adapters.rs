@@ -21,6 +21,7 @@ const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] = &[
     ("3.3.0", "0.15.3", "0.15"),
     ("3.3.1", "0.15.3", "0.15"),
     ("3.4.0", "0.15.5", "0.15"),
+    ("3.4.1", "0.15.6", "0.15"),
 ];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
@@ -1110,6 +1111,21 @@ mod tests {
         fs::create_dir_all(&plugin).unwrap();
 
         let descriptor = write_capability_descriptor(&plugin, true);
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.4.1\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.4.1","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.6","minor":"0.15"},"enabled":true}"#,
+        )
+        .unwrap();
         assert_eq!(
             read_agent_zero_plugin_manifest(&project, &descriptor),
             Some(AgentZeroPluginManifest::compatible())
