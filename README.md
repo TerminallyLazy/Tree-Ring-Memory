@@ -847,3 +847,8 @@ streams into durable memory without a validated write command.
 - Sensitive data fails closed.
 - Forgetting and supersession are first-class.
 - Memory quality should be testable.
+
+Installer onboarding (`welcome --init`) initializes the same project activation
+manifest and safe, create-only harness bridges as `init` starting in CLI 0.15.7.
+Existing user hooks and memory stores are preserved. Onboarding reports each
+harness state; automatic use still requires host trust and a fresh receipt.

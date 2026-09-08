@@ -3,9 +3,8 @@ use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use tree_ring_memory_sqlite::SQLiteMemoryStore;
 
-use crate::agent_awareness::{ensure_agent_awareness, AgentAwarenessReport};
+use crate::agent_awareness::AgentAwarenessReport;
 use crate::ring_mark::{
     pulse_index, ring_mark_rows_with_activity, RingMarkActivity, RingMarkCell, RingMarkLayer,
 };
@@ -30,12 +29,11 @@ const CORAL_BG: &str = "48;2;255;101;83";
 
 pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Result<(), String> {
     let db_path = root.join("memory.sqlite");
-    let (initialized, awareness) = if init {
-        let awareness = ensure_agent_awareness(root)?;
-        SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
-        (true, Some(awareness))
+    let (initialized, awareness, status) = if init {
+        let (awareness, status) = crate::initialize_project(root)?;
+        (true, Some(awareness), Some(status))
     } else {
-        (db_path.exists(), None)
+        (db_path.exists(), None, None)
     };
 
     if json_output {
@@ -48,6 +46,7 @@ pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Re
                 "initialized": initialized,
                 "init_requested": init,
                 "agent_awareness": awareness,
+                "activation": status,
                 "next": next_commands(root),
             })
         );
@@ -63,6 +62,17 @@ pub fn run(root: &Path, init: bool, no_animation: bool, json_output: bool) -> Re
         color,
         !no_animation,
     )?;
+    if let Some(status) = status {
+        println!("\nHarness readiness");
+        for entry in status.integrations {
+            println!(
+                "  {}: {}",
+                entry.name,
+                crate::activation_state_name(entry.state)
+            );
+            println!("    {}", entry.next_step);
+        }
+    }
     Ok(())
 }
 
@@ -397,6 +407,17 @@ mod tests {
     }
 
     #[test]
+    fn welcome_without_init_does_not_create_project_state() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+
+        run(&root, false, true, true).unwrap();
+
+        assert!(!root.exists());
+        assert!(!dir.path().join(".codex/hooks.json").exists());
+    }
+
+    #[test]
     fn no_animation_welcome_can_initialize_store() {
         let dir = tempdir().unwrap();
         let root = dir.path().join(".tree-ring");
@@ -404,6 +425,8 @@ mod tests {
         run(&root, true, true, false).unwrap();
 
         assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("activation.json").exists());
+        assert!(root.join("activation/agent-zero.json").exists());
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join("SKILL.md").exists());
         assert!(root.join("CLI.md").exists());
@@ -417,6 +440,8 @@ mod tests {
         run(&root, true, true, true).unwrap();
 
         assert!(root.join("memory.sqlite").exists());
+        assert!(root.join("activation.json").exists());
+        assert!(root.join("activation/agent-zero.json").exists());
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join("SKILL.md").exists());
         assert!(root.join("CLI.md").exists());

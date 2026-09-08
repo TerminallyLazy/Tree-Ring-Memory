@@ -62,10 +62,18 @@ fn generated_hooks_capture_and_recall_across_sessions_with_only_a_local_runtime(
         .current_dir(&project)
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", temp.path().join("fixture-home"))
-        .args(["--json", "init"])
+        .args(["--json", "welcome", "--init", "--no-animation"])
         .output()
         .unwrap();
     assert_success("local init", &init);
+    let onboarding: Value = serde_json::from_slice(&init.stdout).unwrap();
+    assert_eq!(onboarding["initialized"], true);
+    assert!(onboarding["activation"]["store_id"].is_string());
+    assert!(onboarding["activation"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry["state"] != "active"));
     let run = |command: &str, input: Value| {
         let mut child = Command::new("/bin/sh")
             .args(["-c", command])

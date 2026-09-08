@@ -1352,7 +1352,16 @@ fn run(cli: Cli) -> Result<(), String> {
     Ok(())
 }
 
-fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String> {
+fn plan_init(
+    root: &Path,
+) -> Result<
+    (
+        activation::adapters::ActivationProject,
+        actions::integrations::IntegrationScanActionReport,
+        Vec<activation::adapters::AdapterDetection>,
+    ),
+    String,
+> {
     let project = activation::adapters::ActivationProject::from_memory_root(root.to_path_buf())?;
     let scan = integration_scan_action(IntegrationScanRequest {
         source_root: project.project_root.clone(),
@@ -1376,7 +1385,67 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
         }
     }
 
+    Ok((project, scan, candidates))
+}
+
+fn initialize_project(
+    root: &Path,
+) -> Result<
+    (
+        agent_awareness::AgentAwarenessReport,
+        IntegrationStatusActionReport,
+    ),
+    String,
+> {
+    let (project, scan, candidates) = plan_init(root)?;
+    let awareness = agent_awareness::ensure_agent_awareness(root)?;
+    let context = write_context(None, "cli:init")?;
+    let store = SQLiteMemoryStore::open_with_context(root.join("memory.sqlite"), context)
+        .map_err(|error| error.to_string())?;
+    drop(store);
+
+    let mut manifest = activation::bridge::load_init_manifest_no_follow(&project)?
+        .unwrap_or_else(|| new_activation_manifest(&project.project_root));
+    let outcomes = activation::bridge::apply_bridge_plans_create_only(
+        &project,
+        &mut manifest,
+        candidates
+            .iter()
+            .map(|detection| detection.plan.clone())
+            .collect(),
+    )?;
+    let mut status = integration_status_action(IntegrationStatusRequest {
+        source_root: project.project_root,
+        memory_root: root.to_path_buf(),
+        verbose: true,
+    })?;
+    status.store_id = Some(manifest.store_id);
+    for outcome in outcomes {
+        if let Some(entry) = status
+            .integrations
+            .iter_mut()
+            .find(|entry| entry.id == outcome.harness_id)
+        {
+            if outcome.result.state == activation::ActivationState::NeedsUserReview {
+                entry.state = outcome.result.state;
+                entry.next_step = outcome.result.next_step;
+            }
+        }
+    }
+    status.integrations.retain(|entry| {
+        entry.id == "agent-zero"
+            || scan
+                .report
+                .by_id(&entry.id)
+                .is_some_and(|item| item.is_candidate())
+    });
+
+    Ok((awareness, status))
+}
+
+fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String> {
     if dry_run {
+        let (_, _, candidates) = plan_init(root)?;
         let reports = candidates
             .into_iter()
             .map(
@@ -1420,48 +1489,7 @@ fn run_init(root: &Path, dry_run: bool, json_output: bool) -> Result<(), String>
         return Ok(());
     }
 
-    let awareness = agent_awareness::ensure_agent_awareness(root)?;
-    let context = write_context(None, "cli:init")?;
-    let store = SQLiteMemoryStore::open_with_context(root.join("memory.sqlite"), context)
-        .map_err(|error| error.to_string())?;
-    drop(store);
-
-    let mut manifest = activation::bridge::load_init_manifest_no_follow(&project)?
-        .unwrap_or_else(|| new_activation_manifest(&project.project_root));
-    let outcomes = activation::bridge::apply_bridge_plans_create_only(
-        &project,
-        &mut manifest,
-        candidates
-            .iter()
-            .map(|detection| detection.plan.clone())
-            .collect(),
-    )?;
-    let mut status = integration_status_action(IntegrationStatusRequest {
-        source_root: project.project_root,
-        memory_root: root.to_path_buf(),
-        verbose: true,
-    })?;
-    status.store_id = Some(manifest.store_id);
-    for outcome in outcomes {
-        if let Some(entry) = status
-            .integrations
-            .iter_mut()
-            .find(|entry| entry.id == outcome.harness_id)
-        {
-            if outcome.result.state == activation::ActivationState::NeedsUserReview {
-                entry.state = outcome.result.state;
-                entry.next_step = outcome.result.next_step;
-            }
-        }
-    }
-    status.integrations.retain(|entry| {
-        entry.id == "agent-zero"
-            || scan
-                .report
-                .by_id(&entry.id)
-                .is_some_and(|item| item.is_candidate())
-    });
-
+    let (awareness, status) = initialize_project(root)?;
     if json_output {
         println!(
             "{}",
