@@ -68,7 +68,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.5", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.6", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     require(manifest.get("hooks") == "./hooks/codex-hooks.json", "Codex lifecycle hook path is stale")
     for unsupported in ("mcpServers", "apps"):
@@ -149,7 +149,7 @@ def validate_hook_config(path: Path, *, command: str, expect_exec_form: bool) ->
         else:
             require("args" not in handler, f"{path.relative_to(ROOT)} {event} uses unsupported Codex args")
             require(
-                handler.get("additionalContextLimit") == 6000,
+                handler.get("additionalContextLimit") == (6000 if event in {"SessionStart", "SubagentStart"} else None),
                 f"{path.relative_to(ROOT)} {event} context limit is stale",
             )
 
