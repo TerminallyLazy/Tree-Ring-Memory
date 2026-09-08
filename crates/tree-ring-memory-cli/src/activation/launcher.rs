@@ -299,7 +299,7 @@ mod tests {
         let mut activation = HarnessActivation {
             state: ActivationState::ConfiguredAwaitingProof,
             adapter_capability: AdapterCapability::NativePreflight,
-            adapter_version: "3".to_string(),
+            adapter_version: "4".to_string(),
             bridge_fingerprint: String::new(),
             bridge_path: Some(".claude/skills/tree-ring-memory/SKILL.md".to_string()),
             owned_files: vec![OwnedBridgeFile {

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "harness_id": "codex",
-  "adapter_version": "3",
+  "adapter_version": "4",
   "marker_paths": [".codex"],
   "expected_bridge_paths": [
     ".agents/skills/tree-ring-memory/SKILL.md",

@@ -19,9 +19,11 @@ mod lifecycle;
 mod policy;
 mod schema;
 mod search;
+mod session_recall;
 mod write;
 
 pub use policy::{AuthorizationAuditEvent, PolicyGrant, PolicyMode, PolicyStatus, WriteContext};
+pub use session_recall::SessionRecallScope;
 
 const SQLITE_SCHEMA_VERSION: i64 = 3;
 
@@ -1175,6 +1177,16 @@ impl<'a> MemoryRetriever<'a> {
         options: &RecallOptions<'_>,
         timeout: Duration,
     ) -> TreeRingResult<Vec<RecallResult>> {
+        self.with_recall_timeout(timeout, |deadline| {
+            self.recall_with_options_until(query, options, Some(deadline))
+        })
+    }
+
+    fn with_recall_timeout<T>(
+        &self,
+        timeout: Duration,
+        recall: impl FnOnce(Instant) -> TreeRingResult<T>,
+    ) -> TreeRingResult<T> {
         let started = Instant::now();
         let deadline = started.checked_add(timeout).unwrap_or(started);
         let previous_busy_timeout_ms: u64 = self
@@ -1200,7 +1212,7 @@ impl<'a> MemoryRetriever<'a> {
             }
         });
 
-        let result = self.recall_with_options_until(query, options, Some(deadline));
+        let result = recall(deadline);
         let _ = cancel.send(());
         let timed_out = watchdog.join().unwrap_or(true) || started.elapsed() >= timeout;
         let restore_result = self

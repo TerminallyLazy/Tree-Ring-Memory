@@ -39,11 +39,11 @@ use std::{
 use uuid::Uuid;
 
 const CODEX_RETRY: &str = "tree-ring integrations activate --harness codex --accept-managed-block";
-const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed lifecycle v3";
-const CLAUDE_SUBAGENT_DESCRIPTION: &str = "Tree Ring Memory managed subagent lifecycle v3";
-const CLAUDE_STOP_DESCRIPTION: &str = "Tree Ring Memory managed capture checkpoint v3";
+const CLAUDE_DESCRIPTION: &str = "Tree Ring Memory managed lifecycle v4";
+const CLAUDE_SUBAGENT_DESCRIPTION: &str = "Tree Ring Memory managed subagent lifecycle v4";
+const CLAUDE_STOP_DESCRIPTION: &str = "Tree Ring Memory managed capture checkpoint v4";
 const CLAUDE_SUBAGENT_STOP_DESCRIPTION: &str =
-    "Tree Ring Memory managed subagent capture checkpoint v3";
+    "Tree Ring Memory managed subagent capture checkpoint v4";
 const CLAUDE_LEGACY_DESCRIPTION: &str = "Tree Ring Memory managed lifecycle v2";
 const CLAUDE_LEGACY_SUBAGENT_DESCRIPTION: &str = "Tree Ring Memory managed subagent lifecycle v2";
 const CLAUDE_COMMAND: &str = "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness claude-code --input-json-stdin";
@@ -65,31 +65,31 @@ Read `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` befo
 
 fn codex_hooks() -> Value {
     json!({
-        "description": "Tree Ring Memory managed lifecycle v3",
+        "description": "Tree Ring Memory managed lifecycle v4",
         "hooks": {
             "SessionStart": [{
                 "matcher": "startup|resume|clear|compact",
                 "hooks": [{
                     "type": "command",
-                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "command": super::lifecycle::lifecycle_command("codex"),
                     "timeout": 10,
                     "statusMessage": "Loading Tree Ring memory",
-                    "additionalContextLimit": 2500
+                    "additionalContextLimit": super::preflight::MAX_CONTEXT_BYTES
                 }]
             }],
             "SubagentStart": [{
                 "hooks": [{
                     "type": "command",
-                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "command": super::lifecycle::lifecycle_command("codex"),
                     "timeout": 10,
                     "statusMessage": "Loading Tree Ring memory",
-                    "additionalContextLimit": 2500
+                    "additionalContextLimit": super::preflight::MAX_CONTEXT_BYTES
                 }]
             }],
             "Stop": [{
                 "hooks": [{
                     "type": "command",
-                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "command": super::lifecycle::lifecycle_command("codex"),
                     "timeout": 10,
                     "statusMessage": "Checking durable Tree Ring memory"
                 }]
@@ -97,7 +97,7 @@ fn codex_hooks() -> Value {
             "SubagentStop": [{
                 "hooks": [{
                     "type": "command",
-                    "command": "project_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" integrations hook --harness codex --input-json-stdin",
+                    "command": super::lifecycle::lifecycle_command("codex"),
                     "timeout": 10,
                     "statusMessage": "Checking durable Tree Ring worker memory"
                 }]
@@ -2308,7 +2308,7 @@ enum ClaudeHandlerState {
 fn claude_handler() -> Value {
     json!({
         "type": "command",
-        "command": CLAUDE_COMMAND,
+        "command": super::lifecycle::lifecycle_command("claude-code"),
         "description": CLAUDE_DESCRIPTION,
         "timeout": 10
     })
@@ -2317,7 +2317,7 @@ fn claude_handler() -> Value {
 fn claude_subagent_handler() -> Value {
     json!({
         "type": "command",
-        "command": CLAUDE_COMMAND,
+        "command": super::lifecycle::lifecycle_command("claude-code"),
         "description": CLAUDE_SUBAGENT_DESCRIPTION,
         "timeout": 10
     })
@@ -2326,7 +2326,7 @@ fn claude_subagent_handler() -> Value {
 fn claude_stop_handler() -> Value {
     json!({
         "type": "command",
-        "command": CLAUDE_COMMAND,
+        "command": super::lifecycle::lifecycle_command("claude-code"),
         "description": CLAUDE_STOP_DESCRIPTION,
         "timeout": 10
     })
@@ -2335,7 +2335,7 @@ fn claude_stop_handler() -> Value {
 fn claude_subagent_stop_handler() -> Value {
     json!({
         "type": "command",
-        "command": CLAUDE_COMMAND,
+        "command": super::lifecycle::lifecycle_command("claude-code"),
         "description": CLAUDE_SUBAGENT_STOP_DESCRIPTION,
         "timeout": 10
     })

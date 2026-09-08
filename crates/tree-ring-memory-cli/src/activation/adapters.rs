@@ -21,6 +21,7 @@ const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] = &[
     ("3.3.0", "0.15.3", "0.15"),
     ("3.3.1", "0.15.3", "0.15"),
     ("3.4.0", "0.15.5", "0.15"),
+    ("3.4.1", "0.15.6", "0.15"),
 ];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
@@ -393,7 +394,7 @@ enum AdapterSupport {
 const ADAPTERS: [DeclarativeAdapter; 7] = [
     DeclarativeAdapter {
         id: "codex",
-        version: "3",
+        version: "4",
         display_name: "Codex",
         command: "codex",
         capability: AdapterCapability::NativePreflight,
@@ -403,7 +404,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "claude-code",
-        version: "3",
+        version: "4",
         display_name: "Claude Code",
         command: "claude",
         capability: AdapterCapability::NativePreflight,
@@ -483,7 +484,7 @@ pub fn adapter_version(id: &str) -> Option<&'static str> {
 }
 
 /// Returns the activation capability registered for a harness.
-pub(crate) fn adapter_capability(id: &str) -> Option<AdapterCapability> {
+pub fn adapter_capability(id: &str) -> Option<AdapterCapability> {
     registered_adapters()
         .find(|adapter| adapter.id == id)
         .map(|adapter| adapter.capability)
@@ -954,8 +955,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex", "claude-code", "pi", "agent-zero"]
         );
-        assert_eq!(adapter_version("codex"), Some("3"));
-        assert_eq!(adapter_version("claude-code"), Some("3"));
+        assert_eq!(adapter_version("codex"), Some("4"));
+        assert_eq!(adapter_version("claude-code"), Some("4"));
         assert_eq!(adapter_version("pi"), Some("1"));
         assert_eq!(adapter_version("agent-zero"), Some("1"));
         for id in ["hermes", "opencode", "goose"] {
@@ -1110,6 +1111,21 @@ mod tests {
         fs::create_dir_all(&plugin).unwrap();
 
         let descriptor = write_capability_descriptor(&plugin, true);
+        assert_eq!(
+            read_agent_zero_plugin_manifest(&project, &descriptor),
+            Some(AgentZeroPluginManifest::compatible())
+        );
+
+        fs::write(
+            plugin.join("plugin.yaml"),
+            "name: tree_ring_memory\nversion: 3.4.1\n",
+        )
+        .unwrap();
+        fs::write(
+            &descriptor,
+            r#"{"schema_version":1,"kind":"tree-ring-agent-zero-plugin-capability","plugin_id":"tree_ring_memory","plugin_version":"3.4.1","activation_protocol_version":1,"tree_ring_version":{"min":"0.15.6","minor":"0.15"},"enabled":true}"#,
+        )
+        .unwrap();
         assert_eq!(
             read_agent_zero_plugin_manifest(&project, &descriptor),
             Some(AgentZeroPluginManifest::compatible())

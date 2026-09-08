@@ -61,6 +61,50 @@ per harness/worker and none older than 30 days.
 A receipt proves a privacy-safe preflight check, not durable memory creation or
 an adversarial security boundary. Durable writes remain explicit.
 
+`integrations status --verbose` includes `last_recall_result_count` and
+`last_recall_query_class` from the newest validated receipt. These are omitted
+when there is no valid receipt. Zero results are reported as zero, rather than
+being confused with an invocation that never happened.
+
+## Recall visibility and startup briefs
+
+As of CLI 0.15.6, automatic preflight applies each memory's declared scope:
+
+| Memory scope | Required match within the selected project store |
+| --- | --- |
+| Project, global, manual, DOX, Revolve, tool, eval | Project name; origin agent/workflow/session fields are provenance |
+| Agent | Project and agent profile; previous workflows and sessions remain recallable |
+| Workflow | Project and workflow ID |
+| Session | Project and session ID |
+
+Project-less records and other projects are excluded. For project names that
+require a safe lifecycle alias (including names with spaces), recall accepts
+both the original basename and the exact normalized alias used by capture.
+Worker profiles remain private: a new worker does not inherit a previous
+worker's agent-scoped notes. Shared publication remains an explicit decision.
+Explicit `tree-ring recall` flags continue to use exact conjunctive filtering.
+
+With no safe task hint, preflight builds a startup brief without an FTS keyword
+requirement. It ranks bounded candidates with salience, confidence, recency,
+source authority, and scar/heartwood preference. With a safe task hint it uses
+scoped full-text recall. Sensitivity, supersession, expiry, redaction, project,
+and scope filters run before the candidate limit. Only safe summaries and
+source references enter the brief. The complete context fits within 6,000
+UTF-8 bytes, preserving relevance order and omitting entries that do not fit.
+The receipt counts and hashes only the memories actually included.
+
+A startup brief cannot replace task-specific recall during a long session.
+Its context reminds the agent to query again before substantive work or when
+the task changes; no prompt or tool hook reads or persists user input.
+
+Codex and Claude adapter version 4 prefer `.tree-ring/bin/tree-ring` for both
+hooks and capture instructions, then fall back to `PATH`. Existing version 3
+definitions still need reconciliation: create-only activation preserves those
+files and reports `needs-user-review`. Do not treat a binary update as a hook
+upgrade or a new activation receipt. Review the old managed files and manifest
+before replacing their definitions; never remove the memory database to
+reconfigure hooks.
+
 Bridge lifecycle writes fail closed. Publication creates an absent final path;
 it never overwrites or removes an existing bridge or activation manifest, even
 when the existing bytes were previously recorded as Tree Ring-owned.
@@ -213,7 +257,7 @@ Web UI/API response, or receipt.
   "protocol_version": 1,
   "receipt_id": "receipt-01",
   "harness_id": "claude-code",
-  "adapter_version": "3",
+  "adapter_version": "4",
   "bridge_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "store_id": "01234567-89ab-4def-8123-456789abcdef",
   "project_root_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -347,7 +391,7 @@ stdin only:
 `agent_profile`, `workflow_id`, and `session_id` come from Pi's local
 session manager, not model text. `task_hint` is optional; when supplied it is
 sent only on stdin for the current preflight, subject to sensitivity rejection
-and fallback to `project startup constraints`. The raw value is never written
+and fallback to the bounded startup brief. The raw value is never written
 to a receipt, log, memory, bridge, or response.
 
 ### Agent Zero JSON stdin request
