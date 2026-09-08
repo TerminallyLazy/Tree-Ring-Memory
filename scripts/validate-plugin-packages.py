@@ -68,7 +68,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.6", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.7", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     require(manifest.get("hooks") == "./hooks/codex-hooks.json", "Codex lifecycle hook path is stale")
     for unsupported in ("mcpServers", "apps"):
@@ -92,7 +92,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.4", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.5", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
@@ -264,9 +264,8 @@ def validate_codex_skills_only() -> None:
     repository_manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     skills_manifest = load_json(CODEX_SKILLS_ONLY / ".codex-plugin" / "plugin.json")
     expected_manifest = dict(repository_manifest)
-    expected_manifest.pop("hooks", None)
     require(skills_manifest == expected_manifest, "skills-only Codex manifest drifted from repository metadata")
-    for unsupported in ("mcpServers", "apps", "hooks"):
+    for unsupported in ("mcpServers", "apps"):
         require(unsupported not in skills_manifest, f"skills-only Codex ZIP must not declare {unsupported}")
     require("screenshots" not in skills_manifest.get("interface", {}), "skills-only Codex ZIP must not declare screenshots")
 
@@ -288,10 +287,16 @@ def validate_codex_skills_only() -> None:
                 not any(
                     marker in name
                     for name in names
-                    for marker in ("/hooks/", "/commands/", "/.claude-plugin/", "/packaging/")
+                    for marker in ("/commands/", "/.claude-plugin/", "/packaging/")
                 ),
                 "skills-only Codex ZIP contains repository-only components",
             )
+            for hook_name in ("codex-hooks.json", "codex-hook.sh"):
+                archive_path = prefix + "hooks/" + hook_name
+                require(archive_path in names, "public upload is missing its native lifecycle hook")
+                require(archive.read(archive_path) == (PLUGIN / "hooks" / hook_name).read_bytes(), "public upload hook differs from the validated runtime hook")
+            hook_mode = archive.getinfo(prefix + "hooks/codex-hook.sh").external_attr >> 16
+            require(hook_mode & 0o111 != 0, "public upload hook script must remain executable")
             require(
                 prefix + "skills/tree-ring-memory/SKILL.md" in names,
                 "skills-only Codex ZIP is missing its skill",
