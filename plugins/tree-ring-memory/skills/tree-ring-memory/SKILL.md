@@ -31,8 +31,8 @@ working directory by accident.
    this project. Otherwise check `command -v tree-ring` and run
    `tree-ring --version`.
 2. Read existing `<project-root>/.tree-ring/SKILL.md` and `CLI.md` when present.
-   Lifecycle hooks need CLI 0.15.6 or newer; a skills-only plugin package has no
-   automatic hooks. Use `integrations status --verbose` to inspect the last
+   Lifecycle hooks need CLI 0.15.6 or newer; older packages may omit
+   automatic hooks. Current Codex packages include them, including the public upload. Use `integrations status --verbose` to inspect the last
    recall count and query class, and distinguish no receipt from zero results.
 3. This package targets Tree Ring Memory CLI 0.15.0 or newer. If no compatible
    CLI is available and the user's request already authorizes Tree Ring setup,

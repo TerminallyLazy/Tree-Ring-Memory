@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the OpenAI upload artifact without repository lifecycle hooks."""
+"""Build the OpenAI skills-only upload, including native Codex lifecycle hooks."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 def write_file(archive: ZipFile, source: Path, destination: Path) -> None:
     info = ZipInfo(str(PACKAGE_ROOT / destination), FIXED_TIMESTAMP)
     info.compress_type = ZIP_DEFLATED
-    info.external_attr = 0o100644 << 16
+    info.create_system = 3
+    mode = 0o100755 if source.stat().st_mode & 0o111 else 0o100644
+    info.external_attr = mode << 16
     archive.writestr(info, source.read_bytes())
 
 
@@ -35,6 +37,9 @@ def build(destination: Path) -> None:
         for path in sorted((PLUGIN / "assets").rglob("*")):
             if path.is_file():
                 write_file(archive, path, path.relative_to(PLUGIN))
+        for name in ("codex-hooks.json", "codex-hook.sh"):
+            path = PLUGIN / "hooks" / name
+            write_file(archive, path, path.relative_to(PLUGIN))
         for name in ("LICENSE", "PRIVACY.md", "SECURITY.md", "TERMS.md"):
             write_file(archive, PLUGIN / name, Path(name))
 

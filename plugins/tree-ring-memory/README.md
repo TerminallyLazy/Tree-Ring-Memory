@@ -5,8 +5,8 @@ ChatGPT/Codex and Claude Code. It packages reviewed instructions plus thin
 lifecycle-hook registrations; the local Tree Ring Memory CLI remains the
 runtime and data owner.
 
-The Codex manifest is version `0.3.6`. The Claude Code manifest is version
-`0.3.4`. Both share the same reviewed wrapper skill. Manual guidance supports
+The Codex manifest is version `0.3.7`. The Claude Code manifest is version
+`0.3.5`. Both share the same reviewed wrapper skill. Manual guidance supports
 CLI `0.15.0` or newer; the lifecycle hooks require CLI `0.15.6` or newer for
 project-local runtime resolution and cross-session recall.
 
@@ -54,9 +54,8 @@ project and plugin hooks.
 
 `integrations status --verbose` reports the last validated recall's result
 count and query class. A zero-result receipt proves the check ran; it does not
-prove that useful context was found. A skills-only plugin installation has no
-automatic lifecycle hooks; enable the repository plugin or configure the
-project with the CLI to obtain them. A newly configured Codex hook still needs
+prove that useful context was found. Older skills-only packages omitted
+automatic lifecycle hooks. Current Git and public upload packages include them. A newly configured Codex hook still needs
 the host's trust flow and a new session before automatic execution can be
 verified.
 
@@ -116,10 +115,15 @@ python3 plugins/tree-ring-memory/packaging/build-codex-skills-only.py \
 ```
 
 The generated ZIP has one `tree-ring-memory/` package root. It includes the
-skill, legal notices, logo, composer icon, and a dedicated skills-only manifest;
-it excludes lifecycle hooks, Claude commands and metadata, MCP servers, apps,
-and `interface.screenshots`. The repository plugin and public upload artifact
-are intentionally separate validation profiles.
+skill, legal notices, logo, composer icon, manifest, and executable native Codex
+lifecycle hooks. The portal calls this route "Skills only" because it has no MCP
+server. It excludes Claude commands and metadata, MCP servers, apps, and
+`interface.screenshots`. Hooks need the Codex runtime, an available CLI, and host
+trust; ordinary Chat remains guidance-only. See [OpenAI packaging](https://developers.openai.com/plugins/build/plugins)
+and [submission compatibility](https://developers.openai.com/plugins/guides/submit-claude-plugin).
+Older scaffold validators that reject every `hooks` field do not represent this
+current contract; package checks verify the native hook schema, packaged bytes,
+and executable permissions.
 
 ## Install In Claude Code
 

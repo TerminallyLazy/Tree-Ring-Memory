@@ -111,7 +111,8 @@ recall result count distinguishes a successful empty recall from a hook that
 has never run. CLI 0.15.6 repairs cross-session startup recall and generated
 hooks for project-local installs; see the
 [recall visibility and startup brief contract](docs/protocol/harness-activation.md#recall-visibility-and-startup-briefs).
-The skills-only public-directory plugin does not install lifecycle hooks.
+The current public-directory upload also includes native Codex lifecycle hooks;
+ordinary Chat hosts without the Codex hook runtime remain guidance-only.
 
 Default `init` creates the canonical project-local store and configures
 maintained adapters where new project-local bridge and manifest entries can be
