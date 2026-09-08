@@ -5,7 +5,7 @@ ChatGPT/Codex and Claude Code. It packages reviewed instructions plus thin
 lifecycle-hook registrations; the local Tree Ring Memory CLI remains the
 runtime and data owner.
 
-The Codex manifest is version `0.3.5`. The Claude Code manifest is version
+The Codex manifest is version `0.3.6`. The Claude Code manifest is version
 `0.3.4`. Both share the same reviewed wrapper skill. Manual guidance supports
 CLI `0.15.0` or newer; the lifecycle hooks require CLI `0.15.6` or newer for
 project-local runtime resolution and cross-session recall.
