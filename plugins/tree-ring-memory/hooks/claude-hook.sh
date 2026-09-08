@@ -12,7 +12,8 @@ fi
 # is present. The marketplace hook stands down to prevent duplicate handling.
 if [ -f .claude/settings.json ] && {
     grep -Fq 'Tree Ring Memory managed lifecycle v2"' .claude/settings.json ||
-        grep -Fq 'Tree Ring Memory managed lifecycle v3"' .claude/settings.json
+        grep -Fq 'Tree Ring Memory managed lifecycle v3"' .claude/settings.json ||
+        grep -Fq 'Tree Ring Memory managed lifecycle v4"' .claude/settings.json
 }; then
     exit 0
 fi

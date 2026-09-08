@@ -44,6 +44,10 @@ pub struct IntegrationStatusEntry {
     pub managed_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_age_seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_recall_result_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_recall_query_class: Option<String>,
     pub next_step: String,
 }
 
@@ -117,6 +121,12 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
             let activation = manifest
                 .as_ref()
                 .and_then(|manifest| manifest.harnesses.get(&detected.id));
+            let stale_adapter = activation.is_some_and(|harness| {
+                activation::adapters::adapter_version(&detected.id)
+                    != Some(harness.adapter_version.as_str())
+                    || activation::adapters::adapter_capability(&detected.id)
+                        != Some(harness.adapter_capability)
+            });
             let receipt = manifest
                 .as_ref()
                 .and_then(|manifest| {
@@ -156,11 +166,16 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                         .map(|receipt| receipt.state)
                         .unwrap_or(detected.state)
                 }
+            } else if stale_adapter {
+                ActivationState::NeedsUserReview
             } else {
                 receipt
                     .as_ref()
                     .map(|receipt| receipt.state)
-                    .or_else(|| activation.map(|activation| activation.state))
+                    .or_else(|| activation.map(|activation| match activation.state {
+                        ActivationState::Active | ActivationState::ActiveIsolated => ActivationState::ConfiguredAwaitingProof,
+                        state => state,
+                    }))
                     .unwrap_or(detected.state)
             };
             let managed_paths = if request.verbose {
@@ -187,13 +202,18 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
             let receipt_age_seconds = request
                 .verbose
                 .then(|| {
-                    receipt.map(|receipt| {
+                    receipt.as_ref().map(|receipt| {
                         now.signed_duration_since(receipt.recorded_at)
                             .num_seconds()
                             .max(0)
                     })
                 })
                 .flatten();
+            let next_step = if stale_adapter && detected.id != "agent-zero" {
+                "The installed adapter definition is out of date. Review the managed hook files and activation manifest, then reconfigure them with this CLI; preserve the memory database.".to_string()
+            } else {
+                next_step_for_state(state, &detected.next_step)
+            };
             IntegrationStatusEntry {
                 id: detected.id,
                 name: detected.name,
@@ -201,7 +221,15 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                 capability: detected.capability,
                 managed_paths,
                 receipt_age_seconds,
-                next_step: next_step_for_state(state, &detected.next_step),
+                last_recall_result_count: receipt
+                    .as_ref()
+                    .filter(|_| request.verbose)
+                    .map(|receipt| receipt.result_count),
+                last_recall_query_class: receipt
+                    .as_ref()
+                    .filter(|_| request.verbose)
+                    .map(|receipt| receipt.query_class.clone()),
+                next_step,
             }
         })
         .collect();
@@ -549,6 +577,11 @@ fn verify_activation_receipts_at(
     harness: &activation::HarnessActivation,
     now: chrono::DateTime<Utc>,
 ) -> ReceiptVerification {
+    if activation::adapters::adapter_version(harness_id) != Some(harness.adapter_version.as_str())
+        || activation::adapters::adapter_capability(harness_id) != Some(harness.adapter_capability)
+    {
+        return invalid_receipt(None, "installed adapter definition is out of date");
+    }
     if harness.bridge_fingerprint != bridge_fingerprint(harness_id, harness) {
         return invalid_receipt(None, "bridge fingerprint does not match adapter contract");
     }
@@ -744,7 +777,10 @@ mod tests {
             adapter_version: "1".to_string(),
             bridge_fingerprint: String::new(),
             bridge_path: Some(".agents/skills/tree-ring-memory/SKILL.md".to_string()),
-            owned_files: Vec::new(),
+            owned_files: vec![activation::manifest::OwnedBridgeFile {
+                path: ".agents/skills/tree-ring-memory/SKILL.md".to_string(),
+                sha256: "c".repeat(64),
+            }],
             managed_blocks: Vec::new(),
         };
         harness.bridge_fingerprint = bridge_fingerprint("pi", &harness);
@@ -787,6 +823,64 @@ mod tests {
         });
 
         assert!(report.report.detected_count > 0);
+    }
+
+    #[test]
+    fn status_rejects_a_matching_old_receipt_when_the_adapter_is_outdated() {
+        let (_temp, project, mut manifest, mut harness, mut receipt) = receipt_fixture();
+        fs::create_dir_all(project.project_root.join(".pi")).unwrap();
+        harness.adapter_version = "0".to_string();
+        harness.bridge_fingerprint = bridge_fingerprint("pi", &harness);
+        receipt.adapter_version = harness.adapter_version.clone();
+        receipt.bridge_fingerprint = harness.bridge_fingerprint.clone();
+        manifest.harnesses.insert("pi".to_string(), harness.clone());
+        fs::write(
+            project.memory_root.join("activation.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        activation::manifest::write_receipt(&project.memory_root, &receipt).unwrap();
+        let report = status(IntegrationStatusRequest {
+            source_root: project.project_root,
+            memory_root: project.memory_root,
+            verbose: true,
+        })
+        .unwrap();
+        let entry = report
+            .integrations
+            .iter()
+            .find(|entry| entry.id == "pi")
+            .unwrap();
+        assert_eq!(entry.state, ActivationState::NeedsUserReview);
+        assert!(entry.next_step.contains("out of date"));
+        assert_eq!(entry.last_recall_result_count, None);
+    }
+
+    #[test]
+    fn persisted_active_state_without_a_receipt_does_not_claim_activation() {
+        let (_temp, project, mut manifest, mut harness, _receipt) = receipt_fixture();
+        fs::create_dir_all(project.project_root.join(".pi")).unwrap();
+        harness.state = ActivationState::Active;
+        harness.bridge_fingerprint = bridge_fingerprint("pi", &harness);
+        manifest.harnesses.insert("pi".to_string(), harness);
+        fs::write(
+            project.memory_root.join("activation.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let report = status(IntegrationStatusRequest {
+            source_root: project.project_root,
+            memory_root: project.memory_root,
+            verbose: true,
+        })
+        .unwrap();
+        let entry = report
+            .integrations
+            .iter()
+            .find(|entry| entry.id == "pi")
+            .unwrap();
+        assert_eq!(entry.state, ActivationState::ConfiguredAwaitingProof);
+        assert_eq!(entry.last_recall_result_count, None);
     }
 
     #[test]

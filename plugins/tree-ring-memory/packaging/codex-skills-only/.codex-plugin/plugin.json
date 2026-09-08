@@ -1,6 +1,6 @@
 {
   "name": "tree-ring-memory",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Local-first memory lifecycle, project bootstrap, and receipt-backed harness guidance for coding agents using Tree Ring Memory v0.15+.",
   "author": {
     "name": "TerminallyLazy",

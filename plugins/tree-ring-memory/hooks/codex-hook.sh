@@ -12,7 +12,8 @@ fi
 # is present. The marketplace hook stands down to prevent duplicate handling.
 if [ -f .codex/hooks.json ] && {
     grep -Fq 'Tree Ring Memory managed lifecycle v2"' .codex/hooks.json ||
-        grep -Fq 'Tree Ring Memory managed lifecycle v3"' .codex/hooks.json
+        grep -Fq 'Tree Ring Memory managed lifecycle v3"' .codex/hooks.json ||
+        grep -Fq 'Tree Ring Memory managed lifecycle v4"' .codex/hooks.json
 }; then
     exit 0
 fi

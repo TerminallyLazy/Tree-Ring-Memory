@@ -106,6 +106,13 @@ tree-ring init
 tree-ring integrations status
 ```
 
+If memory seems silent, run `tree-ring integrations status --verbose`. The last
+recall result count distinguishes a successful empty recall from a hook that
+has never run. CLI 0.15.6 repairs cross-session startup recall and generated
+hooks for project-local installs; see the
+[recall visibility and startup brief contract](docs/protocol/harness-activation.md#recall-visibility-and-startup-briefs).
+The skills-only public-directory plugin does not install lifecycle hooks.
+
 Default `init` creates the canonical project-local store and configures
 maintained adapters where new project-local bridge and manifest entries can be
 created safely. It does not require copying a skill or manually running

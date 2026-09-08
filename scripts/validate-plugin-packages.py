@@ -68,7 +68,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.4", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.5", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     require(manifest.get("hooks") == "./hooks/codex-hooks.json", "Codex lifecycle hook path is stale")
     for unsupported in ("mcpServers", "apps"):
@@ -92,7 +92,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.3", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.4", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
@@ -161,7 +161,7 @@ def validate_hook_script(path: Path, harness: str) -> None:
     require("git rev-parse --show-toplevel" in text, f"{path.relative_to(ROOT)} must resolve the project root")
     managed_hook = ".codex/hooks.json" if harness == "codex" else ".claude/settings.json"
     require(managed_hook in text, f"{path.relative_to(ROOT)} must detect the project-managed hook")
-    for version in (2, 3):
+    for version in (2, 3, 4):
         require(
             f'Tree Ring Memory managed lifecycle v{version}"' in text,
             f"{path.relative_to(ROOT)} must recognize managed lifecycle v{version}",
@@ -224,7 +224,7 @@ def validate_hook_script(path: Path, harness: str) -> None:
 
         managed_path = project / managed_hook
         managed_path.parent.mkdir(parents=True, exist_ok=True)
-        for version in (2, 3):
+        for version in (2, 3, 4):
             managed_path.write_text(
                 f'{{"description":"Tree Ring Memory managed lifecycle v{version}"}}\n',
                 encoding="utf-8",
@@ -243,7 +243,7 @@ def validate_hook_script(path: Path, harness: str) -> None:
             require(not stdin_capture.exists(), f"{path.relative_to(ROOT)} persisted managed v{version} input")
 
         managed_path.write_text(
-            '{"description":"Tree Ring Memory managed lifecycle v4"}\n',
+            '{"description":"Tree Ring Memory managed lifecycle v5"}\n',
             encoding="utf-8",
         )
         unsupported = subprocess.run(
@@ -255,9 +255,9 @@ def validate_hook_script(path: Path, harness: str) -> None:
             stderr=subprocess.PIPE,
             check=True,
         )
-        require(args_capture.exists(), f"{path.relative_to(ROOT)} incorrectly accepted managed lifecycle v4")
-        require(stdin_capture.read_bytes() == events["SessionStart"], f"{path.relative_to(ROOT)} dropped v4 fallback input")
-        require(b"validated" in unsupported.stdout, f"{path.relative_to(ROOT)} did not run the v4 fallback")
+        require(args_capture.exists(), f"{path.relative_to(ROOT)} incorrectly accepted managed lifecycle v5")
+        require(stdin_capture.read_bytes() == events["SessionStart"], f"{path.relative_to(ROOT)} dropped v5 fallback input")
+        require(b"validated" in unsupported.stdout, f"{path.relative_to(ROOT)} did not run the v5 fallback")
 
 
 def validate_codex_skills_only() -> None:

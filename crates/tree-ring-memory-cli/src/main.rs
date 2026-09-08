@@ -1560,6 +1560,12 @@ fn print_integration_status_report(
             if let Some(age) = entry.receipt_age_seconds {
                 println!("  receipt-age-seconds: {age}");
             }
+            if let Some(count) = entry.last_recall_result_count {
+                println!("  last-recall-results: {count}");
+            }
+            if let Some(class) = &entry.last_recall_query_class {
+                println!("  last-recall-query: {class}");
+            }
             if !entry.managed_paths.is_empty() {
                 println!("  managed: {}", entry.managed_paths.join(", "));
             }

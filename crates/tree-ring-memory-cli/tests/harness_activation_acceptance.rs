@@ -38,6 +38,149 @@ const RAW_TASK_HINT: &str = "fixture project startup constraints";
 const CAPABILITY_SENTINEL: &str = "fixture-coordinator-capability-must-not-persist";
 
 #[test]
+fn generated_hooks_capture_and_recall_across_sessions_with_only_a_local_runtime() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("Project With Spaces");
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    fs::create_dir_all(project.join(".claude")).unwrap();
+    fs::create_dir_all(project.join("src/nested")).unwrap();
+    fs::create_dir_all(project.join(".tree-ring/bin")).unwrap();
+    symlink(
+        env!("CARGO_BIN_EXE_tree-ring"),
+        project.join(".tree-ring/bin/tree-ring"),
+    )
+    .unwrap();
+    assert_success(
+        "git init",
+        &Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(&project)
+            .output()
+            .unwrap(),
+    );
+    let init = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", temp.path().join("fixture-home"))
+        .args(["--json", "init"])
+        .output()
+        .unwrap();
+    assert_success("local init", &init);
+    let run = |command: &str, input: Value| {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", command])
+            .current_dir(project.join("src/nested"))
+            .env("PATH", "/usr/bin:/bin")
+            .env_remove("TREE_RING_AGENT_PROFILE")
+            .env_remove("TREE_RING_WORKFLOW_ID")
+            .env_remove("TREE_RING_SESSION_ID")
+            .env_remove("TREE_RING_COORDINATOR_TOKEN")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        serde_json::to_writer(child.stdin.take().unwrap(), &input).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_success("generated lifecycle command", &output);
+        output
+    };
+    for (harness, file) in [
+        ("codex", ".codex/hooks.json"),
+        ("claude-code", ".claude/settings.json"),
+    ] {
+        let hooks: Value = serde_json::from_slice(&fs::read(project.join(file)).unwrap()).unwrap();
+        let command = |event: &str| {
+            hooks["hooks"][event][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+        };
+        let stop = run(
+            command("Stop"),
+            json!({
+                "hook_event_name": "Stop", "session_id": "old-session",
+                "cwd": project.join("src/nested"), "stop_hook_active": false,
+                "last_assistant_message": "private-output-must-not-enter-memory",
+                "transcript_path": "/missing/private-transcript.jsonl"
+            }),
+        );
+        let checkpoint = output_json("checkpoint", &stop);
+        let reason = checkpoint["reason"].as_str().unwrap();
+        let summary = format!("{harness} requires reversible database migrations");
+        let capture = reason
+            .lines()
+            .nth(1)
+            .unwrap()
+            .replace("<concise summary>", &summary)
+            .replace(
+                "<preference|decision|lesson|warning|correction|seed>",
+                "lesson",
+            )
+            .replace("<cambium|scar|seed>", "scar")
+            .replace("<1|2|3>", "1");
+        run(&capture, json!({}));
+        // Retrying the supplied operation must not create a duplicate memory.
+        run(&capture, json!({}));
+        let second_stop = run(
+            command("Stop"),
+            json!({
+                "hook_event_name": "Stop", "session_id": "old-session",
+                "cwd": project, "stop_hook_active": true
+            }),
+        );
+        assert_eq!(output_json("second stop", &second_stop), json!({}));
+        let start = run(
+            command("SessionStart"),
+            json!({
+                "hook_event_name": "SessionStart", "session_id": "new-session",
+                "cwd": project.join("src/nested"), "source": "startup"
+            }),
+        );
+        let response = output_json("new session", &start);
+        let context = response["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        assert!(context.contains(&summary), "{context}");
+        assert!(!context.contains("private-output"));
+        let status = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+            .current_dir(&project)
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", temp.path().join("fixture-home"))
+            .args(["--json", "integrations", "status", "--verbose"])
+            .output()
+            .unwrap();
+        assert_success("status after recall", &status);
+        let status = output_json("status after recall", &status);
+        let current = record_by_id(&status["integrations"], harness);
+        assert_eq!(current["last_recall_result_count"], 1);
+        assert_eq!(current["last_recall_query_class"], "startup_fallback");
+        let other_harness = if harness == "codex" {
+            "claude-code"
+        } else {
+            "codex"
+        };
+        assert!(
+            !context.contains(&format!("{other_harness} requires")),
+            "private agent memory leaked"
+        );
+        let worker = run(
+            command("SubagentStart"),
+            json!({
+                "hook_event_name": "SubagentStart", "session_id": "new-session", "cwd": project,
+                "agent_id": "worker-1", "agent_type": "reviewer"
+            }),
+        );
+        assert!(!String::from_utf8_lossy(&worker.stdout).contains(&summary));
+    }
+    let store = tree_ring_memory_sqlite::SQLiteMemoryStore::open_read_only(
+        project.join(".tree-ring/memory.sqlite"),
+    )
+    .unwrap();
+    assert_eq!(store.list_all(false).unwrap().len(), 2);
+    assert!(!project.join("src/nested/.tree-ring").exists());
+}
+
+#[test]
 fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() {
     let fixture_map = fixtures();
     assert_eq!(
@@ -90,7 +233,7 @@ fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() 
         assert_eq!(fixture["schema_version"], 1, "{id}");
         assert_eq!(fixture["harness_id"], id, "{id}");
         let expected_adapter_version = if matches!(id.as_str(), "codex" | "claude-code") {
-            "3"
+            "4"
         } else {
             "1"
         };
@@ -274,7 +417,7 @@ fn default_relative_root_initializes_from_the_project_root() {
     assert!(stop_json["reason"]
         .as_str()
         .unwrap()
-        .contains(" tree-ring --root "));
+        .contains("\"$tree_ring\" --root "));
     assert!(stop_json["reason"].as_str().unwrap().contains(" capture "));
     assert!(!stop_json["reason"]
         .as_str()

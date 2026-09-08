@@ -5,9 +5,10 @@ ChatGPT/Codex and Claude Code. It packages reviewed instructions plus thin
 lifecycle-hook registrations; the local Tree Ring Memory CLI remains the
 runtime and data owner.
 
-The Codex manifest is version `0.3.4`. The Claude Code manifest is version
-`0.3.3`. Both target Tree Ring Memory CLI `0.15.0` or newer and share the same
-reviewed wrapper skill.
+The Codex manifest is version `0.3.5`. The Claude Code manifest is version
+`0.3.4`. Both share the same reviewed wrapper skill. Manual guidance supports
+CLI `0.15.0` or newer; the lifecycle hooks require CLI `0.15.6` or newer for
+project-local runtime resolution and cross-session recall.
 
 The repository plugin registers exactly `SessionStart`, `SubagentStart`,
 `Stop`, and `SubagentStop`. Each hook forwards its event JSON directly to the
@@ -19,6 +20,12 @@ Session start covers startup, resume, and compaction rehydration when the host
 reports those sources. Subagent start gives each worker an independent,
 receipt-backed preflight. Codex requires review and trust of the installed hook
 definition before it runs. Claude Code loads the hook with the enabled plugin.
+
+Startup recall loads a bounded brief of shared project guidance and this
+agent's durable memories, including captures from earlier sessions. Workflow
+and session memories remain limited to their matching scope. It does not
+depend on memories containing special startup keywords. Use targeted recall
+when the task changes; the startup brief is not an exhaustive search.
 
 Stop and subagent-stop enforce one agent-mediated memory checkpoint. The
 lifecycle parser uses only stable harness identity and project fields; it never
@@ -44,6 +51,14 @@ recall and stop checkpoints. The marketplace wrapper detects the exact managed
 marker and exits without invoking the CLI, preventing duplicate context,
 receipts, checkpoint continuations, or capture attempts when the host merges
 project and plugin hooks.
+
+`integrations status --verbose` reports the last validated recall's result
+count and query class. A zero-result receipt proves the check ran; it does not
+prove that useful context was found. A skills-only plugin installation has no
+automatic lifecycle hooks; enable the repository plugin or configure the
+project with the CLI to obtain them. A newly configured Codex hook still needs
+the host's trust flow and a new session before automatic execution can be
+verified.
 
 ## Install Or Update Tree Ring Memory
 

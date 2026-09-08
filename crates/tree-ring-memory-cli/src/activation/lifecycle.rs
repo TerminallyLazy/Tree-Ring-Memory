@@ -11,6 +11,14 @@ use uuid::Uuid;
 
 const MAX_HOOK_INPUT_BYTES: usize = 1024 * 1024;
 
+// Shared by generated hooks and their capture instructions. GUI hosts need not
+// inherit a shell PATH containing the recommended project-local installation.
+pub(crate) const PROJECT_RUNTIME: &str = r#"project_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; tree_ring="$project_root/.tree-ring/bin/tree-ring"; if [ ! -x "$tree_ring" ]; then tree_ring=tree-ring; fi"#;
+
+pub(crate) fn lifecycle_command(harness: &str) -> String {
+    format!("{PROJECT_RUNTIME}; exec \"$tree_ring\" --root \"$project_root/.tree-ring\" integrations hook --harness {harness} --input-json-stdin")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleHookEvent {
     SessionStart,
@@ -158,7 +166,7 @@ pub fn render_capture_checkpoint(checkpoint: &CaptureCheckpoint) -> Result<Strin
     }
     let identity = &checkpoint.identity;
     let reason = format!(
-        "Tree Ring automatic capture checkpoint {checkpoint_id}. Before stopping, review only the durable outcomes already available in your working context. For zero to three genuinely reusable normal-sensitivity preferences, decisions, validated lessons, warnings, corrections, or future seeds, run one strict capture command per candidate:\nproject_root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; tree-ring --root \"$project_root/.tree-ring\" capture \"<concise summary>\" --event-type <preference|decision|lesson|warning|correction|seed> --ring <cambium|scar|seed> --project \"{project}\" --agent-profile \"{agent_profile}\" --workflow-id \"{workflow_id}\" --session-id \"{session_id}\" --operation-id auto-{checkpoint_id}-<1|2|3> --source-ref agent-checkpoint:{checkpoint_id}\nUse the same indexed operation ID only when retrying that same candidate. Use only `tree-ring capture` for this automatic checkpoint; `remember` and `evidence` remain separate manual surfaces. If nothing durable occurred, write nothing and finish; never invent memory. Never store raw prompts, transcripts, tool logs, secrets, or sensitive data, and do not start a background recorder. After this checkpoint, finish the response.",
+        "Tree Ring automatic capture checkpoint {checkpoint_id}. Before stopping, review only the durable outcomes already available in your working context. For zero to three genuinely reusable normal-sensitivity preferences, decisions, validated lessons, warnings, corrections, or future seeds, run one strict capture command per candidate:\n{PROJECT_RUNTIME}; \"$tree_ring\" --root \"$project_root/.tree-ring\" capture \"<concise summary>\" --event-type <preference|decision|lesson|warning|correction|seed> --ring <cambium|scar|seed> --project \"{project}\" --agent-profile \"{agent_profile}\" --workflow-id \"{workflow_id}\" --session-id \"{session_id}\" --operation-id auto-{checkpoint_id}-<1|2|3> --source-ref agent-checkpoint:{checkpoint_id}\nUse the same indexed operation ID only when retrying that same candidate. Use only `tree-ring capture` for this automatic checkpoint; `remember` and `evidence` remain separate manual surfaces. If nothing durable occurred, write nothing and finish; never invent memory. Never store raw prompts, transcripts, tool logs, secrets, or sensitive data, and do not start a background recorder. After this checkpoint, finish the response.",
         checkpoint_id = checkpoint.checkpoint_id,
         project = checkpoint.project,
         agent_profile = identity.agent_profile,
@@ -180,7 +188,7 @@ fn required_string<'a>(object: &'a Map<String, Value>, name: &str) -> Result<&'a
         .ok_or_else(|| "invalid lifecycle hook stdin".to_string())
 }
 
-fn normalized(label: &str, value: &str) -> String {
+pub(crate) fn normalized(label: &str, value: &str) -> String {
     if value.len() <= 128
         && value
             .chars()
@@ -302,7 +310,7 @@ mod tests {
         assert_eq!(request.event, LifecycleHookEvent::Stop);
         assert!(request.preflight.is_none());
         assert!(rendered.contains("\"decision\":\"block\""));
-        assert!(rendered.contains(" tree-ring --root "));
+        assert!(rendered.contains(".tree-ring/bin/tree-ring"));
         assert!(rendered.contains(" capture "));
         assert!(!rendered.contains("--scope"));
         assert!(!rendered.contains(private_output));

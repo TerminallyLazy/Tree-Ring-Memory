@@ -393,7 +393,7 @@ enum AdapterSupport {
 const ADAPTERS: [DeclarativeAdapter; 7] = [
     DeclarativeAdapter {
         id: "codex",
-        version: "3",
+        version: "4",
         display_name: "Codex",
         command: "codex",
         capability: AdapterCapability::NativePreflight,
@@ -403,7 +403,7 @@ const ADAPTERS: [DeclarativeAdapter; 7] = [
     },
     DeclarativeAdapter {
         id: "claude-code",
-        version: "3",
+        version: "4",
         display_name: "Claude Code",
         command: "claude",
         capability: AdapterCapability::NativePreflight,
@@ -483,7 +483,7 @@ pub fn adapter_version(id: &str) -> Option<&'static str> {
 }
 
 /// Returns the activation capability registered for a harness.
-pub(crate) fn adapter_capability(id: &str) -> Option<AdapterCapability> {
+pub fn adapter_capability(id: &str) -> Option<AdapterCapability> {
     registered_adapters()
         .find(|adapter| adapter.id == id)
         .map(|adapter| adapter.capability)
@@ -954,8 +954,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex", "claude-code", "pi", "agent-zero"]
         );
-        assert_eq!(adapter_version("codex"), Some("3"));
-        assert_eq!(adapter_version("claude-code"), Some("3"));
+        assert_eq!(adapter_version("codex"), Some("4"));
+        assert_eq!(adapter_version("claude-code"), Some("4"));
         assert_eq!(adapter_version("pi"), Some("1"));
         assert_eq!(adapter_version("agent-zero"), Some("1"));
         for id in ["hermes", "opencode", "goose"] {
