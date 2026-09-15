@@ -22,6 +22,7 @@ const AGENT_ZERO_CAPABILITY_CONTRACTS: &[(&str, &str, &str)] = &[
     ("3.3.1", "0.15.3", "0.15"),
     ("3.4.0", "0.15.5", "0.15"),
     ("3.4.1", "0.15.7", "0.15"),
+    ("3.4.2", "0.15.12", "0.15"),
 ];
 const MAX_AGENT_ZERO_CAPABILITY_BYTES: u64 = 16 * 1024;
 
