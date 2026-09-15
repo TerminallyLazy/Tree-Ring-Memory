@@ -678,7 +678,32 @@ an agent working in that project.
 local instruction files that may not be tracked in Git. Review the source paths,
 project, destination store and candidates before confirming. Confirmation saves
 that preview and refreshes the dashboard; cancellation leaves memories unchanged.
+Files containing detected secret content are skipped entirely. With a custom
+memory-store `--root`, the TUI scans the project from which it was launched.
 Repeated sync updates the same source-linked records rather than duplicating them.
+DOX records retain their stable IDs and include a source-root fingerprint. If a
+shared store has the same ID from another project or root, sync rejects the whole
+batch; use separate project stores. Matching legacy records without a fingerprint
+can be updated in the source project's `.tree-ring` store; their earlier location
+cannot be verified. Shared legacy records and fingerprinted records copied from
+a different root require provenance review before reuse. Sync does not
+automatically rebind a recorded fingerprint or migrate IDs.
+
+If a shared legacy store rejects a sync, preserve that store and select an empty,
+dedicated store for this source project. For example, when the project's
+`.tree-ring` store is unused:
+
+```bash
+tree-ring --root /path/to/project/.tree-ring dox sync --source-root /path/to/project --project project-name --dry-run
+# After reviewing the candidates, repeat without --dry-run to save them.
+```
+
+If that destination already contains conflicting records, choose a new dedicated
+directory with `--root` instead. Existing memories remain in the original store;
+this creates reviewed summaries from authoritative source files and does not
+transfer or relabel old memories. There is no automatic legacy-provenance
+migration command.
+
 In Coordinated mode, saving requires the coordinator capability in the terminal
 environment when the TUI starts; preview remains available without it.
 

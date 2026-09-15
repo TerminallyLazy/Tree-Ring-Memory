@@ -5,10 +5,12 @@ ChatGPT/Codex and Claude Code. It packages reviewed instructions plus thin
 lifecycle-hook registrations; the local Tree Ring Memory CLI remains the
 runtime and data owner.
 
-The Codex manifest is version `0.3.7`. The Claude Code manifest is version
-`0.3.5`. Both share the same reviewed wrapper skill. Manual guidance supports
+The Codex manifest is version `0.3.8`. The Claude Code manifest is version
+`0.3.6`. Both share the same reviewed wrapper skill. Manual guidance supports
 CLI `0.15.0` or newer; the lifecycle hooks require CLI `0.15.6` or newer for
-project-local runtime resolution and cross-session recall.
+project-local runtime resolution and cross-session recall. DOX persistence
+requires CLI `0.15.11` or newer for source-root collision checks; older
+compatible runtimes remain usable for read-only DOX previews.
 
 The repository plugin registers exactly `SessionStart`, `SubagentStart`,
 `Stop`, and `SubagentStop`. Each hook forwards its event JSON directly to the
@@ -148,7 +150,10 @@ The package adds the `tree-ring-memory` skill and these commands:
 
 The wrapper skill includes a DOX contract flow. It reads the applicable live
 `AGENTS.md` chain, previews `tree-ring dox sync` before persistence, keeps
-source contracts authoritative, and never rewrites them.
+source contracts authoritative, and never rewrites them. Before a DOX write,
+verify the selected binary is 0.15.11 or newer. After an authorized upgrade,
+rerun and review the preview. The shared-store guard rejects conflicting source
+identities as a whole batch; it does not silently rebind legacy provenance.
 
 Installed runtimes can produce bounded evidence with
 `tree-ring integrations certify` and `tree-ring recall-quality`. The full

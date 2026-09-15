@@ -31,6 +31,7 @@ pub enum AppMode {
 
 pub struct App {
     root: PathBuf,
+    launch_root: PathBuf,
     agent_profile: Option<String>,
     pub store: SQLiteMemoryStore,
     watcher: StoreWatcher,
@@ -59,7 +60,13 @@ impl App {
     pub fn new(root: PathBuf, event_stream_path: Option<PathBuf>) -> Result<Self, String> {
         let db_path = root.join("memory.sqlite");
         let store = SQLiteMemoryStore::open(&db_path).map_err(|err| err.to_string())?;
-        Self::from_store(root, event_stream_path, store, None)
+        Self::from_store(
+            root,
+            event_stream_path,
+            store,
+            None,
+            std::env::current_dir().map_err(|error| error.to_string())?,
+        )
     }
 
     pub fn new_with_context(
@@ -71,7 +78,13 @@ impl App {
         let db_path = root.join("memory.sqlite");
         let store = SQLiteMemoryStore::open_with_context(&db_path, context)
             .map_err(|err| err.to_string())?;
-        Self::from_store(root, event_stream_path, store, agent_profile)
+        Self::from_store(
+            root,
+            event_stream_path,
+            store,
+            agent_profile,
+            std::env::current_dir().map_err(|error| error.to_string())?,
+        )
     }
 
     fn from_store(
@@ -79,10 +92,12 @@ impl App {
         event_stream_path: Option<PathBuf>,
         store: SQLiteMemoryStore,
         agent_profile: Option<String>,
+        launch_root: PathBuf,
     ) -> Result<Self, String> {
         let db_path = root.join("memory.sqlite");
         let mut app = Self {
             root,
+            launch_root,
             agent_profile,
             store,
             watcher: StoreWatcher::new(),
@@ -541,7 +556,7 @@ impl App {
     }
 
     fn show_integrations(&mut self) {
-        let root = project_root_for_memory_root(&self.root);
+        let root = project_root_for_memory_root(&self.root, &self.launch_root);
         let report = scan_integrations_action(IntegrationScanRequest { source_root: root });
         self.status = format!(
             "integration scan: {} detected under {}",
@@ -554,8 +569,9 @@ impl App {
 
     fn preview_dox_sync(&mut self) -> Result<(), String> {
         self.pending_action = None;
-        let source_root = std::path::absolute(project_root_for_memory_root(&self.root))
-            .map_err(|error| error.to_string())?;
+        let source_root =
+            std::path::absolute(project_root_for_memory_root(&self.root, &self.launch_root))
+                .map_err(|error| error.to_string())?;
         let identity_root =
             std::fs::canonicalize(&source_root).map_err(|error| error.to_string())?;
         let project = identity_root
@@ -575,7 +591,7 @@ impl App {
         .report;
         if preview.memory_count == 0 {
             self.status = format!(
-                "DOX sync: no eligible summaries in {} ({} files, {} secret sections skipped, {} warnings)",
+                "DOX sync: no eligible summaries in {} ({} files, {} secret-containing files skipped, {} warnings)",
                 preview.root.display(),
                 preview.source_count,
                 preview.skipped_secret_count,
@@ -601,7 +617,7 @@ impl App {
     }
 
     fn show_evidence(&mut self) {
-        let project_root = project_root_for_memory_root(&self.root);
+        let project_root = project_root_for_memory_root(&self.root, &self.launch_root);
         let evidence_dir = certification_dir_for_project(&project_root);
         let snapshot = load_snapshot(&evidence_dir);
         self.status = format!("evidence: {}", snapshot.message);
@@ -714,14 +730,20 @@ fn resolve_export_path(root: &Path, target: &str) -> Result<PathBuf, String> {
     Ok(root.join("exports").join(path))
 }
 
-fn project_root_for_memory_root(root: &Path) -> PathBuf {
+fn project_root_for_memory_root(root: &Path, launch_root: &Path) -> PathBuf {
     if root.file_name().and_then(|name| name.to_str()) == Some(".tree-ring") {
+        let root = if root.is_absolute() {
+            root.to_path_buf()
+        } else {
+            launch_root.join(root)
+        };
         root.parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
+            .unwrap_or(launch_root)
             .to_path_buf()
     } else {
-        root.to_path_buf()
+        // A custom database location does not identify the source project.
+        launch_root.to_path_buf()
     }
 }
 
@@ -876,19 +898,71 @@ mod tests {
     }
 
     #[test]
+    fn custom_store_sync_reads_the_launch_project_and_writes_only_the_selected_store() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("project-source");
+        let memory_root = dir.path().join("shared-storage");
+        fs::create_dir(&project).unwrap();
+        fs::write(
+            project.join("AGENTS.md"),
+            "# Rules\n\nUse launch project instructions.\n",
+        )
+        .unwrap();
+        let store = SQLiteMemoryStore::open(memory_root.join("memory.sqlite")).unwrap();
+        fs::write(
+            memory_root.join("AGENTS.md"),
+            "# Storage notes\n\nDo not import storage directory instructions.\n",
+        )
+        .unwrap();
+        let mut app =
+            App::from_store(memory_root.clone(), None, store, None, project.clone()).unwrap();
+
+        app.execute_slash_command("/sync").unwrap();
+
+        let pending = app.pending_action.as_ref().unwrap();
+        let ActionKind::SyncDox { preview, .. } = &pending.kind else {
+            panic!("expected DOX preview")
+        };
+        assert_eq!(preview.root, project);
+        assert_eq!(preview.source_count, 1);
+        assert_eq!(preview.events[0].project.as_deref(), Some("project-source"));
+        assert!(preview.events[0]
+            .summary
+            .contains("Use launch project instructions"));
+        assert!(!preview.events[0].summary.contains("storage directory"));
+        assert!(app.store.list_all(true).unwrap().is_empty());
+        assert!(!project.join(".tree-ring").exists());
+
+        confirm(&mut app);
+
+        assert_eq!(app.dashboard.total, 1);
+        assert_eq!(app.store_path(), memory_root.join("memory.sqlite"));
+        assert!(app.store.list_all(true).unwrap()[0]
+            .summary
+            .contains("Use launch project instructions"));
+        assert!(!project.join(".tree-ring").exists());
+    }
+
+    #[test]
     fn relative_memory_root_resolves_to_current_project_for_source_sync() {
         assert_eq!(
-            project_root_for_memory_root(Path::new(".tree-ring")),
-            Path::new(".")
+            project_root_for_memory_root(Path::new(".tree-ring"), Path::new("/launch")),
+            Path::new("/launch")
         );
         assert_eq!(
-            project_root_for_memory_root(Path::new("./.tree-ring")),
-            Path::new(".")
+            project_root_for_memory_root(Path::new("./.tree-ring"), Path::new("/launch")),
+            Path::new("/launch")
         );
         assert_eq!(
-            project_root_for_memory_root(Path::new("/project/.tree-ring")),
+            project_root_for_memory_root(Path::new("/project/.tree-ring"), Path::new("/launch")),
             Path::new("/project")
         );
+        for custom_root in ["memory-cache", "/shared/memory-cache"] {
+            assert_eq!(
+                project_root_for_memory_root(Path::new(custom_root), Path::new("/launch")),
+                Path::new("/launch")
+            );
+        }
     }
 
     #[test]

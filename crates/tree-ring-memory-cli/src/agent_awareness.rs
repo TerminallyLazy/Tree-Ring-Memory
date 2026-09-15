@@ -24,6 +24,8 @@ const AGENT_RUNTIME_HEADING: &str = "## Local Runtime Bootstrap And Updates";
 const AGENT_RUNTIME_ANCHOR: &str = "## Harness Bridges";
 const SKILL_RUNTIME_HEADING: &str = "## Runtime Bootstrap And Updates";
 const SKILL_RUNTIME_ANCHOR: &str = "## When To Recall";
+const SKILL_DOX_COMPAT_HEADING: &str = "## DOX Persistence Compatibility";
+const SKILL_DOX_COMPAT_ANCHOR: &str = "## Harness Activation";
 const CLI_RUNTIME_HEADING: &str = "Runtime bootstrap and updates:";
 const CLI_RUNTIME_ANCHOR: &str = "Core commands:";
 const PREFLIGHT_HEADING: &str = "## Harness Preflight";
@@ -217,6 +219,17 @@ pub fn ensure_agent_awareness(root: &Path) -> Result<AgentAwarenessReport, Strin
         SKILL_RUNTIME_HEADING,
         SKILL_RUNTIME_ANCHOR,
         extract_section(SKILL_TEMPLATE, SKILL_RUNTIME_HEADING, SKILL_RUNTIME_ANCHOR),
+    )?;
+    maybe_backfill_generated_file(
+        &root.join("SKILL.md"),
+        is_generated_skill_file,
+        SKILL_DOX_COMPAT_HEADING,
+        SKILL_DOX_COMPAT_ANCHOR,
+        extract_section(
+            SKILL_TEMPLATE,
+            SKILL_DOX_COMPAT_HEADING,
+            SKILL_DOX_COMPAT_ANCHOR,
+        ),
     )?;
     maybe_backfill_generated_file(
         &root.join("CLI.md"),
@@ -941,6 +954,38 @@ mod tests {
         assert!(agents.contains("--project --init --release latest"));
         assert!(cli.contains("tree-ring update --check"));
         assert!(skill.contains("which -a tree-ring"));
+    }
+
+    #[test]
+    fn generated_backfills_dox_compatibility_without_replacing_owner_guidance() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join(".tree-ring");
+        fs::create_dir_all(&root).unwrap();
+        let old_skill = remove_managed_section(
+            SKILL_TEMPLATE,
+            SKILL_DOX_COMPAT_HEADING,
+            SKILL_DOX_COMPAT_ANCHOR,
+        )
+        .unwrap();
+        let owner_note = "\n## Owner notes\n\nKeep the project instructions separate.\n";
+        fs::write(root.join("SKILL.md"), format!("{old_skill}{owner_note}")).unwrap();
+        fs::write(root.join("AGENTS.md"), "Owner's memory contract.\n").unwrap();
+        ensure_agent_awareness(&root).unwrap();
+        let updated = fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert_eq!(updated.matches(SKILL_DOX_COMPAT_HEADING).count(), 1);
+        assert!(updated.contains("DOX persistence requires Tree Ring CLI 0.15.11 or newer"));
+        assert!(updated.ends_with(owner_note));
+        assert_eq!(
+            fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            "Owner's memory contract.\n"
+        );
+        ensure_agent_awareness(&root).unwrap();
+        assert_eq!(fs::read_to_string(root.join("SKILL.md")).unwrap(), updated);
+
+        let custom = "# Custom skill\n\nPreserve all owner instructions.\n";
+        fs::write(root.join("SKILL.md"), custom).unwrap();
+        ensure_agent_awareness(&root).unwrap();
+        assert_eq!(fs::read_to_string(root.join("SKILL.md")).unwrap(), custom);
     }
 
     #[test]

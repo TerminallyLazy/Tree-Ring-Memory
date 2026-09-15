@@ -26,7 +26,12 @@ the current project root when no argument is supplied.
 4. Inspect the proposed summaries and source references. Reject raw contract
    copies, secrets, low-value duplication, or output that weakens a child
    contract.
-5. Persist only when the user requested synchronization and the preview is
+5. Before any DOX write, run the selected binary with `--version` and require
+   Tree Ring CLI 0.15.11 or newer. Older runtimes may preview, but must not
+   persist DOX summaries: they lack source-root collision checks. Upgrade
+   through the existing installation scope when authorized, then rerun and
+   review the preview with the updated binary.
+6. Persist only when the user requested synchronization and the preview is
    concise and source-linked. Run the same command without `--dry-run`. In a
    Coordinated store, persistence requires `TREE_RING_COORDINATOR_TOKEN` in the
    authorized coordinator process; dry-run discovery does not.

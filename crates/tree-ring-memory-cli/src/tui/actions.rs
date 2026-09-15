@@ -122,7 +122,7 @@ impl PendingAction {
             .filter(|event| event.sensitivity != "normal")
             .count();
         let summary = format!(
-            "Import or update {} DOX summaries from {} AGENTS.md files.\nSource: {}\nStore: {}\nProject: {}\nIncludes {} sensitive; skips {} secret sections; {} warnings.\nStable IDs update existing summaries; source files stay authoritative.",
+            "Import or update {} DOX summaries from {} AGENTS.md files.\nSource: {}\nStore: {}\nProject: {}\nIncludes {} sensitive; secret source files skipped: {}; {} warnings.\nStable IDs update existing summaries; source files stay authoritative.",
             preview.memory_count,
             preview.source_count,
             preview.root.display(),
@@ -162,6 +162,35 @@ impl PendingAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dox_confirmation_counts_secret_source_files_not_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\nReview source contracts.\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(
+            dir.path().join("nested/AGENTS.md"),
+            "# Earlier rules\nUse reviewed configuration.\n# Credentials\nUse key sk-proj-abcdefghijklmnopqrstuvwxyz1234567890\n# Later rules\nRead the source.\n",
+        )
+        .unwrap();
+        let preview = tree_ring_memory_core::collect_dox_memories(
+            &tree_ring_memory_core::DoxSyncRequest::new(dir.path()),
+        )
+        .unwrap();
+        assert_eq!(preview.source_count, 2);
+        assert_eq!(preview.skipped_secret_count, 1);
+        assert!(preview
+            .events
+            .iter()
+            .all(|event| !event.source.ref_.starts_with("nested/")));
+        let pending = PendingAction::sync_dox(preview, "fixture", &dir.path().join(".tree-ring"));
+        assert!(pending.summary.contains("secret source files skipped: 1"));
+        assert!(!pending.summary.contains("secret sections"));
+    }
 
     #[test]
     fn dangerous_actions_are_explicit_pending_values() {

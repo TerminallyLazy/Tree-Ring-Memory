@@ -68,7 +68,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.7", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.8", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     require(manifest.get("hooks") == "./hooks/codex-hooks.json", "Codex lifecycle hook path is stale")
     for unsupported in ("mcpServers", "apps"):
@@ -92,7 +92,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.5", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.6", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
@@ -310,6 +310,12 @@ def validate_codex_skills_only() -> None:
 def validate_shared_contract() -> None:
     skill = PLUGIN / "skills" / "tree-ring-memory" / "SKILL.md"
     require_markers(
+        ROOT / "skills" / "tree-ring-memory" / "SKILL.md",
+        ["## DOX Persistence Compatibility",
+            "DOX persistence requires Tree Ring CLI 0.15.11 or newer",
+         "Older runtimes may preview with `--dry-run`, but must not persist DOX summaries"],
+    )
+    require_markers(
         skill,
         [
             "Runtime Bootstrap And Updates",
@@ -318,6 +324,9 @@ def validate_shared_contract() -> None:
             "tree-ring update --check",
             "which -a tree-ring",
             "DOX Contract Flow",
+            "## DOX Persistence Compatibility",
+            "DOX persistence requires Tree Ring CLI 0.15.11 or newer",
+            "Older runtimes may preview with `--dry-run`, but must not persist DOX summaries",
             "tree-ring dox sync --source-root <path> --dry-run",
             "Certification Boundary",
             "tree-ring integrations certify --source-root .",
@@ -334,7 +343,7 @@ def validate_shared_contract() -> None:
     )
     require_markers(
         PLUGIN / "commands" / "tree-ring-dox-sync.md",
-        ["--dry-run", "Current source contracts are authoritative", "must not rewrite root or child `AGENTS.md` files"],
+        ["--dry-run", "Current source contracts are authoritative", "must not rewrite root or child `AGENTS.md` files", "Tree Ring CLI 0.15.11 or newer", "Older runtimes may preview, but must not persist DOX summaries"],
     )
     require_markers(
         PLUGIN / "commands" / "tree-ring-certify.md",
