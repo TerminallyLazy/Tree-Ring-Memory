@@ -62,18 +62,24 @@ pub fn apply_dox_preview(
     // Older DOX records have no root provenance. Only a source project's own
     // .tree-ring store can establish that association without guessing which
     // project originally wrote a shared legacy record.
-    let source_root = if report.root.is_file() {
-        report.root.parent().unwrap_or(&report.root)
-    } else {
-        &report.root
-    };
-    let source_root = std::fs::canonicalize(source_root).ok();
+    // Resolve a bare file spelling such as AGENTS.md before taking its parent;
+    // its lexical parent is empty, not a canonicalizable project directory.
+    let source_root = std::fs::canonicalize(&report.root).ok().and_then(|source| {
+        if source.is_file() {
+            source.parent().map(|parent| parent.to_path_buf())
+        } else {
+            Some(source)
+        }
+    });
     let local_store_project = store.database_path().ok().and_then(|database| {
+        // A local-looking directory or database symlink does not establish
+        // ownership of an external legacy store. Inspect the resolved target.
+        let database = std::fs::canonicalize(database).ok()?;
         let memory_root = database.parent()?;
         if memory_root.file_name()? != ".tree-ring" {
             return None;
         }
-        std::fs::canonicalize(memory_root.parent()?).ok()
+        Some(memory_root.parent()?.to_path_buf())
     });
     let allow_legacy_sources = source_root.is_some() && source_root == local_store_project;
     store
