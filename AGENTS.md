@@ -14,7 +14,7 @@ marketplace descriptors, `.github/workflows`, and the canonical `skills/` guide.
 ## DOX framework
 
 This repository uses [agent0ai/DOX](https://github.com/agent0ai/dox), adapted from
-revision `765ae4ac02cc884eefcd41a3d0f71941721adb89` (MIT), as its project instruction hierarchy.
+revision `765ae4ac02cc884eefcd41a3d0f71941721adb89` as its project instruction hierarchy. See [upstream MIT license](docs/DOX-LICENSE.txt).
 
 ### Read before editing
 
