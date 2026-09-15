@@ -59,8 +59,25 @@ pub fn apply_dox_preview(
     store: &mut SQLiteMemoryStore,
     report: &DoxSyncReport,
 ) -> ActionResult<()> {
+    // Older DOX records have no root provenance. Only a source project's own
+    // .tree-ring store can establish that association without guessing which
+    // project originally wrote a shared legacy record.
+    let source_root = if report.root.is_file() {
+        report.root.parent().unwrap_or(&report.root)
+    } else {
+        &report.root
+    };
+    let source_root = std::fs::canonicalize(source_root).ok();
+    let local_store_project = store.database_path().ok().and_then(|database| {
+        let memory_root = database.parent()?;
+        if memory_root.file_name()? != ".tree-ring" {
+            return None;
+        }
+        std::fs::canonicalize(memory_root.parent()?).ok()
+    });
+    let allow_legacy_sources = source_root.is_some() && source_root == local_store_project;
     store
-        .put_many(&report.events)
+        .put_dox_many(&report.events, allow_legacy_sources)
         .map_err(|err| err.to_string())
 }
 
@@ -109,5 +126,73 @@ mod tests {
 
         assert_eq!(report.report.memory_count, 1);
         assert!(!dir.path().join("memory.sqlite").exists());
+    }
+
+    #[test]
+    fn legacy_dox_updates_only_in_its_source_projects_local_store() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("AGENTS.md"), "# Rules\n\nAlways run tests.").unwrap();
+        let preview = sync_dox(
+            None,
+            DoxSyncActionRequest {
+                source_root: dir.path().to_path_buf(),
+                project: Some("project".to_string()),
+                dry_run: true,
+            },
+        )
+        .unwrap()
+        .report;
+        let mut legacy = preview.events[0].clone();
+        legacy.links.retain(|link| link.link_type != "dox-root");
+
+        for (location, allowed) in [(".tree-ring", true), ("shared-store", false)] {
+            let root = dir.path().join(location);
+            fs::create_dir(&root).unwrap();
+            let mut store = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+            store.put(&legacy).unwrap();
+            let result = apply_dox_preview(&mut store, &preview);
+            assert_eq!(result.is_ok(), allowed, "{location}: {result:?}");
+            let saved = store.list_all(true).unwrap();
+            assert_eq!(saved.len(), 1);
+            assert_eq!(
+                saved[0],
+                if allowed {
+                    preview.events[0].clone()
+                } else {
+                    legacy.clone()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn shared_store_rejects_distinct_roots_with_the_same_project_name() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("shared.sqlite")).unwrap();
+        for (index, parent) in ["first", "second"].into_iter().enumerate() {
+            let root = dir.path().join(parent).join("project");
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("AGENTS.md"), "# Rules\n\nAlways run tests.").unwrap();
+            let preview = sync_dox(
+                None,
+                DoxSyncActionRequest {
+                    source_root: root,
+                    project: Some("project".to_string()),
+                    dry_run: true,
+                },
+            )
+            .unwrap()
+            .report;
+            let before = store.list_all(true).unwrap();
+            let result = apply_dox_preview(&mut store, &preview);
+            if index == 0 {
+                result.unwrap();
+                apply_dox_preview(&mut store, &preview).unwrap();
+                assert_eq!(store.list_all(true).unwrap().len(), 1);
+            } else {
+                assert!(result.is_err());
+                assert_eq!(store.list_all(true).unwrap(), before);
+            }
+        }
     }
 }

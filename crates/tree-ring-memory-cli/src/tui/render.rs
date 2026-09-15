@@ -913,6 +913,59 @@ mod tests {
     use crate::tui::app::App;
 
     #[test]
+    fn dox_preview_control_characters_never_enter_terminal_cells_or_change_candidates() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\nReview source contracts.\n",
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        let original = if let ActionKind::SyncDox { preview, .. } =
+            &mut app.pending_action.as_mut().unwrap().kind
+        {
+            preview.events[0].source.ref_ =
+                "SOURCE-START\u{1b}]8;;inert-target\u{7}/AGENTS.md".to_string();
+            preview.events[0].summary =
+                "SUMMARY-START\u{1b}[2J SUMMARY-END\nNEXT-LINE\u{7}\u{0}\u{009b} TEXT-END"
+                    .to_string();
+            preview.clone()
+        } else {
+            panic!("expected DOX preview");
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        // Inspect actual rendered cells, not Debug-formatted output that could
+        // hide control bytes through escaping. Ratatui strips these controls.
+        let controls = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .flat_map(|cell| cell.symbol().chars())
+            .filter(|character| character.is_control())
+            .collect::<Vec<_>>();
+        assert!(controls.is_empty(), "rendered controls: {controls:?}");
+        let output = terminal.backend().to_string();
+        for text in [
+            "SOURCE-START",
+            "SUMMARY-START",
+            "SUMMARY-END",
+            "NEXT-LINE",
+            "TEXT-END",
+        ] {
+            assert!(output.contains(text), "{output}");
+        }
+        if let ActionKind::SyncDox { preview, .. } = &app.pending_action.as_ref().unwrap().kind {
+            assert_eq!(preview, &original);
+        } else {
+            panic!("rendering changed the pending action");
+        }
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
     fn long_dox_candidate_can_scroll_to_its_end_with_fixed_confirmation_keys() {
         let dir = tempdir().unwrap();
         std::fs::write(

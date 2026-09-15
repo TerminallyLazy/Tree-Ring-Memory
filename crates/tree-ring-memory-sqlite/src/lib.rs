@@ -446,6 +446,25 @@ impl SQLiteMemoryStore {
     }
 
     pub fn put_many(&mut self, events: &[MemoryEvent]) -> TreeRingResult<()> {
+        self.put_many_with_dox_guard(events, None)
+    }
+
+    /// Persist a DOX batch without overwriting a different source that shares
+    /// a legacy stable ID. Legacy rows without root provenance may be adopted
+    /// only when the caller has verified the source project's local store.
+    pub fn put_dox_many(
+        &mut self,
+        events: &[MemoryEvent],
+        allow_legacy_sources: bool,
+    ) -> TreeRingResult<()> {
+        self.put_many_with_dox_guard(events, Some(allow_legacy_sources))
+    }
+
+    fn put_many_with_dox_guard(
+        &mut self,
+        events: &[MemoryEvent],
+        dox_guard: Option<bool>,
+    ) -> TreeRingResult<()> {
         let write_context = self.write_context.clone();
         let event_refs = events.iter().collect::<Vec<_>>();
         write::retry_locked(|| {
@@ -456,7 +475,11 @@ impl SQLiteMemoryStore {
             if let policy::AuthorizationOutcome::Denied(error) = policy::authorize_event_creates(
                 &transaction,
                 &write_context,
-                "put_many",
+                if dox_guard.is_some() {
+                    "put_dox_many"
+                } else {
+                    "put_many"
+                },
                 &event_refs,
             )? {
                 transaction.commit().map_err(sqlite_error_from_rusqlite)?;
@@ -474,6 +497,9 @@ impl SQLiteMemoryStore {
                     .map_err(sqlite_error_from_rusqlite)?;
 
                 for event in events {
+                    if let Some(allow_legacy_sources) = dox_guard {
+                        validate_dox_source_update(&transaction, event, allow_legacy_sources)?;
+                    }
                     write::prepare_memory_write(&transaction, event)?;
                     write::put_with_statements(
                         event,
@@ -1736,6 +1762,69 @@ const SEARCH_FILLER_TERMS: &[&str] = &[
     "what",
 ];
 
+fn dox_root_provenance(event: &MemoryEvent) -> TreeRingResult<Option<&str>> {
+    let mut roots = event
+        .links
+        .iter()
+        .filter(|link| link.link_type == "dox-root");
+    let root = roots.next();
+    if roots.next().is_some() || root.is_some_and(|link| link.target.trim().is_empty()) {
+        return Err(TreeRingError::Validation(
+            "invalid DOX root provenance; expected one non-empty dox-root link; rebuild the source preview or reconcile legacy provenance".to_string(),
+        ));
+    }
+    Ok(root.map(|link| link.target.as_str()))
+}
+
+fn validate_dox_source_update(
+    connection: &Connection,
+    event: &MemoryEvent,
+    allow_legacy_sources: bool,
+) -> TreeRingResult<()> {
+    if event.scope != "dox" || event.source.source_type != "dox" {
+        return Err(TreeRingError::Validation(
+            "DOX batch requires DOX-scoped events with DOX source provenance".to_string(),
+        ));
+    }
+    let root = dox_root_provenance(event)?.ok_or_else(|| {
+        TreeRingError::Validation(
+            "DOX batch requires one non-empty dox-root link; rebuild the source preview"
+                .to_string(),
+        )
+    })?;
+    let existing = connection
+        .query_row(
+            "SELECT raw_json FROM memories WHERE id = ?",
+            params![event.id],
+            search::event_from_row,
+        )
+        .optional()
+        .map_err(sqlite_error_from_rusqlite)?
+        .transpose()?;
+    let Some(existing) = existing else {
+        return Ok(());
+    };
+    if existing.project != event.project
+        || existing.scope != event.scope
+        || existing.source.source_type != event.source.source_type
+        || existing.source.ref_ != event.source.ref_
+    {
+        return Err(TreeRingError::Validation(
+            "DOX source identity collides with an existing memory; use a separate project store or explicitly reconcile legacy source provenance".to_string(),
+        ));
+    }
+    match dox_root_provenance(&existing)? {
+        Some(existing_root) if existing_root == root => Ok(()),
+        None if allow_legacy_sources => Ok(()),
+        None => Err(TreeRingError::Validation(
+            "legacy DOX memory has no root provenance in this shared or custom store; use the source project's local .tree-ring or explicitly reconcile legacy source provenance".to_string(),
+        )),
+        Some(_) => Err(TreeRingError::Validation(
+            "DOX root provenance collides with an existing source; use a separate project store or explicitly reconcile source provenance".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1744,7 +1833,7 @@ mod tests {
         thread,
     };
     use tempfile::tempdir;
-    use tree_ring_memory_core::models::MemorySource;
+    use tree_ring_memory_core::models::{MemoryLink, MemorySource};
 
     #[test]
     fn database_path_reports_the_main_filesystem_store() {
@@ -2741,6 +2830,203 @@ mod tests {
         let results = store.search_text("stale cache", false).unwrap();
 
         assert_eq!(results[0].ring, "scar");
+    }
+
+    #[test]
+    fn dox_batch_retries_update_only_the_same_source_without_duplicates() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let mut event = dox_fixture("mem_dox_rules", "project", Some('a'));
+        store.put_dox_many(&[event.clone()], false).unwrap();
+        event.summary = "Updated source guidance.".to_string();
+        store.put_dox_many(&[event.clone()], false).unwrap();
+        assert_eq!(store.list_all(true).unwrap(), vec![event]);
+        assert_eq!(
+            store
+                .search_text("Updated source guidance", true)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    fn dox_fixture(id: &str, project: &str, root: Option<char>) -> MemoryEvent {
+        let mut event = MemoryEvent::new("Source guidance.", "dox_guidance").unwrap();
+        event.id = id.to_string();
+        event.scope = "dox".to_string();
+        event.project = Some(project.to_string());
+        event.source.source_type = "dox".to_string();
+        event.source.ref_ = "AGENTS.md#rules-1".to_string();
+        if let Some(root) = root {
+            event.links.push(MemoryLink {
+                link_type: "dox-root".to_string(),
+                target: root.to_string().repeat(64),
+            });
+        }
+        event
+    }
+
+    #[test]
+    fn dox_batch_source_collisions_reject_every_write_including_fts() {
+        for conflict in 0..5 {
+            let dir = tempdir().unwrap();
+            let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+            let incoming = dox_fixture("mem_dox_rules", "same-project-name", Some('a'));
+            let mut existing = incoming.clone();
+            match conflict {
+                0 => existing.project = Some("different-project".to_string()),
+                1 => existing.links[0].target = "b".repeat(64),
+                2 => existing.scope = "project".to_string(),
+                3 => existing.source.source_type = "manual".to_string(),
+                4 => existing.source.ref_ = "other/AGENTS.md#rules-1".to_string(),
+                _ => unreachable!(),
+            }
+            store.put(&existing).unwrap();
+            let mut fresh = incoming.clone();
+            fresh.id = "mem_fresh_dox".to_string();
+            fresh.summary = "Never persist partial DOX batch.".to_string();
+            let error = store
+                .put_dox_many(&[fresh.clone(), incoming], true)
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("separate project store"),
+                "{conflict}: {error}"
+            );
+            assert!(store.get(&fresh.id).unwrap().is_none());
+            assert_eq!(store.get(&existing.id).unwrap(), Some(existing));
+            assert!(store
+                .search_text("Never persist partial", true)
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    #[test]
+    fn dox_batch_validates_every_incoming_identity_and_root_before_commit() {
+        for invalid in 0..5 {
+            let dir = tempdir().unwrap();
+            let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+            let fresh = dox_fixture("mem_fresh_dox", "project", Some('a'));
+            let mut bad = dox_fixture("mem_invalid_dox", "project", Some('a'));
+            match invalid {
+                0 => bad.scope = "project".to_string(),
+                1 => bad.source.source_type = "manual".to_string(),
+                2 => bad.links.clear(),
+                3 => bad.links[0].target = "  ".to_string(),
+                4 => bad.links.push(bad.links[0].clone()),
+                _ => unreachable!(),
+            }
+            assert!(store.put_dox_many(&[fresh, bad], false).is_err());
+            assert!(store.list_all(true).unwrap().is_empty());
+            let fts_count: i64 = store
+                .connection_for_testing()
+                .query_row("SELECT count(*) FROM memory_fts", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(fts_count, 0);
+        }
+    }
+
+    #[test]
+    fn dox_batch_shared_legacy_requires_explicit_local_store_eligibility() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let legacy = dox_fixture("mem_dox_rules", "project", None);
+        store.put(&legacy).unwrap();
+        let update = dox_fixture("mem_dox_rules", "project", Some('a'));
+        let error = store.put_dox_many(&[update.clone()], false).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("legacy DOX memory has no root provenance"));
+        assert_eq!(store.get(&legacy.id).unwrap(), Some(legacy));
+        store.put_dox_many(&[update.clone()], true).unwrap();
+        store.put_dox_many(&[update.clone()], false).unwrap();
+        assert_eq!(store.get(&update.id).unwrap(), Some(update));
+    }
+
+    #[test]
+    fn dox_batch_detects_colliding_ids_within_the_same_transaction() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let first = dox_fixture("mem_dox_rules", "same-project-name", Some('a'));
+        let second = dox_fixture("mem_dox_rules", "same-project-name", Some('b'));
+        assert!(store.put_dox_many(&[first, second], true).is_err());
+        assert!(store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dox_batch_preserves_coordinated_authorization_and_root_guard() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let mut store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let grant = store
+            .enable_coordinated_policy(Some("test-coordinator"))
+            .unwrap();
+        let event = dox_fixture("mem_dox_rules", "project", Some('a'));
+        assert_authorization_denied(store.put_dox_many(&[event.clone()], true));
+        assert!(store.list_all(true).unwrap().is_empty());
+        assert!(store
+            .policy_audit(10)
+            .unwrap()
+            .iter()
+            .any(|row| row.action == "put_dox_many" && row.decision == "denied"));
+        let context = WriteContext::new(None, Some(&grant.capability), "dox-test").unwrap();
+        let mut coordinator = SQLiteMemoryStore::open_with_context(&db_path, context).unwrap();
+        coordinator.put_dox_many(&[event.clone()], false).unwrap();
+        let collision = dox_fixture("mem_dox_rules", "project", Some('b'));
+        assert!(coordinator.put_dox_many(&[collision], true).is_err());
+        assert_eq!(coordinator.get(&event.id).unwrap(), Some(event));
+    }
+
+    #[test]
+    fn concurrent_dox_batches_cannot_replace_another_root_after_validation() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("memory.sqlite");
+        let store_a = SQLiteMemoryStore::open(&db_path).unwrap();
+        let store_b = SQLiteMemoryStore::open(&db_path).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let workers = [(store_a, 'a'), (store_b, 'b')]
+            .into_iter()
+            .map(|(mut store, root)| {
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let shared = dox_fixture("mem_dox_rules", "same-project-name", Some(root));
+                    let unique = dox_fixture(
+                        &format!("mem_dox_unique_{root}"),
+                        "same-project-name",
+                        Some(root),
+                    );
+                    barrier.wait();
+                    store.put_dox_many(&[unique, shared], false)
+                })
+            })
+            .collect::<Vec<_>>();
+        let outcomes = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(outcomes
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .all(|error| error.to_string().contains("root provenance collides")));
+        let store = SQLiteMemoryStore::open(&db_path).unwrap();
+        let events = store.list_all(true).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            dox_root_provenance(&events[0]).unwrap(),
+            dox_root_provenance(&events[1]).unwrap()
+        );
+    }
+
+    #[test]
+    fn ordinary_batch_keeps_existing_upsert_behavior_without_dox_provenance() {
+        let dir = tempdir().unwrap();
+        let mut store = SQLiteMemoryStore::open(dir.path().join("memory.sqlite")).unwrap();
+        let event = MemoryEvent::new("Original ordinary memory.", "lesson").unwrap();
+        let mut update = event.clone();
+        update.summary = "Updated ordinary memory.".to_string();
+        store.put_many(&[event, update.clone()]).unwrap();
+        assert_eq!(store.list_all(true).unwrap(), vec![update]);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -33,6 +34,7 @@ pub struct DoxSyncReport {
     pub root: PathBuf,
     pub source_count: usize,
     pub memory_count: usize,
+    /// Files rejected because a generated candidate contained a secret.
     pub skipped_secret_count: usize,
     pub warnings: Vec<String>,
     pub events: Vec<MemoryEvent>,
@@ -40,12 +42,15 @@ pub struct DoxSyncReport {
 
 pub fn collect_dox_memories(request: &DoxSyncRequest) -> TreeRingResult<DoxSyncReport> {
     let files = discover_agents_files(&request.root, request.max_files)?;
+    // Discovery must reject a symlinked root before canonicalization is used
+    // for provenance. This identity does not select or authorize source files.
+    let root_fingerprint = dox_root_fingerprint(&request.root)?;
     let mut events = Vec::new();
     let mut warnings = Vec::new();
     let mut skipped_secret_count = 0;
 
     for path in &files {
-        match events_from_agents_file(request, path) {
+        match events_from_agents_file(request, path, &root_fingerprint) {
             Ok(mut file_events) => events.append(&mut file_events),
             Err(AdapterSkip::Secret) => skipped_secret_count += 1,
             Err(AdapterSkip::Unreadable(message)) => warnings.push(message),
@@ -61,6 +66,21 @@ pub fn collect_dox_memories(request: &DoxSyncRequest) -> TreeRingResult<DoxSyncR
         warnings,
         events,
     })
+}
+
+fn dox_root_fingerprint(root: &Path) -> TreeRingResult<String> {
+    let canonical = fs::canonicalize(root).map_err(|err| sqlite_error(err.to_string()))?;
+    let directory = if canonical.is_file() {
+        canonical
+            .parent()
+            .ok_or_else(|| sqlite_error("DOX source file parent is unavailable".to_string()))?
+    } else {
+        canonical.as_path()
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(b"tree-ring-dox-root-v1\0");
+    hasher.update(directory.as_os_str().as_encoded_bytes());
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn discover_agents_files(root: &Path, max_files: usize) -> TreeRingResult<Vec<PathBuf>> {
@@ -132,6 +152,7 @@ fn should_skip_dir(path: &Path) -> bool {
 fn events_from_agents_file(
     request: &DoxSyncRequest,
     path: &Path,
+    root_fingerprint: &str,
 ) -> Result<Vec<MemoryEvent>, AdapterSkip> {
     let metadata =
         fs::symlink_metadata(path).map_err(|err| AdapterSkip::Unreadable(err.to_string()))?;
@@ -202,6 +223,10 @@ fn events_from_agents_file(
         event.links.push(MemoryLink {
             link_type: "dox".to_string(),
             target: relative.clone(),
+        });
+        event.links.push(MemoryLink {
+            link_type: "dox-root".to_string(),
+            target: root_fingerprint.to_string(),
         });
         match guard.detect_memory_event_sensitivity(&event) {
             Ok(sensitivity) => {
@@ -409,6 +434,97 @@ mod tests {
         assert!(report.events.iter().all(|event| event.scope == "dox"));
     }
 
+    fn root_provenance(event: &MemoryEvent) -> &str {
+        let links = event
+            .links
+            .iter()
+            .filter(|link| link.link_type == "dox-root")
+            .collect::<Vec<_>>();
+        assert_eq!(links.len(), 1);
+        &links[0].target
+    }
+
+    #[test]
+    fn equivalent_source_paths_keep_ids_and_root_provenance_stable() {
+        let dir = tempfile::Builder::new()
+            .prefix(".dox-root-test-")
+            .tempdir_in(".")
+            .unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\nRead source contracts.\n",
+        )
+        .unwrap();
+        let absolute = fs::canonicalize(dir.path()).unwrap();
+        let relative = PathBuf::from(dir.path().file_name().unwrap());
+        let first = collect_dox_memories(&DoxSyncRequest::new(&relative)).unwrap();
+        let second = collect_dox_memories(&DoxSyncRequest::new(absolute.join("."))).unwrap();
+        let repeated = collect_dox_memories(&DoxSyncRequest::new(&absolute)).unwrap();
+
+        let event = &first.events[0];
+        assert_eq!(event.id, stable_id("dox", "AGENTS.md#rules-2"));
+        assert_eq!(event.id, second.events[0].id);
+        assert_eq!(event.id, repeated.events[0].id);
+        assert_eq!(event.source.ref_, "AGENTS.md#rules-2");
+        assert!(event
+            .links
+            .iter()
+            .any(|link| link.link_type == "dox" && link.target == "AGENTS.md"));
+        let fingerprint = root_provenance(event);
+        assert_eq!(fingerprint, root_provenance(&second.events[0]));
+        assert_eq!(fingerprint, root_provenance(&repeated.events[0]));
+        assert_eq!(fingerprint.len(), 64);
+        assert!(fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+        let file = collect_dox_memories(&DoxSyncRequest::new(absolute.join("AGENTS.md"))).unwrap();
+        assert_eq!(fingerprint, root_provenance(&file.events[0]));
+    }
+
+    #[test]
+    fn different_source_roots_with_the_same_project_name_have_distinct_provenance() {
+        let dir = tempdir().unwrap();
+        let roots = [
+            dir.path().join("first/project"),
+            dir.path().join("second/project"),
+        ];
+        let mut reports = Vec::new();
+        for root in roots {
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("AGENTS.md"), "# Rules\nRead source contracts.\n").unwrap();
+            let mut request = DoxSyncRequest::new(root);
+            request.project = Some("project".to_string());
+            reports.push(collect_dox_memories(&request).unwrap());
+        }
+
+        let first = &reports[0].events[0];
+        let second = &reports[1].events[0];
+        // Legacy source IDs stay stable; the write boundary can now reject
+        // this collision without overwriting or duplicating either record.
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.project, second.project);
+        assert_ne!(root_provenance(first), root_provenance(second));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provenance_canonicalization_does_not_accept_a_symlinked_source_root() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(
+            source.join("AGENTS.md"),
+            "# Rules\nRead source contracts.\n",
+        )
+        .unwrap();
+        let alias = dir.path().join("alias");
+        symlink(&source, &alias).unwrap();
+
+        let error = collect_dox_memories(&DoxSyncRequest::new(alias)).unwrap_err();
+        assert!(error.to_string().contains("cannot be a symlink"));
+    }
+
     #[test]
     fn summarizes_agents_without_full_doc_dump() {
         let dir = tempdir().unwrap();
@@ -460,6 +576,33 @@ mod tests {
         assert_eq!(report.events.len(), 2);
         assert_ne!(report.events[0].id, report.events[1].id);
         assert_ne!(report.events[0].source.ref_, report.events[1].source.ref_);
+    }
+
+    #[test]
+    fn secret_skip_count_is_per_file_and_discards_its_earlier_sections() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\nRead source contracts before editing.\n\n## Example credential\nUse key sk-proj-abcdefghijklmnopqrstuvwxyz1234567890\n\n## Another credential\nUse key sk-proj-abcdefghijklmnopqrstuvwxyz0987654321\n",
+        )
+        .unwrap();
+        fs::create_dir(dir.path().join("safe")).unwrap();
+        fs::write(
+            dir.path().join("safe/AGENTS.md"),
+            "# Verification\nRun focused tests.\n",
+        )
+        .unwrap();
+
+        let report = collect_dox_memories(&DoxSyncRequest::new(dir.path())).unwrap();
+
+        assert_eq!(report.source_count, 2);
+        assert_eq!(report.skipped_secret_count, 1);
+        assert_eq!(report.memory_count, 1);
+        assert_eq!(
+            report.events[0].source.ref_,
+            "safe/AGENTS.md#verification-2"
+        );
+        assert!(report.warnings.is_empty());
     }
 
     #[cfg(unix)]
