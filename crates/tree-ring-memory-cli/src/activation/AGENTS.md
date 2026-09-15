@@ -16,6 +16,8 @@ Use SessionStart/SubagentStart for recall and Stop/SubagentStop for bounded agen
 
 Keep root AGENTS.md references separate from .tree-ring guidance. Never scrape transcripts, manufacture receipts, or treat an Agent Zero marker as installed plugin capability.
 
+When creating root AGENTS.md, record ownership of only the marked Tree Ring block so surrounding project instructions remain editable. Preserve legacy complete-file ownership until explicitly reconciled; never migrate an existing activation manifest automatically.
+
 ## Verification
 
 `cargo test -p tree-ring-memory-cli --test harness_activation_acceptance --locked`; activation unit tests and native host probes cover changes to events, ownership or receipts.

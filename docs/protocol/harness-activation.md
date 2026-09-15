@@ -36,6 +36,13 @@ existing project instructions, and a harness without a managed activation
 record remains `needs-user-review` on subsequent status checks. Review and
 reconcile that bounded reference without replacing either instruction file.
 
+When initialization creates a missing root `AGENTS.md`, it records ownership
+of only its marked Tree Ring block. Project instructions may later be added or
+edited around that unchanged block without invalidating activation retries.
+Changing the Tree Ring block itself still requires review. Existing manifests
+that own the complete file keep their recorded ownership; this change does not
+automatically migrate or replace a previously published manifest.
+
 ## States and proof
 
 | State | Meaning |
