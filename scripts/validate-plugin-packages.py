@@ -68,7 +68,7 @@ def validate_codex() -> None:
 
     manifest = load_json(PLUGIN / ".codex-plugin" / "plugin.json")
     require(manifest.get("name") == "tree-ring-memory", "Codex manifest name is stale")
-    require(manifest.get("version") == "0.3.8", "Codex manifest version is stale")
+    require(manifest.get("version") == "0.3.9", "Codex manifest version is stale")
     require(manifest.get("skills") == "./skills/", "Codex skills path is stale")
     require(manifest.get("hooks") == "./hooks/codex-hooks.json", "Codex lifecycle hook path is stale")
     for unsupported in ("mcpServers", "apps"):
@@ -92,7 +92,7 @@ def validate_codex() -> None:
 def validate_claude() -> None:
     marketplace = load_json(ROOT / ".claude-plugin" / "marketplace.json")
     require(marketplace.get("name") == "tree-ring-memory", "Claude marketplace name is stale")
-    require(marketplace.get("version") == "0.3.6", "Claude marketplace version is stale")
+    require(marketplace.get("version") == "0.3.7", "Claude marketplace version is stale")
     require(isinstance(marketplace.get("owner"), dict), "Claude marketplace owner is required")
     entries = marketplace.get("plugins")
     require(isinstance(entries, list) and len(entries) == 1, "Claude marketplace must contain one plugin")
@@ -159,6 +159,10 @@ def validate_hook_script(path: Path, harness: str) -> None:
     require(os.access(path, os.X_OK), f"{path.relative_to(ROOT)} must be executable")
     require(".tree-ring/bin/tree-ring" in text, f"{path.relative_to(ROOT)} must prefer the project-local CLI")
     require("git rev-parse --show-toplevel" in text, f"{path.relative_to(ROOT)} must resolve the project root")
+    require(
+        "[ ! -e .tree-ring ] && [ ! -L .tree-ring ]" in text,
+        f"{path.relative_to(ROOT)} must skip only genuinely absent memory roots",
+    )
     managed_hook = ".codex/hooks.json" if harness == "codex" else ".claude/settings.json"
     require(managed_hook in text, f"{path.relative_to(ROOT)} must detect the project-managed hook")
     for version in (2, 3, 4):
@@ -258,6 +262,197 @@ def validate_hook_script(path: Path, harness: str) -> None:
         require(args_capture.exists(), f"{path.relative_to(ROOT)} incorrectly accepted managed lifecycle v5")
         require(stdin_capture.read_bytes() == events["SessionStart"], f"{path.relative_to(ROOT)} dropped v5 fallback input")
         require(b"validated" in unsupported.stdout, f"{path.relative_to(ROOT)} did not run the v5 fallback")
+
+    validate_hook_store_boundary(path)
+
+
+def validate_hook_store_boundary(path: Path) -> None:
+    """Uninitialized worktrees are quiet; existing roots retain CLI failures."""
+    with tempfile.TemporaryDirectory(prefix="tree-ring-hook-boundary-") as temporary:
+        base = Path(temporary)
+        primary = base / "primary checkout"
+        worktree = base / "linked worktree"
+        primary.mkdir()
+        subprocess.run(["git", "init", "-q", str(primary)], check=True, capture_output=True)
+        (primary / "fixture.txt").write_text("synthetic hook fixture\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(primary), "add", "fixture.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(primary), "-c", "user.name=Tree Ring Test",
+             "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(primary), "worktree", "add", "--detach", str(worktree), "HEAD"],
+            check=True, capture_output=True,
+        )
+        nested = worktree / "nested directory"
+        nested.mkdir()
+        unrelated = base / "uninitialized directory"
+        unrelated.mkdir()
+        sentinel = primary / ".tree-ring" / "sentinel"
+        sentinel.parent.mkdir()
+        sentinel.write_text("primary memory must remain untouched\n", encoding="utf-8")
+        fake_bin = base / "bin"
+        fake_bin.mkdir()
+        invoked = base / "invoked"
+        cli = fake_bin / "tree-ring"
+        cli.write_text(
+            "#!/bin/sh\n"
+            'printf invoked > "$TREE_RING_TEST_INVOKED"\n'
+            "printf 'existing-store-diagnostic\\n' >&2\n"
+            "exit 42\n",
+            encoding="utf-8",
+        )
+        cli.chmod(0o755)
+        environment = os.environ.copy()
+        environment["PATH"] = str(fake_bin) + os.pathsep + environment.get("PATH", "")
+        environment["TREE_RING_TEST_INVOKED"] = str(invoked)
+
+        def run_events(cwd: Path, *, absent: bool) -> None:
+            for event in sorted(LIFECYCLE_EVENTS):
+                result = subprocess.run(
+                    [str(path)], cwd=cwd, env=environment,
+                    input=json.dumps({"hook_event_name": event, "session_id": "fixture",
+                                      "agent_id": "worker", "agent_type": "worker",
+                                      "cwd": str(cwd), "stop_hook_active": False}),
+                    text=True, capture_output=True,
+                )
+                if absent:
+                    require(result.returncode == 0 and result.stdout == "" and result.stderr == "",
+                            f"{path.relative_to(ROOT)} must quietly skip {event} without a local store")
+                    require(not invoked.exists(), "absent-root hook must not invoke the CLI")
+                else:
+                    require(result.returncode == 42 and "existing-store-diagnostic" in result.stderr,
+                            f"{path.relative_to(ROOT)} hid the existing-root {event} diagnostic")
+                    require(invoked.exists(), "existing-root hook must reach the CLI")
+                    invoked.unlink()
+
+        run_events(nested, absent=True)
+        run_events(unrelated, absent=True)
+        memory_root = worktree / ".tree-ring"
+        require(not memory_root.exists(), "hook must not initialize an absent worktree store")
+        memory_root.mkdir()
+        run_events(nested, absent=False)
+        (memory_root / "activation.json").write_text("{invalid", encoding="utf-8")
+        run_events(nested, absent=False)
+        (memory_root / "activation.json").unlink()
+        memory_root.rmdir()
+        memory_root.write_text("not a directory", encoding="utf-8")
+        run_events(nested, absent=False)
+        memory_root.unlink()
+        memory_root.symlink_to(worktree / "missing-target", target_is_directory=True)
+        run_events(nested, absent=False)
+        memory_root.unlink()
+        target = worktree / "existing-target"
+        target.mkdir()
+        memory_root.symlink_to(target, target_is_directory=True)
+        run_events(nested, absent=False)
+        require(sentinel.read_text(encoding="utf-8") == "primary memory must remain untouched\n",
+                "worktree hook must not alter primary-checkout memory")
+        if path.name == "codex-hook.sh":
+            validate_codex_worktree_hook_source(path, primary, worktree, nested, environment, invoked)
+
+
+def validate_codex_worktree_hook_source(
+    path: Path, primary: Path, worktree: Path, cwd: Path,
+    environment: dict[str, str], invoked: Path,
+) -> None:
+    """Match Codex's root-layer source replacement, not an OR of both files."""
+    marker = '{"description":"Tree Ring Memory managed lifecycle v4"}\n'
+    local_dir = worktree / ".codex"
+    local_dir.mkdir()
+    local_hook = local_dir / "hooks.json"
+    local_hook.write_text(marker, encoding="utf-8")
+    primary_hook = primary / ".codex" / "hooks.json"
+
+    def check(label: str, *, skip: bool) -> None:
+        for event in sorted(LIFECYCLE_EVENTS):
+            result = subprocess.run(
+                [str(path)], cwd=cwd, env=environment,
+                input=json.dumps({"hook_event_name": event, "session_id": "fixture",
+                                  "agent_id": "worker", "agent_type": "worker",
+                                  "cwd": str(cwd), "stop_hook_active": False}),
+                text=True, capture_output=True,
+            )
+            if skip:
+                require(result.returncode == 0 and not result.stdout and not result.stderr,
+                        f"Codex {label}: effective managed hook should own {event}")
+                require(not invoked.exists(), f"Codex {label}: duplicate CLI invocation")
+            else:
+                require(result.returncode == 42 and "existing-store-diagnostic" in result.stderr,
+                        f"Codex {label}: ignored/uncertain hook must not suppress {event}")
+                require(invoked.exists(), f"Codex {label}: CLI was not invoked")
+                invoked.unlink()
+
+    check("local-only managed hook is ignored", skip=False)
+    primary_hook.parent.mkdir()
+    primary_hook.write_text(marker, encoding="utf-8")
+    local_hook.unlink()
+    check("primary managed hook replaces local source", skip=True)
+    local_dir.rmdir()
+    check("absent worktree config directory creates no root layer", skip=False)
+    local_dir.mkdir()
+    local_hook.write_text(marker, encoding="utf-8")
+    primary_hook.write_text('{"description":"unmanaged hook"}\n', encoding="utf-8")
+    check("unmanaged primary does not fall back to managed local", skip=False)
+    primary_hook.write_text(marker, encoding="utf-8")
+
+    admin = Path(subprocess.check_output(
+        ["git", "-C", str(worktree), "rev-parse", "--absolute-git-dir"], text=True,
+    ).strip())
+    backlink = admin / "gitdir"
+    original_backlink = backlink.read_bytes()
+    backlink.write_text(str(primary / ".git") + "\n", encoding="utf-8")
+    check("mismatched reciprocal backlink", skip=False)
+    backlink.write_bytes(original_backlink)
+    saved_backlink = admin / "gitdir.fixture"
+    backlink.rename(saved_backlink)
+    backlink.symlink_to(saved_backlink)
+    check("symlinked reciprocal metadata", skip=False)
+    backlink.unlink()
+    saved_backlink.rename(backlink)
+    backlink.write_text("x" * 65537, encoding="utf-8")
+    check("oversized reciprocal metadata", skip=False)
+    backlink.write_bytes(original_backlink.rstrip(b"\n") + b"\x00\n")
+    check("NUL metadata must not normalize into a valid pointer", skip=False)
+    backlink.write_text(os.path.relpath(worktree / ".git", admin) + "\n", encoding="utf-8")
+    (worktree / ".git").write_text(
+        "gitdir: " + os.path.relpath(admin, worktree) + "\n", encoding="utf-8",
+    )
+    check("relative reciprocal metadata", skip=True)
+
+    outside = primary.parent / "outside"
+    outside.mkdir()
+    alias = outside / "alias"
+    alias.symlink_to(admin.parent, target_is_directory=True)
+    local_hook.write_text('{"description":"local unmanaged hook"}\n', encoding="utf-8")
+    (worktree / ".git").write_text(
+        "gitdir: " + str(alias / admin.name) + "\n", encoding="utf-8",
+    )
+    check("partial directory alias cannot invent a primary source", skip=False)
+    repository_alias = primary.parent / "primary-alias"
+    repository_alias.symlink_to(primary, target_is_directory=True)
+    (worktree / ".git").write_text(
+        "gitdir: " + str(repository_alias / ".git" / "worktrees" / admin.name) + "\n",
+        encoding="utf-8",
+    )
+    check("whole primary checkout alias proves ownership", skip=True)
+
+    # A separate Git directory inside the primary checkout is valid only when
+    # the primary .git pointer proves ownership of that exact common directory.
+    old_common = primary / ".git"
+    new_common = primary / ".git-data"
+    relative_admin = admin.relative_to(old_common)
+    old_common.rename(new_common)
+    old_common.write_text("gitdir: .git-data\n", encoding="utf-8")
+    (worktree / ".git").write_text(
+        "gitdir: " + str(new_common / relative_admin) + "\n", encoding="utf-8",
+    )
+    check("owned separate Git directory", skip=True)
+    other_common = primary.parent / "unowned-common"
+    other_common.mkdir()
+    old_common.write_text("gitdir: " + str(other_common) + "\n", encoding="utf-8")
+    check("unproven primary ownership", skip=False)
 
 
 def validate_codex_skills_only() -> None:

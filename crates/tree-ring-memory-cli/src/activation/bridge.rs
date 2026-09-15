@@ -465,6 +465,20 @@ impl ProjectFs {
         Ok(project_fs)
     }
 
+    /// Only a genuinely absent project-local root is an inactive lifecycle hook.
+    /// The pinned project descriptor preserves existing path-alias semantics;
+    /// O_NOFOLLOW on the child keeps redirected or broken installations errors.
+    pub(crate) fn lifecycle_memory_root_absent(&self) -> Result<bool, String> {
+        self.ensure_root_binding()?;
+        let absent = match open_child_directory(&self.root, OsStr::new(".tree-ring")) {
+            Ok(_) => false,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(error) => return Err(io_error(&self.project_root.join(".tree-ring"), error)),
+        };
+        self.ensure_root_binding()?;
+        Ok(absent)
+    }
+
     pub(crate) fn lock_manifest(&self) -> Result<ManifestLock, String> {
         self.ensure_root_binding()?;
         let file = self
@@ -1167,6 +1181,13 @@ impl ProjectFs {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
 
+    pub(crate) fn lifecycle_memory_root_absent(&self) -> Result<bool, String> {
+        Err(
+            "lifecycle root inspection requires descriptor-relative no-follow filesystem support"
+                .to_string(),
+        )
+    }
+
     pub(crate) fn lock_manifest(&self) -> Result<ManifestLock, String> {
         Err("bridge mutation requires descriptor-relative no-follow filesystem support".to_string())
     }
@@ -1542,6 +1563,12 @@ pub fn validate_isolated_preflight_roots(
 
     validate(selected_memory_root, canonical_project_root)
         .map_err(|_| "isolated preflight roots are invalid".to_string())
+}
+
+/// Checks inactivity for lifecycle hooks without creating a store or suppressing
+/// invalid existing roots. Explicit preflight and capture do not use this path.
+pub fn lifecycle_memory_root_absent(project: &ActivationProject) -> Result<bool, String> {
+    ProjectFs::open(project)?.lifecycle_memory_root_absent()
 }
 
 /// Reads the init manifest through the pinned project descriptor. A missing
@@ -2004,8 +2031,14 @@ fn prepare_claude_settings(
     let before = project_fs.read_optional(&write.path)?;
     let path = relative_string(&write.path)?;
     let handler_hash = sha256(&serde_json::to_vec(&claude_handlers()).map_err(json_error)?);
-    let legacy_handler_hash =
-        sha256(&serde_json::to_vec(&legacy_claude_handlers()).map_err(json_error)?);
+    let legacy_handler_hashes = [legacy_claude_handlers(), previous_v4_claude_handlers()]
+        .iter()
+        .map(|handlers| {
+            serde_json::to_vec(handlers)
+                .map(|bytes| sha256(&bytes))
+                .map_err(json_error)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if before.is_none() {
         if owned_files.iter().any(|owned| owned.path == path)
             || managed_blocks
@@ -2068,7 +2101,7 @@ fn prepare_claude_settings(
     let owns_legacy_bundle = managed_blocks.iter().any(|owned| {
         owned.path == path
             && owned.block_id == write.block_id
-            && owned.sha256 == legacy_handler_hash
+            && legacy_handler_hashes.contains(&owned.sha256)
     });
     match state {
         ClaudeHandlerState::Conflict => {
@@ -2381,6 +2414,34 @@ fn legacy_claude_handlers() -> Vec<(&'static str, Value)> {
     ]
 }
 
+// Freeze the exact pre-absence-guard v4 bundle; ownership checks must never
+// adopt commands that merely resemble a previous generated template.
+fn previous_v4_claude_handlers() -> Vec<(&'static str, Value)> {
+    let command = r#"project_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; tree_ring="$project_root/.tree-ring/bin/tree-ring"; if [ ! -x "$tree_ring" ]; then tree_ring=tree-ring; fi; exec "$tree_ring" --root "$project_root/.tree-ring" integrations hook --harness claude-code --input-json-stdin"#;
+    [
+        ("SessionStart", "Tree Ring Memory managed lifecycle v4"),
+        (
+            "SubagentStart",
+            "Tree Ring Memory managed subagent lifecycle v4",
+        ),
+        ("Stop", "Tree Ring Memory managed capture checkpoint v4"),
+        (
+            "SubagentStop",
+            "Tree Ring Memory managed subagent capture checkpoint v4",
+        ),
+    ]
+    .into_iter()
+    .map(|(event, description)| {
+        (
+            event,
+            json!({
+                "type": "command", "command": command, "description": description, "timeout": 10
+            }),
+        )
+    })
+    .collect()
+}
+
 fn claude_handlers() -> Vec<(&'static str, Value)> {
     vec![
         ("SessionStart", claude_handler()),
@@ -2499,16 +2560,41 @@ fn insert_claude_handlers(root: &mut Map<String, Value>) -> Result<(), String> {
 }
 
 fn replace_legacy_claude_handlers(root: &mut Map<String, Value>) -> Result<bool, String> {
-    let legacy = legacy_claude_handlers();
+    for legacy in [legacy_claude_handlers(), previous_v4_claude_handlers()] {
+        // Failed matches must not partially remove handlers from the caller.
+        let mut candidate = root.clone();
+        if replace_exact_claude_handlers(&mut candidate, &legacy)? {
+            *root = candidate;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn replace_exact_claude_handlers(
+    root: &mut Map<String, Value>,
+    legacy: &[(&str, Value)],
+) -> Result<bool, String> {
     let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) else {
         return Ok(false);
     };
     let mut removed = 0usize;
-    for (event, expected_handler) in &legacy {
+    for (event, expected_handler) in legacy {
         let Some(entries) = hooks.get_mut(*event).and_then(Value::as_array_mut) else {
             return Ok(false);
         };
+        let mut event_removed = 0usize;
         for entry in entries.iter_mut() {
+            let contains_expected = entry
+                .get("hooks")
+                .and_then(Value::as_array)
+                .is_some_and(|handlers| handlers.contains(expected_handler));
+            if contains_expected
+                && (entry.get("matcher").and_then(Value::as_str) != Some("")
+                    || entry.as_object().is_none_or(|object| object.len() != 2))
+            {
+                return Ok(false);
+            }
             let Some(handlers) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
                 continue;
             };
@@ -2516,9 +2602,13 @@ fn replace_legacy_claude_handlers(root: &mut Map<String, Value>) -> Result<bool,
                 let matches = handler == expected_handler;
                 if matches {
                     removed += 1;
+                    event_removed += 1;
                 }
                 !matches
             });
+        }
+        if event_removed != 1 {
+            return Ok(false);
         }
         entries.retain(|entry| {
             entry
@@ -2531,6 +2621,10 @@ fn replace_legacy_claude_handlers(root: &mut Map<String, Value>) -> Result<bool,
         }
     }
     if removed != legacy.len() {
+        return Ok(false);
+    }
+    // A partial, duplicated, or custom claimed handler is never adopted.
+    if inspect_claude_handler(root)? != ClaudeHandlerState::Absent {
         return Ok(false);
     }
     insert_claude_handlers(root)?;
@@ -3754,6 +3848,128 @@ mod tests {
             .project_root
             .join(".claude/skills/tree-ring-memory/SKILL.md")
             .exists());
+    }
+
+    #[test]
+    fn exact_owned_previous_v4_claude_bundle_is_prepared_without_automatic_publication() {
+        for complete_file in [true, false] {
+            let (_temp, project, mut manifest) = fixture();
+            let settings = Path::new(".claude/settings.json");
+            let mut root = json!({"permissions": {"allow": ["Read"]}, "hooks": {}})
+                .as_object()
+                .unwrap()
+                .clone();
+            for (event, handler) in previous_v4_claude_handlers() {
+                root["hooks"].as_object_mut().unwrap().insert(
+                    event.to_string(),
+                    json!([{"matcher": "", "hooks": [handler]}]),
+                );
+            }
+            let before = pretty_json(&Value::Object(root)).unwrap();
+            fs::create_dir(project.project_root.join(".claude")).unwrap();
+            fs::write(project.project_root.join(settings), &before).unwrap();
+            let mut owned = Vec::new();
+            let mut blocks = Vec::new();
+            if complete_file {
+                upsert_owned_file(
+                    &mut owned,
+                    settings.to_string_lossy().into_owned(),
+                    sha256(&before),
+                );
+            } else {
+                upsert_managed_block(
+                    &mut blocks,
+                    settings.to_string_lossy().into_owned(),
+                    "claude-code".to_string(),
+                    sha256(&serde_json::to_vec(&previous_v4_claude_handlers()).unwrap()),
+                    String::new(),
+                );
+            }
+            let existing_owned = owned.clone();
+            let existing_blocks = blocks.clone();
+            let project_fs = ProjectFs::open(&project).unwrap();
+            let prepared = prepare_claude_settings(
+                &project_fs,
+                &ManagedBlockUpdate {
+                    path: settings.into(),
+                    block_id: "claude-code".to_string(),
+                },
+                &mut owned,
+                &mut blocks,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(prepared.before.as_ref(), Some(&before));
+            let after = parse_json_object(prepared.after.as_ref().unwrap()).unwrap();
+            assert_eq!(
+                inspect_claude_handler(&after).unwrap(),
+                ClaudeHandlerState::Exact
+            );
+            assert_eq!(after["permissions"]["allow"][0], "Read");
+            assert!(files_require_existing_entry_mutation(&[prepared]));
+            manifest.harnesses.insert(
+                "claude-code".to_string(),
+                HarnessActivation {
+                    state: ActivationState::ConfiguredAwaitingProof,
+                    adapter_capability: AdapterCapability::NativePreflight,
+                    adapter_version: "4".to_string(),
+                    bridge_fingerprint: "a".repeat(64),
+                    bridge_path: Some(settings.to_string_lossy().into_owned()),
+                    owned_files: existing_owned,
+                    managed_blocks: existing_blocks,
+                },
+            );
+            let result = apply_bridge_plan(
+                &project,
+                &mut manifest,
+                plan("claude-code", &project),
+                false,
+            )
+            .unwrap();
+            assert_eq!(result.state, ActivationState::NeedsUserReview);
+            assert!(result.changed_paths.is_empty());
+            assert_eq!(
+                fs::read(project.project_root.join(settings)).unwrap(),
+                before
+            );
+            assert!(!project.memory_root.join("activation.json").exists());
+        }
+    }
+
+    #[test]
+    fn previous_v4_claude_replacement_rejects_modified_or_duplicate_handlers() {
+        for change in ["custom", "duplicate", "missing", "matcher", "metadata"] {
+            let mut root = json!({"hooks": {}}).as_object().unwrap().clone();
+            for (event, handler) in previous_v4_claude_handlers() {
+                root["hooks"].as_object_mut().unwrap().insert(
+                    event.to_string(),
+                    json!([{"matcher": "", "hooks": [handler]}]),
+                );
+            }
+            if change == "matcher" {
+                root["hooks"]["SessionStart"][0]["matcher"] = json!("resume");
+            }
+            if change == "metadata" {
+                root["hooks"]["SessionStart"][0]["custom"] = json!(true);
+            }
+            let handlers = root["hooks"]["SessionStart"][0]["hooks"]
+                .as_array_mut()
+                .unwrap();
+            match change {
+                "custom" => {
+                    handlers[0]["command"] = json!("echo custom tree-ring --harness claude-code")
+                }
+                "duplicate" => handlers.push(handlers[0].clone()),
+                "missing" => {
+                    handlers.clear();
+                }
+                "matcher" | "metadata" => {}
+                _ => unreachable!(),
+            }
+            let before = root.clone();
+            assert!(!replace_legacy_claude_handlers(&mut root).unwrap());
+            assert_eq!(root, before);
+        }
     }
 
     #[test]
