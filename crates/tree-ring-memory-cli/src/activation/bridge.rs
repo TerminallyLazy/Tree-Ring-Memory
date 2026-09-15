@@ -2591,7 +2591,11 @@ fn replace_exact_claude_handlers(
                 .is_some_and(|handlers| handlers.contains(expected_handler));
             if contains_expected
                 && (entry.get("matcher").and_then(Value::as_str) != Some("")
-                    || entry.as_object().is_none_or(|object| object.len() != 2))
+                    || entry.as_object().is_none_or(|object| object.len() != 2)
+                    || entry
+                        .get("hooks")
+                        .and_then(Value::as_array)
+                        .is_none_or(|handlers| handlers.len() != 1))
             {
                 return Ok(false);
             }
@@ -3938,7 +3942,14 @@ mod tests {
 
     #[test]
     fn previous_v4_claude_replacement_rejects_modified_or_duplicate_handlers() {
-        for change in ["custom", "duplicate", "missing", "matcher", "metadata"] {
+        for change in [
+            "custom",
+            "duplicate",
+            "missing",
+            "matcher",
+            "metadata",
+            "mixed",
+        ] {
             let mut root = json!({"hooks": {}}).as_object().unwrap().clone();
             for (event, handler) in previous_v4_claude_handlers() {
                 root["hooks"].as_object_mut().unwrap().insert(
@@ -3960,6 +3971,9 @@ mod tests {
                     handlers[0]["command"] = json!("echo custom tree-ring --harness claude-code")
                 }
                 "duplicate" => handlers.push(handlers[0].clone()),
+                "mixed" => handlers.push(json!({
+                    "type": "command", "command": "echo preserve-user-hook", "timeout": 3
+                })),
                 "missing" => {
                     handlers.clear();
                 }
