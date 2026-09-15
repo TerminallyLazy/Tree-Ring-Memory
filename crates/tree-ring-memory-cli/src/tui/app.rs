@@ -4,6 +4,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tree_ring_memory_core::{ConsolidationRequest, MemoryEvent};
 use tree_ring_memory_sqlite::{MemoryRetriever, RecallResult, SQLiteMemoryStore, WriteContext};
 
+use crate::actions::adapters::{apply_dox_preview, sync_dox, DoxSyncActionRequest};
 use crate::actions::export_import::{export_jsonl, ExportActionRequest};
 use crate::actions::integrations::{scan as scan_integrations_action, IntegrationScanRequest};
 use crate::actions::remember::{remember, RememberRequest};
@@ -162,6 +163,65 @@ impl App {
     }
 
     fn handle_pending_key(&mut self, key: KeyEvent) -> Result<(), String> {
+        if let Some(PendingAction {
+            kind:
+                ActionKind::SyncDox {
+                    preview,
+                    selected_candidate,
+                    preview_scroll,
+                },
+            ..
+        }) = self.pending_action.as_mut()
+        {
+            let last = preview.events.len().saturating_sub(1);
+            match key.code {
+                KeyCode::Char('i') => {
+                    self.include_sensitive = !self.include_sensitive;
+                    preview_scroll.set(0);
+                    // Cancellation can redraw the cached browse/search view
+                    // before the next tick; apply privacy filtering now.
+                    self.refresh_store()?;
+                    return Ok(());
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    *selected_candidate = selected_candidate.saturating_add(1).min(last);
+                    preview_scroll.set(0);
+                    return Ok(());
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    *selected_candidate = selected_candidate.saturating_sub(1);
+                    preview_scroll.set(0);
+                    return Ok(());
+                }
+                KeyCode::PageDown => {
+                    preview_scroll.set(preview_scroll.get().saturating_add(8));
+                    return Ok(());
+                }
+                KeyCode::PageUp => {
+                    preview_scroll.set(preview_scroll.get().saturating_sub(8));
+                    return Ok(());
+                }
+                KeyCode::Right => {
+                    preview_scroll.set(preview_scroll.get().saturating_add(1));
+                    return Ok(());
+                }
+                KeyCode::Left => {
+                    preview_scroll.set(preview_scroll.get().saturating_sub(1));
+                    return Ok(());
+                }
+                KeyCode::Home => {
+                    *selected_candidate = 0;
+                    preview_scroll.set(0);
+                    return Ok(());
+                }
+                KeyCode::End => {
+                    *selected_candidate = last;
+                    preview_scroll.set(0);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 if let Err(error) = self.confirm_pending_action() {
@@ -283,7 +343,7 @@ impl App {
                 self.pending_action = Some(PendingAction::consolidate(request));
             }
             SlashCommand::Export(target) => self.pending_export(target),
-            SlashCommand::Sync => self.pending_action = Some(PendingAction::sync_placeholder()),
+            SlashCommand::Sync => self.preview_dox_sync()?,
             SlashCommand::Integrations => self.show_integrations(),
             SlashCommand::Evidence(argument) => {
                 if argument.eq_ignore_ascii_case("refresh") {
@@ -435,8 +495,22 @@ impl App {
                     );
                 }
             }
-            ActionKind::Sync => {
-                self.status = "sync adapters are available through CLI commands".to_string();
+            ActionKind::SyncDox { preview, .. } => {
+                apply_dox_preview(&mut self.store, &preview).map_err(|error| {
+                    if error.contains("coordinator capability required") {
+                        format!("{error}. Relaunch the TUI with TREE_RING_COORDINATOR_TOKEN supplied by your existing secure environment.")
+                    } else {
+                        error
+                    }
+                })?;
+                self.status = format!(
+                    "DOX sync: {} summaries from {} files saved",
+                    preview.memory_count, preview.source_count
+                );
+                self.search_query.clear();
+                self.results.clear();
+                self.selected_result = 0;
+                self.mode = AppMode::Default;
             }
             ActionKind::RefreshCertification { command } => {
                 self.status = format!("run externally: {command}");
@@ -476,6 +550,54 @@ impl App {
         );
         self.integration_report = Some(report.report);
         self.mode = AppMode::Integrations;
+    }
+
+    fn preview_dox_sync(&mut self) -> Result<(), String> {
+        self.pending_action = None;
+        let source_root = std::path::absolute(project_root_for_memory_root(&self.root))
+            .map_err(|error| error.to_string())?;
+        let identity_root =
+            std::fs::canonicalize(&source_root).map_err(|error| error.to_string())?;
+        let project = identity_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "DOX sync project identity is unavailable".to_string())?
+            .to_string();
+        let preview = sync_dox(
+            None,
+            DoxSyncActionRequest {
+                source_root,
+                project: Some(project.clone()),
+                dry_run: true,
+            },
+        )?
+        .report;
+        if preview.memory_count == 0 {
+            self.status = format!(
+                "DOX sync: no eligible summaries in {} ({} files, {} secret sections skipped, {} warnings)",
+                preview.root.display(),
+                preview.source_count,
+                preview.skipped_secret_count,
+                preview.warnings.len(),
+            );
+        } else {
+            self.status = format!(
+                "DOX preview: {} summaries; nothing saved yet",
+                preview.memory_count
+            );
+            self.pending_action = Some(PendingAction::sync_dox(
+                preview,
+                &project,
+                &self.store_path(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn store_path(&self) -> PathBuf {
+        let path = self.root.join("memory.sqlite");
+        std::path::absolute(&path).unwrap_or(path)
     }
 
     fn show_evidence(&mut self) {
@@ -594,7 +716,10 @@ fn resolve_export_path(root: &Path, target: &str) -> Result<PathBuf, String> {
 
 fn project_root_for_memory_root(root: &Path) -> PathBuf {
     if root.file_name().and_then(|name| name.to_str()) == Some(".tree-ring") {
-        root.parent().unwrap_or(root).to_path_buf()
+        root.parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
     } else {
         root.to_path_buf()
     }
@@ -619,6 +744,151 @@ mod tests {
             ratatui::crossterm::event::KeyModifiers::NONE,
         ))
         .unwrap();
+    }
+
+    #[test]
+    fn dox_sync_previews_without_writes_and_cancel_discards_candidates() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Project rules\n\nRead source contracts before editing.\n",
+        )
+        .unwrap();
+        let mut app = app(&dir);
+
+        app.execute_slash_command("/sync").unwrap();
+
+        let pending = app.pending_action.as_ref().unwrap();
+        assert!(pending
+            .summary
+            .contains("1 DOX summaries from 1 AGENTS.md files"));
+        assert!(pending.summary.contains("Project:"));
+        assert!(pending
+            .summary
+            .contains(&app.store_path().display().to_string()));
+        assert_eq!(app.dashboard.total, 0);
+        assert!(app.store.list_all(true).unwrap().is_empty());
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        assert!(app.pending_action.is_none());
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dox_sync_applies_the_reviewed_snapshot_and_repeated_sync_does_not_duplicate() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("AGENTS.md");
+        fs::write(
+            &source,
+            "# Project rules\n\nRead source contracts before editing.\n",
+        )
+        .unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/search nonexistent").unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        let reviewed = match &app.pending_action.as_ref().unwrap().kind {
+            ActionKind::SyncDox { preview, .. } => preview.events.clone(),
+            other => panic!("unexpected action {other:?}"),
+        };
+        fs::write(
+            &source,
+            "# Project rules\n\nChanged instructions must not enter an earlier preview.\n",
+        )
+        .unwrap();
+
+        confirm(&mut app);
+
+        let memories = app.store.list_all(true).unwrap();
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].summary, reviewed[0].summary);
+        assert_eq!(memories[0].project, reviewed[0].project);
+        assert_eq!(app.dashboard.total, 1);
+        assert_eq!(app.memories.len(), 1);
+        assert!(app.search_query.is_empty());
+        assert!(app.status.contains("1 summaries from 1 files saved"));
+
+        for _ in 0..2 {
+            app.execute_slash_command("/sync").unwrap();
+            confirm(&mut app);
+            assert_eq!(app.dashboard.total, 1);
+            assert_eq!(app.store.list_all(true).unwrap()[0].id, reviewed[0].id);
+        }
+        assert!(app.store.list_all(true).unwrap()[0]
+            .summary
+            .contains("Changed instructions"));
+    }
+
+    #[test]
+    fn dox_sync_with_no_sources_reports_no_candidates_without_confirmation() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.execute_slash_command("/sync").unwrap();
+        assert!(app.pending_action.is_none());
+        assert!(app.status.contains("no eligible summaries"));
+        assert_eq!(app.dashboard.total, 0);
+    }
+
+    #[test]
+    fn coordinated_dox_sync_denial_is_visible_and_atomic() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Project rules\n\nRead source contracts before editing.\n",
+        )
+        .unwrap();
+        let root = dir.path().join(".tree-ring");
+        let mut setup = SQLiteMemoryStore::open(root.join("memory.sqlite")).unwrap();
+        setup
+            .enable_coordinated_policy(Some("test-coordinator"))
+            .unwrap();
+        drop(setup);
+        let context = WriteContext::new(Some("worker".to_string()), None, "tui-test").unwrap();
+        let mut app =
+            App::new_with_context(root, None, context, Some("worker".to_string())).unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        assert!(app.pending_action.is_some());
+        assert!(app.store.list_all(true).unwrap().is_empty());
+
+        confirm(&mut app);
+
+        assert!(app.status.contains("action failed: authorization denied"));
+        assert!(app.status.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(app.pending_action.is_none());
+        assert!(!app.should_quit);
+        assert!(app.store.list_all(true).unwrap().is_empty());
+        assert_eq!(app.dashboard.total, 0);
+    }
+
+    #[test]
+    fn dox_preview_failure_is_visible_without_exiting_or_writing() {
+        let dir = tempdir().unwrap();
+        let mut app = app(&dir);
+        app.root = dir.path().join("missing-project/.tree-ring");
+        app.mode = AppMode::Command;
+        app.command_buffer = "/sync".to_string();
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            .unwrap();
+        assert!(app.status.starts_with("command failed:"));
+        assert!(app.pending_action.is_none());
+        assert!(!app.should_quit);
+        assert_eq!(app.mode, AppMode::Default);
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn relative_memory_root_resolves_to_current_project_for_source_sync() {
+        assert_eq!(
+            project_root_for_memory_root(Path::new(".tree-ring")),
+            Path::new(".")
+        );
+        assert_eq!(
+            project_root_for_memory_root(Path::new("./.tree-ring")),
+            Path::new(".")
+        );
+        assert_eq!(
+            project_root_for_memory_root(Path::new("/project/.tree-ring")),
+            Path::new("/project")
+        );
     }
 
     #[test]

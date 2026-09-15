@@ -375,7 +375,7 @@ Command ownership is Rust-native:
   normal sensitivity only, bounded cambium/scar/seed classifications, and
   required checkpoint identity, idempotency, and provenance.
 - `evidence` is the Revolve-inspired improvement-loop entry point for evaluated outcomes.
-- `dox sync` and `revolve sync` are read-only source adapters that summarize and point back to authoritative files.
+- `dox sync` and `revolve sync` read source files without changing them and save source-linked summaries to the memory store. Use `--dry-run` to preview without saving.
 - `integrations scan` discovers nearby agent-framework markers and suggests setup paths without changing their config.
 - `export`, `import`, `audit`, `consolidate`, and `maintain` are local maintenance surfaces over the same SQLite store.
 - `policy` manages optional coordinated multi-agent write authorization and its
@@ -669,12 +669,27 @@ Store-watch polling updates persisted counts from SQLite, while the optional
 event stream lights rings in real time without treating stream events as durable
 truth.
 
+The dashboard counts memories saved in the selected project's store. A successful
+harness recall can return zero results from an empty store; its activation receipt
+does not create a memory. Automatic capture adds only durable outcomes selected by
+an agent working in that project.
+
+`/sync` previews DOX summaries from the project's `AGENTS.md` files, including
+local instruction files that may not be tracked in Git. Review the source paths,
+project, destination store and candidates before confirming. Confirmation saves
+that preview and refreshes the dashboard; cancellation leaves memories unchanged.
+Repeated sync updates the same source-linked records rather than duplicating them.
+In Coordinated mode, saving requires the coordinator capability in the terminal
+environment when the TUI starts; preview remains available without it.
+
 Useful keys and commands:
 
 - `s` focuses search, `/` opens the slash command palette, `r` opens exploded
   ring view, `q` quits.
 - `i` toggles sensitive-memory visibility, `u` toggles superseded-memory
   visibility.
+- In the `/sync` preview, `j`/`k` select candidates, Left/Right or Page Up/Down
+  scroll the preview, `y` saves, and `n` or Escape cancels.
 - Slash commands include `/rings`, `/search <query>`, `/remember <summary>`,
   `/forget`, `/redact`, `/promote`, `/scar`, `/seed`, `/supersede <old_id>`,
   `/consolidate`, `/export <file>`, `/sync`, `/integrations`, `/stream`, and
