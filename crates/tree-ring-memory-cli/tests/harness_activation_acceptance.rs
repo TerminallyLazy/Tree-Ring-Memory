@@ -355,6 +355,27 @@ fn activation_commands_accept_equivalent_project_local_paths() {
 }
 
 #[test]
+fn status_does_not_request_review_for_undetected_harnesses() {
+    let temp = tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(temp.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", temp.path().join("fixture-home"))
+        .args(["--json", "integrations", "status"])
+        .output()
+        .unwrap();
+    assert_success("marker-free status", &output);
+    let report = output_json("marker-free status", &output);
+    for harness in ["codex", "claude-code"] {
+        assert_ne!(
+            record_by_id(&report["integrations"], harness)["state"],
+            "needs-user-review"
+        );
+    }
+    assert!(!temp.path().join(".tree-ring").exists());
+}
+
+#[test]
 fn status_keeps_an_unconfigured_codex_bridge_in_review_after_init() {
     let temp = tempdir().unwrap();
     let project = temp.path().join("Existing Project");

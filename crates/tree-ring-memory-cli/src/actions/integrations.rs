@@ -130,7 +130,8 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
             // Detection describes a possible adapter plan, not an installed
             // bridge. Init may have preserved an existing AGENTS.md and left
             // this harness out of its manifest; status must retain that gap.
-            let missing_bridge = activation.is_none()
+            let missing_bridge = detected.is_candidate()
+                && activation.is_none()
                 && detected.state == ActivationState::ConfiguredAwaitingProof;
             let receipt = manifest
                 .as_ref()
