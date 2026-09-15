@@ -3,7 +3,7 @@ name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
 license: MIT
 metadata:
-  version: "0.15.1"
+  version: "0.15.11"
   tags: "memory, agents, recall, privacy, projects, dox, revolve, skills, cli"
   triggers: "remember this; recall what we decided; what did we learn; tree ring memory; consolidate memory; forget this; project memory; sync DOX; sync Revolve; evidence loop; multi-agent memory"
 ---
@@ -185,11 +185,24 @@ When a project uses DOX-style `AGENTS.md` contracts:
 3. Preview the adapter output first with
    `tree-ring dox sync --source-root <path> --dry-run` and inspect every summary
    and source reference.
-4. Persist only concise, useful summaries. In a Coordinated store, persistence
-   requires coordinator authority; dry-run discovery does not.
+4. Before persisting, verify the selected CLI is 0.15.11 or newer using
+   `--version`; older runtimes are preview-only for DOX. After an authorized
+   upgrade, rerun and review the preview. Persist only concise, useful summaries.
+   In a Coordinated store, persistence requires coordinator authority; dry-run
+   discovery does not.
 5. Never use the adapter to rewrite a root or child `AGENTS.md`, copy whole
    contract trees into memory, or weaken child instructions. Re-run the dry run
    after a source contract changes and re-read the chain before the next edit.
+
+## DOX Persistence Compatibility
+
+DOX persistence requires Tree Ring CLI 0.15.11 or newer. Check the selected
+project-local or PATH binary with `--version` before any DOX write. Older
+runtimes may preview with `--dry-run`, but must not persist DOX summaries.
+Upgrade through the existing installation scope when authorized, then rerun
+and review the preview with the updated binary. This minimum applies only to
+DOX persistence: 0.15.11 adds source-root collision checks that reject the
+entire conflicting batch instead of overwriting another project's guidance.
 
 ## Harness Activation
 

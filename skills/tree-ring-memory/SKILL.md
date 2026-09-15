@@ -3,7 +3,7 @@ name: tree-ring-memory
 description: Guides AI agents in using Tree Ring Memory for durable recall, project decisions, user preferences, warnings, future seeds, privacy-safe memory capture, and lifecycle-aware forgetting.
 license: MIT
 metadata:
-  version: "0.15.1"
+  version: "0.15.11"
   tags: "memory, agents, recall, privacy, projects, dox, revolve, skills, cli"
   triggers: "remember this; recall what we decided; what did we learn; tree ring memory; consolidate memory; forget this; project memory; sync DOX; sync Revolve; evidence loop; multi-agent memory"
 ---
@@ -145,6 +145,16 @@ as a pointer only. Read the project-local `.tree-ring/SKILL.md` and
 `.tree-ring/CLI.md` when present so commands match the installed project root.
 Do not assume a global Tree Ring setup applies to the current repo unless the
 user explicitly configured it.
+
+## DOX Persistence Compatibility
+
+DOX persistence requires Tree Ring CLI 0.15.11 or newer. Check the selected
+project-local or PATH binary with `--version` before any DOX write. Older
+runtimes may preview with `--dry-run`, but must not persist DOX summaries.
+Upgrade through the existing installation scope when authorized, then rerun
+and review the preview with the updated binary. This minimum applies only to
+DOX persistence: 0.15.11 adds source-root collision checks that reject the
+entire conflicting batch instead of overwriting another project's guidance.
 
 ## Harness Activation
 
