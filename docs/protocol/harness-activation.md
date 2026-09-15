@@ -63,6 +63,13 @@ A zero-result recall can be a valid receipt: it proves the check occurred
 without inventing context. Hermes and any runtime without a maintained verified
 adapter remain non-active.
 
+After successful `integrations activate` or `link`, the result reports any
+already-valid matching receipt using the same verification as status. Without
+that proof, it directs the user to open a new harness session and check
+`integrations status --verbose`; it does not ask them to apply the completed
+plan again. Activation does not create a receipt, and existing proof cannot
+override a publication review, trust requirement, or other blocked outcome.
+
 ## Artifacts and privacy
 
 `.tree-ring/activation.json` is the versioned manifest. It contains the schema

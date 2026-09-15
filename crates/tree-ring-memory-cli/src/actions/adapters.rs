@@ -45,14 +45,23 @@ pub fn sync_dox(
         let store = store.ok_or_else(|| {
             "DOX sync action requires an open writable store when dry_run=false".to_string()
         })?;
-        store
-            .put_many(&report.events)
-            .map_err(|err| err.to_string())?;
+        apply_dox_preview(store, &report)?;
     }
     Ok(DoxSyncActionReport {
         report,
         dry_run: request.dry_run,
     })
+}
+
+/// Persist exactly the candidates returned by a reviewed DOX dry run. Store
+/// validation, atomic batch writes, and coordinated policy still apply.
+pub fn apply_dox_preview(
+    store: &mut SQLiteMemoryStore,
+    report: &DoxSyncReport,
+) -> ActionResult<()> {
+    store
+        .put_many(&report.events)
+        .map_err(|err| err.to_string())
 }
 
 pub fn sync_revolve(

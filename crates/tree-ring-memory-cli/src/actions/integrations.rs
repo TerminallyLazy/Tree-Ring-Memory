@@ -220,7 +220,7 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
             } else if stale_adapter && detected.id != "agent-zero" {
                 "The installed adapter definition is out of date. Review the managed hook files and activation manifest, then reconfigure them with this CLI; preserve the memory database.".to_string()
             } else {
-                next_step_for_state(state, &detected.next_step)
+                next_step_for_state(state, &detected.name, &detected.next_step)
             };
             IntegrationStatusEntry {
                 id: detected.id,
@@ -293,12 +293,39 @@ pub fn activate(
         detection.plan,
         request.accept_managed_block,
     )?;
+    // Publication success describes the bridge, not whether scoped recall has
+    // already run. Reuse status verification without creating a new receipt,
+    // and never let historical proof hide a blocked publication or trust step.
+    let (state, next_step) = if result.state == ActivationState::ConfiguredAwaitingProof {
+        let state = manifest
+            .harnesses
+            .get(&request.harness_id)
+            .and_then(|harness| {
+                let verification = verify_activation_receipts(
+                    &request.memory_root,
+                    &request.harness_id,
+                    &manifest,
+                    harness,
+                );
+                (verification.status == ReceiptVerificationStatus::Valid)
+                    .then_some(verification.receipt)
+                    .flatten()
+            })
+            .map(|receipt| receipt.state)
+            .unwrap_or(result.state);
+        (
+            state,
+            next_step_for_state(state, &detection.name, &result.next_step),
+        )
+    } else {
+        (result.state, result.next_step)
+    };
     Ok(IntegrationLifecycleActionReport {
         harness_id: request.harness_id,
-        state: result.state,
+        state,
         changed_paths: relative_paths(result.changed_paths)?,
         dry_run: false,
-        next_step: result.next_step,
+        next_step,
     })
 }
 
@@ -717,7 +744,11 @@ fn invalid_receipt(
     }
 }
 
-fn next_step_for_state(state: ActivationState, detected_next_step: &str) -> String {
+fn next_step_for_state(
+    state: ActivationState,
+    harness_name: &str,
+    detected_next_step: &str,
+) -> String {
     match state {
         ActivationState::Active => "No action required for the receipt-backed session.".to_string(),
         ActivationState::ActiveIsolated => {
@@ -725,7 +756,7 @@ fn next_step_for_state(state: ActivationState, detected_next_step: &str) -> Stri
                 .to_string()
         }
         ActivationState::ConfiguredAwaitingProof => {
-            "Run the adapter preflight at the start of a new harness session.".to_string()
+            format!("Open a new {harness_name} session in this project, then run `tree-ring integrations status --verbose` to verify lifecycle recall.")
         }
         _ => detected_next_step.to_string(),
     }

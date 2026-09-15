@@ -4,6 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
+use super::actions::{ActionKind, PendingAction};
 use super::app::{App, AppMode};
 use super::input::command_help;
 use super::rings::{ambient_corner_lines, ambient_tree_lines, exploded_ring_lines, ring_style};
@@ -36,8 +37,9 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
     if let Some(pending) = &app.pending_action {
         render_confirmation(
             frame,
-            centered_rect(70, 22, area),
-            &pending.confirmation_prompt(),
+            confirmation_rect(area),
+            pending,
+            app.include_sensitive,
         );
     }
 }
@@ -81,8 +83,9 @@ fn render_narrow(frame: &mut Frame<'_>, area: Rect, app: &App) {
     if let Some(pending) = &app.pending_action {
         render_confirmation(
             frame,
-            centered_rect(78, 30, area),
-            &pending.confirmation_prompt(),
+            confirmation_rect(area),
+            pending,
+            app.include_sensitive,
         );
     }
 }
@@ -230,12 +233,23 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &App) {
         render_integrations(frame, area, app);
         return;
     }
-    let title = if app.search_query.is_empty() {
+    let title = if app.search_query.trim().is_empty() {
         "Memories".to_string()
     } else {
         format!("Results: {}", app.search_query)
     };
-    let items: Vec<ListItem<'_>> = if app.search_query.is_empty() {
+    let items: Vec<ListItem<'_>> = if app.search_query.trim().is_empty() && app.memories.is_empty()
+    {
+        let message = if app.dashboard.total == 0 {
+            "No stored memories yet. /sync previews DOX; /remember saves a lesson."
+        } else {
+            "Memories are hidden by visibility filters. i: sensitive, u: superseded."
+        };
+        vec![ListItem::new(Line::from(Span::styled(
+            message,
+            theme::dim(),
+        )))]
+    } else if app.search_query.trim().is_empty() {
         app.memories
             .iter()
             .enumerate()
@@ -522,8 +536,24 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
             lines.push(Line::from(details));
         }
     } else {
-        lines.push(Line::from("No matching memory yet."));
-        lines.push(Line::from("Use /remember <summary> or /search <query>."));
+        if app.dashboard.total == 0 {
+            lines.push(Line::from("No stored memories yet."));
+            lines.push(Line::from("A recall receipt does not create memory."));
+            lines.push(Line::from(
+                "Use /sync to review DOX summaries or /remember <lesson>.",
+            ));
+        } else {
+            lines.push(Line::from("No visible matching memory."));
+            lines.push(Line::from("Clear search or review i/u visibility filters."));
+        }
+        lines.push(Line::from(format!("Store: {}", app.store_path().display())));
+    }
+
+    if app.status.starts_with("action failed:")
+        || app.status.starts_with("command failed:")
+        || app.status.starts_with("DOX sync:")
+    {
+        lines.insert(0, Line::from(app.status.clone()));
     }
 
     if app.mode == AppMode::Command {
@@ -738,51 +768,128 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     frame.render_widget(footer, area);
 }
 
-fn render_confirmation(frame: &mut Frame<'_>, area: Rect, prompt: &str) {
+fn render_confirmation(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    pending: &PendingAction,
+    include_sensitive: bool,
+) {
     frame.render_widget(Clear, area);
-    let paragraph = Paragraph::new(vec![
-        Line::from(Span::styled(
-            "Confirm Tree Ring Memory action",
-            theme::warning(),
-        )),
-        Line::from(""),
-        Line::from(prompt.to_string()),
-    ])
-    .block(theme::plain_panel().border_style(theme::warning()))
-    .wrap(Wrap { trim: true });
-    frame.render_widget(paragraph, area);
+    let block = theme::panel("Confirm Tree Ring Memory action").border_style(theme::warning());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if let ActionKind::SyncDox {
+        preview,
+        selected_candidate,
+        preview_scroll,
+    } = &pending.kind
+    {
+        let regions = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+        if let Some(event) = preview.events.get(*selected_candidate) {
+            let detail = if event.sensitivity == "normal" || include_sensitive {
+                format!(
+                    "Candidate {}/{} [{}] source: {}\n{}",
+                    selected_candidate + 1,
+                    preview.events.len(),
+                    event.ring,
+                    event.source.ref_,
+                    event.summary,
+                )
+            } else {
+                format!("Candidate {}/{} [{}]\nSensitive candidate hidden. Press i to review. Confirm all includes this candidate.", selected_candidate + 1, preview.events.len(), event.ring)
+            };
+            let lines = wrap_preview_text(
+                &format!("{}\n\n{detail}", pending.summary),
+                regions[0].width,
+            );
+            let max_scroll = lines
+                .len()
+                .saturating_sub(usize::from(regions[0].height))
+                .min(usize::from(u16::MAX)) as u16;
+            let offset = preview_scroll.get().min(max_scroll);
+            // This is viewport state only. Clamp after resize/content changes
+            // so a single reverse-scroll key always moves the visible text.
+            preview_scroll.set(offset);
+            frame.render_widget(Paragraph::new(lines).scroll((offset, 0)), regions[0]);
+        }
+        frame.render_widget(
+            Paragraph::new(
+                "j/k item; Left/Right/Pg scroll; i sensitive\ny confirm all; n/Esc cancel; Home/End item",
+            )
+            .style(theme::warning()),
+            regions[1],
+        );
+    } else {
+        let regions = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+        frame.render_widget(
+            Paragraph::new(pending.summary.clone()).wrap(Wrap { trim: true }),
+            regions[0],
+        );
+        frame.render_widget(
+            Paragraph::new("press y to confirm, n/Esc to cancel")
+                .wrap(Wrap { trim: true })
+                .style(theme::warning()),
+            regions[1],
+        );
+    }
 }
 
 fn render_compact(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let mut lines = vec![Line::from(Span::styled("TREE RING MEMORY", theme::brand()))];
-    lines.extend(ambient_tree_lines(&app.dashboard, app.tick));
     lines.push(Line::from(format!(
         "total {} | q quit | / command",
         app.dashboard.total
     )));
+    if app.mode == AppMode::Command {
+        lines.push(Line::from(format!("/{}", app.command_buffer)));
+    }
+    lines.push(Line::from(app.status.clone()));
+    if app.mode != AppMode::Command && app.dashboard.total == 0 {
+        lines.push(Line::from(
+            "No stored memories. /sync previews DOX; /remember saves a lesson.",
+        ));
+    }
+    lines.extend(ambient_tree_lines(&app.dashboard, app.tick));
     let paragraph = Paragraph::new(lines)
         .block(theme::plain_panel())
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
+    if let Some(pending) = &app.pending_action {
+        render_confirmation(frame, area, pending, app.include_sensitive);
+    }
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
+// Wrap once into explicit display rows so preview scrolling has an exact
+// bound, including long source paths without whitespace.
+fn wrap_preview_text(text: &str, width: u16) -> Vec<Line<'static>> {
+    let width = usize::from(width.max(1));
+    let mut output = Vec::new();
+    for line in text.lines() {
+        let mut row = String::new();
+        let mut columns = 0;
+        for character in line.chars() {
+            let character_width = Span::raw(character.to_string()).width();
+            if columns + character_width > width && !row.is_empty() {
+                output.push(Line::from(std::mem::take(&mut row)));
+                columns = 0;
+            }
+            row.push(character);
+            columns += character_width;
+        }
+        output.push(Line::from(row));
+    }
+    output
+}
+
+fn confirmation_rect(area: Rect) -> Rect {
+    let width = area.width.saturating_sub(4).min(110);
+    let height = area.height.saturating_sub(2);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
 }
 
 fn truncate(value: &str, max: usize) -> String {
@@ -804,6 +911,222 @@ mod tests {
 
     use super::*;
     use crate::tui::app::App;
+
+    #[test]
+    fn long_dox_candidate_can_scroll_to_its_end_with_fixed_confirmation_keys() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\n\nReview source contracts.\n",
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        if let ActionKind::SyncDox { preview, .. } = &mut app.pending_action.as_mut().unwrap().kind
+        {
+            preview.events[0].source.ref_ =
+                format!("{}AGENTS.md#rules", "long-source-directory/".repeat(8));
+            preview.events[0].summary = format!(
+                "{}\nFINAL-REVIEW-SENTINEL",
+                "Review bounded source guidance. ".repeat(40)
+            );
+        }
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        assert!(!terminal
+            .backend()
+            .to_string()
+            .contains("FINAL-REVIEW-SENTINEL"));
+        let mut reached_end = false;
+        for _ in 0..10 {
+            app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+                ratatui::crossterm::event::KeyCode::PageDown,
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            ))
+            .unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let output = terminal.backend().to_string();
+            assert!(output.contains("y confirm all; n/Esc cancel"));
+            if output.contains("FINAL-REVIEW-SENTINEL") {
+                reached_end = true;
+                break;
+            }
+        }
+        assert!(
+            reached_end,
+            "full candidate must be reviewable before confirmation"
+        );
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn compact_layout_prioritizes_command_and_actionable_errors_over_art() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.status = "action failed: authorization denied: coordinator capability required by coordinated store policy. Relaunch the TUI with TREE_RING_COORDINATOR_TOKEN supplied by your existing secure environment.".to_string();
+        app.mode = AppMode::Command;
+        app.command_buffer = "sync".to_string();
+        let mut terminal = Terminal::new(TestBackend::new(60, 14)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(output.contains("/sync"));
+        assert!(output.contains("Relaunch"), "{output}");
+        assert!(output.contains("TREE_RING_COORDINATOR_TOKEN"));
+        assert!(output.contains("secure"), "{output}");
+        assert!(output.contains("environment"), "{output}");
+    }
+
+    #[test]
+    fn dox_preview_shows_sources_candidates_and_confirmation_at_all_layout_sizes() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Project rules\n\nRead source contracts before editing.\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join(".spynel")).unwrap();
+        std::fs::write(
+            dir.path().join(".spynel/AGENTS.md"),
+            "# Local rules\n\nVerify local configuration.\n",
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        for (width, height) in [(120, 36), (80, 24), (64, 20)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let output = terminal.backend().to_string();
+            assert!(
+                output.contains("2 DOX summaries"),
+                "{width}x{height}: {output}"
+            );
+            assert!(output.contains("Source:"));
+            assert!(output.contains("Store:"));
+            assert!(output.contains("Project:"));
+            assert!(output.contains("Candidate 1/2"));
+            assert!(output.contains(".spynel/AGENTS.md"));
+            assert!(output.contains("Verify"), "{width}x{height}: {output}");
+            assert!(
+                output.contains("DOX verification"),
+                "{width}x{height}: {output}"
+            );
+            assert!(output.contains("y confirm all; n/Esc cancel"));
+        }
+        app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::End,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(output.contains("Candidate 2/2"));
+        assert!(output.contains("Read source contracts"));
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn dox_preview_hides_sensitive_candidate_and_source_until_explicit_opt_in() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\n\nReview source contracts.\n",
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        app.execute_slash_command("/sync").unwrap();
+        if let ActionKind::SyncDox { preview, .. } = &mut app.pending_action.as_mut().unwrap().kind
+        {
+            preview.events[0].sensitivity = "sensitive".to_string();
+            preview.events[0].summary = "SENSITIVE-CANDIDATE-SENTINEL".to_string();
+            preview.events[0].source.ref_ = "SENSITIVE-SOURCE-SENTINEL".to_string();
+        }
+        for (width, height) in [(120, 36), (80, 24), (64, 20)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let output = terminal.backend().to_string();
+            assert!(output.contains("Sensitive candidate hidden"));
+            assert!(!output.contains("SENSITIVE-CANDIDATE-SENTINEL"));
+            assert!(!output.contains("SENSITIVE-SOURCE-SENTINEL"));
+        }
+        app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Char('i'),
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ))
+        .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(output.contains("SENSITIVE-CANDIDATE-SENTINEL"));
+        assert!(output.contains("SENSITIVE-SOURCE-SENTINEL"));
+        assert!(app.store.list_all(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hiding_sensitive_preview_clears_cached_memories_before_cancel_redraw() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("AGENTS.md"),
+            "# Rules\n\nReview source contracts.\n",
+        )
+        .unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        let mut private =
+            tree_ring_memory_core::MemoryEvent::new("PRIVATE-CACHE-SENTINEL", "lesson").unwrap();
+        private.sensitivity = "private".to_string();
+        private.source.ref_ = "PRIVATE-SOURCE-CACHE-SENTINEL".to_string();
+        app.store.put(&private).unwrap();
+        app.include_sensitive = true;
+        app.refresh_store().unwrap();
+        assert_eq!(app.memories.len(), 1);
+        app.execute_slash_command("/sync").unwrap();
+
+        for code in [
+            ratatui::crossterm::event::KeyCode::Char('i'),
+            ratatui::crossterm::event::KeyCode::Esc,
+        ] {
+            app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+                code,
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            ))
+            .unwrap();
+        }
+
+        assert!(!app.include_sensitive);
+        assert!(app.pending_action.is_none());
+        // Render before any event-loop tick can refresh the cached view.
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(!output.contains("PRIVATE-CACHE-SENTINEL"));
+        assert!(!output.contains("PRIVATE-SOURCE-CACHE-SENTINEL"));
+        assert!(app.memories.is_empty());
+        assert_eq!(app.store.list_all(true).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn empty_store_explains_population_and_preserves_sensitive_filter_distinction() {
+        let dir = tempdir().unwrap();
+        let mut app = App::new(dir.path().join(".tree-ring"), None).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(output.contains("No stored memories yet"));
+        assert!(output.contains("recall receipt does not create memory"));
+        assert!(output.contains("/sync"));
+        assert!(output.contains("Store:"));
+
+        let mut private =
+            tree_ring_memory_core::MemoryEvent::new("PRIVATE-CONTENT-SENTINEL", "lesson").unwrap();
+        private.sensitivity = "private".to_string();
+        app.store.put(&private).unwrap();
+        app.refresh_store().unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let output = terminal.backend().to_string();
+        assert!(output.contains("visibility filters"));
+        assert!(!output.contains("PRIVATE-CONTENT-SENTINEL"));
+        assert!(!output.contains("No stored memories yet"));
+    }
 
     #[test]
     fn render_buffer_contains_ambient_rings_and_actions() {

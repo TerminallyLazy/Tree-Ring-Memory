@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{cell::Cell, path::PathBuf};
 
-use tree_ring_memory_core::ConsolidationRequest;
+use tree_ring_memory_core::{ConsolidationRequest, DoxSyncReport};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ActionKind {
     Delete,
     Redact,
@@ -22,13 +22,17 @@ pub enum ActionKind {
         include_sensitive: bool,
         include_superseded: bool,
     },
-    Sync,
+    SyncDox {
+        preview: Box<DoxSyncReport>,
+        selected_candidate: usize,
+        preview_scroll: Cell<u16>,
+    },
     RefreshCertification {
         command: String,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PendingAction {
     pub kind: ActionKind,
     pub memory_id: Option<String>,
@@ -111,11 +115,31 @@ impl PendingAction {
         }
     }
 
-    pub fn sync_placeholder() -> Self {
+    pub fn sync_dox(preview: DoxSyncReport, project: &str, store_path: &std::path::Path) -> Self {
+        let sensitive_count = preview
+            .events
+            .iter()
+            .filter(|event| event.sensitivity != "normal")
+            .count();
+        let summary = format!(
+            "Import or update {} DOX summaries from {} AGENTS.md files.\nSource: {}\nStore: {}\nProject: {}\nIncludes {} sensitive; skips {} secret sections; {} warnings.\nStable IDs update existing summaries; source files stay authoritative.",
+            preview.memory_count,
+            preview.source_count,
+            preview.root.display(),
+            store_path.display(),
+            project,
+            sensitive_count,
+            preview.skipped_secret_count,
+            preview.warnings.len(),
+        );
         Self {
-            kind: ActionKind::Sync,
+            kind: ActionKind::SyncDox {
+                preview: Box::new(preview),
+                selected_candidate: 0,
+                preview_scroll: Cell::new(0),
+            },
             memory_id: None,
-            summary: "Run integration sync".to_string(),
+            summary,
         }
     }
 
@@ -129,8 +153,9 @@ impl PendingAction {
         }
     }
 
+    #[cfg(test)]
     pub fn confirmation_prompt(&self) -> String {
-        format!("{} - press y to confirm, n/Esc to cancel", self.summary)
+        format!("{}\npress y to confirm, n/Esc to cancel", self.summary)
     }
 }
 
