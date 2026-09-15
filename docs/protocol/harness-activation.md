@@ -349,6 +349,14 @@ other benign metadata. Tree Ring ignores those fields completely: it does not
 read, forward, log, persist, or include them in recall. Capability-bearing or
 root-selecting fields are rejected instead of ignored.
 
+Lifecycle launchers use the current checkout's project-local `.tree-ring`,
+including in a linked Git worktree. If that directory is genuinely absent, the
+hook exits successfully without output or creating memory state. An inherited
+hook does not initialize a worktree or borrow the main checkout's memory store.
+An existing directory with missing or invalid activation, a file in place of
+the directory, or a symlink remains an error requiring repair. Explicit capture
+and preflight commands retain their strict activation requirements.
+
 ### Codex and Claude Code lifecycle-hook output
 
 The managed command reads its event input from stdin and writes exactly one JSON

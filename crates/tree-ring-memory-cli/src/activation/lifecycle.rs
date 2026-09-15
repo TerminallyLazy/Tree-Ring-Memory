@@ -11,12 +11,17 @@ use uuid::Uuid;
 
 const MAX_HOOK_INPUT_BYTES: usize = 1024 * 1024;
 
-// Shared by generated hooks and their capture instructions. GUI hosts need not
-// inherit a shell PATH containing the recommended project-local installation.
+// Capture instructions retain strict behavior if the store disappears. GUI hosts
+// need not inherit a shell PATH containing the project-local installation.
 pub(crate) const PROJECT_RUNTIME: &str = r#"project_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; tree_ring="$project_root/.tree-ring/bin/tree-ring"; if [ ! -x "$tree_ring" ]; then tree_ring=tree-ring; fi"#;
 
 pub(crate) fn lifecycle_command(harness: &str) -> String {
-    format!("{PROJECT_RUNTIME}; exec \"$tree_ring\" --root \"$project_root/.tree-ring\" integrations hook --harness {harness} --input-json-stdin")
+    let guarded_runtime = PROJECT_RUNTIME.replacen(
+        "; tree_ring=",
+        "; if [ ! -e \"$project_root/.tree-ring\" ] && [ ! -L \"$project_root/.tree-ring\" ]; then exit 0; fi; tree_ring=",
+        1,
+    );
+    format!("{guarded_runtime}; exec \"$tree_ring\" --root \"$project_root/.tree-ring\" integrations hook --harness {harness} --input-json-stdin")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +317,7 @@ mod tests {
         assert!(rendered.contains("\"decision\":\"block\""));
         assert!(rendered.contains(".tree-ring/bin/tree-ring"));
         assert!(rendered.contains(" capture "));
+        assert!(!rendered.contains("then exit 0"));
         assert!(!rendered.contains("--scope"));
         assert!(!rendered.contains(private_output));
         assert!(!rendered.contains("transcript.jsonl"));

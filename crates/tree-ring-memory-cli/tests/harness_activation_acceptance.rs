@@ -37,6 +37,235 @@ const SEEDED_MEMORY: &str =
 const RAW_TASK_HINT: &str = "fixture project startup constraints";
 const CAPABILITY_SENTINEL: &str = "fixture-coordinator-capability-must-not-persist";
 
+const HOOK_EVENTS: [&str; 4] = ["SessionStart", "SubagentStart", "Stop", "SubagentStop"];
+
+fn lifecycle_input(event: &str, cwd: &Path) -> Value {
+    json!({
+        "hook_event_name": event, "cwd": cwd, "session_id": "worktree-session",
+        "agent_id": "worktree-worker", "agent_type": "reviewer", "stop_hook_active": false
+    })
+}
+
+fn hook_output(mut command: Command, input: &Value) -> Output {
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("TREE_RING_") {
+            command.env_remove(key);
+        }
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(child.stdin.take().unwrap(), input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn inherited_old_and_new_hooks_skip_uninitialized_linked_worktrees_without_touching_main_store() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("Main Project With Spaces");
+    let worktree = temp.path().join("Linked Worktree With Spaces");
+    for directory in [".codex", ".claude"] {
+        fs::create_dir_all(project.join(directory)).unwrap();
+    }
+    let git = |args: &[&OsStr]| {
+        let output = Command::new("git")
+            .current_dir(&project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert_success("git fixture", &output);
+    };
+    git(&[OsStr::new("init"), OsStr::new("--quiet")]);
+    git(&[
+        OsStr::new("-c"),
+        OsStr::new("user.name=Fixture"),
+        OsStr::new("-c"),
+        OsStr::new("user.email=fixture@example.invalid"),
+        OsStr::new("-c"),
+        OsStr::new("commit.gpgsign=false"),
+        OsStr::new("commit"),
+        OsStr::new("--allow-empty"),
+        OsStr::new("-m"),
+        OsStr::new("fixture"),
+    ]);
+    git(&[
+        OsStr::new("worktree"),
+        OsStr::new("add"),
+        OsStr::new("--detach"),
+        worktree.as_os_str(),
+    ]);
+    fs::create_dir_all(worktree.join("src/Nested Folder")).unwrap();
+    let initialized = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", temp.path().join("fixture-home"))
+        .args(["--json", "welcome", "--init", "--no-animation"])
+        .output()
+        .unwrap();
+    assert_success("main fixture init", &initialized);
+    let main_snapshot = ["memory.sqlite", "activation.json"].map(|name| {
+        (
+            name,
+            fs::read(project.join(".tree-ring").join(name)).unwrap(),
+        )
+    });
+    let runtime_path = format!(
+        "{}:/usr/bin:/bin",
+        Path::new(env!("CARGO_BIN_EXE_tree-ring"))
+            .parent()
+            .unwrap()
+            .display()
+    );
+    for (harness, file) in [
+        ("codex", ".codex/hooks.json"),
+        ("claude-code", ".claude/settings.json"),
+    ] {
+        let hooks: Value = serde_json::from_slice(&fs::read(project.join(file)).unwrap()).unwrap();
+        // Frozen released v4 command: the upgraded binary must handle inherited old hooks too.
+        let old = format!(
+            r#"project_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; tree_ring="$project_root/.tree-ring/bin/tree-ring"; if [ ! -x "$tree_ring" ]; then tree_ring=tree-ring; fi; exec "$tree_ring" --root "$project_root/.tree-ring" integrations hook --harness {harness} --input-json-stdin"#
+        );
+        for event in HOOK_EVENTS {
+            let new = hooks["hooks"][event][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap();
+            for cwd in [&worktree, &worktree.join("src/Nested Folder")] {
+                // New commands need no installed CLI. Old commands use only the upgraded PATH CLI.
+                for (command, path) in [
+                    (new, "/usr/bin:/bin"),
+                    (old.as_str(), runtime_path.as_str()),
+                ] {
+                    let mut shell = Command::new("/bin/sh");
+                    shell
+                        .current_dir(cwd)
+                        .env("PATH", path)
+                        .args(["-c", command]);
+                    let output = hook_output(shell, &lifecycle_input(event, cwd));
+                    assert_success("inherited worktree hook", &output);
+                    assert!(output.stdout.is_empty());
+                    assert!(output.stderr.is_empty());
+                }
+            }
+        }
+    }
+    assert!(!worktree.join(".tree-ring").exists());
+    assert!(!worktree.join("src/Nested Folder/.tree-ring").exists());
+    for (name, bytes) in main_snapshot {
+        assert_eq!(
+            fs::read(project.join(".tree-ring").join(name)).unwrap(),
+            bytes
+        );
+    }
+    assert!(!project.join(".tree-ring/activation/receipts").exists());
+}
+
+#[test]
+fn lifecycle_skip_keeps_invalid_existing_roots_and_activation_visible() {
+    let temp = tempdir().unwrap();
+    for shape in [
+        "directory",
+        "file",
+        "dangling-symlink",
+        "directory-symlink",
+        "malformed-manifest",
+    ] {
+        let project = temp.path().join(shape);
+        fs::create_dir(&project).unwrap();
+        let root = project.join(".tree-ring");
+        match shape {
+            "directory" => fs::create_dir(&root).unwrap(),
+            "file" => fs::write(&root, "not a directory").unwrap(),
+            "dangling-symlink" => symlink(project.join("absent"), &root).unwrap(),
+            "directory-symlink" => {
+                let external = temp.path().join("external-store");
+                fs::create_dir(&external).unwrap();
+                symlink(&external, &root).unwrap();
+            }
+            "malformed-manifest" => {
+                fs::create_dir(&root).unwrap();
+                fs::write(root.join("activation.json"), "broken-json").unwrap();
+            }
+            _ => unreachable!(),
+        }
+        for harness in ["codex", "claude-code"] {
+            for event in HOOK_EVENTS {
+                let mut cli = Command::new(env!("CARGO_BIN_EXE_tree-ring"));
+                cli.current_dir(&project).arg("--root").arg(&root).args([
+                    "integrations",
+                    "hook",
+                    "--harness",
+                    harness,
+                    "--input-json-stdin",
+                ]);
+                let output = hook_output(cli, &lifecycle_input(event, &project));
+                assert!(!output.status.success(), "{shape}/{harness}/{event}");
+                assert!(output.stdout.is_empty());
+                assert!(!output.stderr.is_empty());
+            }
+        }
+        assert!(!root.join("memory.sqlite").exists());
+    }
+}
+
+#[test]
+fn absent_root_skip_still_validates_harness_input_and_project_paths() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let link = temp.path().join("linked-project");
+    symlink(&project, &link).unwrap();
+    let valid = lifecycle_input("SessionStart", &project);
+    let mut forbidden = valid.clone();
+    forbidden["memory_root"] = json!("elsewhere");
+    let cases = [
+        (project.join(".tree-ring"), "unknown", valid.clone()),
+        (project.join(".tree-ring"), "codex", json!({})),
+        (project.join(".tree-ring"), "codex", forbidden),
+        (project.join("custom-store"), "codex", valid.clone()),
+        (link.join(".tree-ring"), "codex", valid.clone()),
+        (
+            project.join(".tree-ring"),
+            "codex",
+            lifecycle_input("SessionStart", temp.path()),
+        ),
+    ];
+    for (root, harness, input) in cases {
+        let mut cli = Command::new(env!("CARGO_BIN_EXE_tree-ring"));
+        cli.current_dir(&project).arg("--root").arg(root).args([
+            "integrations",
+            "hook",
+            "--harness",
+            harness,
+            "--input-json-stdin",
+        ]);
+        let output = hook_output(cli, &input);
+        assert!(!output.status.success());
+        assert!(!output.stderr.is_empty());
+    }
+    // Explicit preflight remains strict; the no-op is limited to lifecycle hooks.
+    let output = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+        .current_dir(&project)
+        .args([
+            "integrations",
+            "preflight",
+            "--harness",
+            "codex",
+            "--agent-profile",
+            "codex",
+            "--workflow-id",
+            "fixture",
+            "--session-id",
+            "fixture",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!project.join(".tree-ring").exists());
+}
+
 #[test]
 fn generated_hooks_capture_and_recall_across_sessions_with_only_a_local_runtime() {
     let temp = tempdir().unwrap();

@@ -757,6 +757,11 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         let project = activation::adapters::ActivationProject::from_memory_root(cli.root.clone())?;
         let request = activation::parse_lifecycle_hook(&project, harness, &input)?;
+        // Inherited hooks also run in linked worktrees that have never opted in.
+        // Validate the request and local path first; only an absent root may skip.
+        if activation::bridge::lifecycle_memory_root_absent(&project)? {
+            return Ok(());
+        }
         let manifest = activation::load_manifest(&cli.root)?;
         ensure_manifest_preflight_ready(&manifest, harness, false)?;
         if let Some(preflight) = request.preflight {

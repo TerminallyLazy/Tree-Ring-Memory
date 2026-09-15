@@ -8,6 +8,12 @@ if command -v git >/dev/null 2>&1; then
     fi
 fi
 
+# A linked worktree or unrelated project may not have opted into local memory.
+# Existing roots, including dangling symlinks, still reach runtime diagnostics.
+if [ ! -e .tree-ring ] && [ ! -L .tree-ring ]; then
+    exit 0
+fi
+
 # Project activation owns lifecycle recall and checkpoints when its managed hook
 # is present. The marketplace hook stands down to prevent duplicate handling.
 if [ -f .claude/settings.json ] && {

@@ -10,7 +10,7 @@ tree-ring-memory contains Codex/Claude manifests, commands, skills, hooks, legal
 
 ## Local Contracts
 
-Ship all four native lifecycle hooks. Codex skills-only means no MCP dependency; retain hooks and executable ZIP permissions. Project-owned hooks cause plugin hooks to stand down.
+Ship all four native lifecycle hooks. Codex skills-only means no MCP dependency; retain hooks and executable ZIP permissions. Effective host-owned project hooks cause plugin hooks to stand down; Codex linked-worktree root layers use the proven primary hook source, while Claude keeps local ownership checks. A genuinely absent project-local .tree-ring is a quiet skip; an existing entry, including a dangling symlink, must retain runtime diagnostics. Never redirect worktree memory to the primary checkout's store.
 
 ## Work Guidance
 
