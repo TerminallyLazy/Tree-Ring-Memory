@@ -21,7 +21,7 @@ runtime and minor series. Coordinate the core allowlist and plugin descriptor
 before publishing either release; verify the actual pair with CLI activation,
 preflight, and receipt-backed status. A passing version probe alone is insufficient.
 
-Recognize earlier Claude handler bundles only by exact recorded ownership, commands, and generated entry shape. Preserve custom handlers and settings; bridge reconciliation still follows create-only publication and cannot silently replace existing hooks or manifests.
+Recognize earlier Claude handler bundles only by exact recorded ownership, commands, and generated single-handler entry shape. Preserve custom handlers and settings; bridge reconciliation still follows create-only publication and cannot silently replace existing hooks or manifests.
 
 When creating root AGENTS.md, record ownership of only the marked Tree Ring block so surrounding project instructions remain editable. Preserve legacy complete-file ownership until explicitly reconciled; never migrate an existing activation manifest automatically.
 
