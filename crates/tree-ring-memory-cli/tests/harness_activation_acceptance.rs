@@ -355,6 +355,78 @@ fn activation_commands_accept_equivalent_project_local_paths() {
 }
 
 #[test]
+fn project_instructions_can_grow_around_a_newly_created_memory_reference() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("Growing Project Contract");
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+            .current_dir(&project)
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", temp.path().join("fixture-home"))
+            .arg("--json")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    assert_success("initial init", &run(&["init"]));
+    let agents_path = project.join("AGENTS.md");
+    let reference = fs::read_to_string(&agents_path).unwrap();
+    let instructions = format!(
+        "# Project instructions\nPreserve existing rules.\n\n{reference}\n## Child DOX Index\nRead the owning child before editing.\n"
+    );
+    fs::write(&agents_path, &instructions).unwrap();
+    let memory_agents = fs::read(project.join(".tree-ring/AGENTS.md")).unwrap();
+    let manifest_before = fs::read(project.join(".tree-ring/activation.json")).unwrap();
+
+    for args in [
+        vec!["init"],
+        vec!["integrations", "activate", "--harness", "codex"],
+        vec!["integrations", "link", "--harness", "codex"],
+    ] {
+        let output = run(&args);
+        assert_success("project instructions coexist with memory", &output);
+        let report = output_json("project instructions coexist with memory", &output);
+        let codex = if args[0] == "init" {
+            record_by_id(&report["integrations"], "codex")
+        } else {
+            assert_eq!(report["changed_paths"], json!([]));
+            &report
+        };
+        assert_eq!(codex["state"], "configured-awaiting-proof");
+        assert_eq!(fs::read_to_string(&agents_path).unwrap(), instructions);
+        assert_eq!(
+            fs::read(project.join(".tree-ring/AGENTS.md")).unwrap(),
+            memory_agents
+        );
+        assert_eq!(
+            fs::read(project.join(".tree-ring/activation.json")).unwrap(),
+            manifest_before
+        );
+    }
+
+    // Only the surrounding project content is outside Tree Ring's ownership.
+    let changed_reference = instructions.replace("## Tree Ring Memory", "## Changed memory rules");
+    fs::write(&agents_path, &changed_reference).unwrap();
+    let output = run(&[
+        "integrations",
+        "activate",
+        "--harness",
+        "codex",
+        "--accept-managed-block",
+    ]);
+    assert_success("changed memory reference", &output);
+    let report = output_json("changed memory reference", &output);
+    assert_eq!(report["state"], "needs-user-review");
+    assert_eq!(report["changed_paths"], json!([]));
+    assert_eq!(fs::read_to_string(&agents_path).unwrap(), changed_reference);
+    assert_eq!(
+        fs::read(project.join(".tree-ring/activation.json")).unwrap(),
+        manifest_before
+    );
+}
+
+#[test]
 fn status_does_not_request_review_for_undetected_harnesses() {
     let temp = tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tree-ring"))

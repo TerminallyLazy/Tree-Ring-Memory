@@ -1922,7 +1922,16 @@ fn prepare_markdown_file(
             return Ok(None);
         }
         let bytes = block.into_bytes();
-        upsert_owned_file(owned_files, path, sha256(&bytes));
+        // AGENTS.md remains a project instruction file even when Tree Ring
+        // creates it first. Own only our marked block so later project rules
+        // do not turn an unchanged memory bridge into an ownership conflict.
+        upsert_managed_block(
+            managed_blocks,
+            path,
+            write.block_id.clone(),
+            sha256(&bytes),
+            String::new(),
+        );
         return Ok(Some(PreparedFile {
             relative: write.path.clone(),
             before: None,
@@ -3178,7 +3187,7 @@ mod tests {
     }
 
     #[test]
-    fn absent_agents_file_becomes_hash_recorded_owned_file_and_retries_idempotently() {
+    fn absent_agents_file_owns_only_its_marked_block_and_retries_idempotently() {
         let (_temp, project, mut manifest) = fixture();
         let codex = plan("codex", &project);
 
@@ -3205,7 +3214,15 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            3
+            2
+        );
+        assert_eq!(
+            serialized["harnesses"]["codex"]["managed_blocks"],
+            json!([{
+                "path": "AGENTS.md",
+                "block_id": "codex",
+                "sha256": sha256(agents.as_bytes())
+            }])
         );
         for owned in serialized["harnesses"]["codex"]["owned_files"]
             .as_array()
@@ -3213,6 +3230,44 @@ mod tests {
         {
             assert_eq!(owned["sha256"].as_str().unwrap().len(), 64);
         }
+    }
+
+    #[test]
+    fn legacy_agents_file_ownership_is_not_automatically_migrated() {
+        let (_temp, project, mut manifest) = fixture();
+        let codex = plan("codex", &project);
+        apply_bridge_plan(&project, &mut manifest, codex.clone(), false).unwrap();
+
+        // Model a manifest from before new AGENTS.md files used block ownership.
+        let activation = manifest.harnesses.get_mut("codex").unwrap();
+        let block = activation.managed_blocks.remove(0);
+        activation.owned_files.push(OwnedBridgeFile {
+            path: block.path,
+            sha256: block.sha256,
+        });
+        activation
+            .owned_files
+            .sort_by(|left, right| left.path.cmp(&right.path));
+        activation.bridge_fingerprint = bridge_fingerprint("codex", activation);
+        save_manifest(&project.memory_root, &manifest).unwrap();
+        let legacy_manifest = fs::read(project.memory_root.join("activation.json")).unwrap();
+
+        let retry = apply_bridge_plan(&project, &mut manifest, codex.clone(), false).unwrap();
+        assert_eq!(retry.state, ActivationState::ConfiguredAwaitingProof);
+        assert!(retry.changed_paths.is_empty());
+        assert!(manifest.harnesses["codex"].managed_blocks.is_empty());
+
+        let agents_path = project.project_root.join("AGENTS.md");
+        let instructions = format!("{}\n# Project rules\n", read(&agents_path));
+        write(&agents_path, &instructions);
+        let changed = apply_bridge_plan(&project, &mut manifest, codex, true).unwrap();
+        assert_eq!(changed.state, ActivationState::NeedsUserReview);
+        assert!(changed.changed_paths.is_empty());
+        assert_eq!(read(&agents_path), instructions);
+        assert_eq!(
+            fs::read(project.memory_root.join("activation.json")).unwrap(),
+            legacy_manifest
+        );
     }
 
     #[test]

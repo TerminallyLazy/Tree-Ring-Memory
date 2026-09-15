@@ -103,7 +103,7 @@ Adapter rules:
 - `tree-ring revolve sync` imports promoted, rejected, deferred, or observed evidence records without replacing Revolve/evaluation docs.
 - `tree-ring evidence` records individual evaluated outcomes with an explicit source ref.
 - Run adapter commands with `--dry-run` before writing memory.
-- `tree-ring integrations scan` is read-only; add harness bridge references manually until a link command is available.
+- `tree-ring integrations scan` and `tree-ring integrations status` are read-only. Review `tree-ring integrations activate --harness <id> --dry-run` before configuring a bridge with `tree-ring integrations link --harness <id>`. Existing project instructions and bridge files are preserved; reconcile only the bounded Tree Ring references and hooks when review is required.
 
 Multi-agent coordination:
 
