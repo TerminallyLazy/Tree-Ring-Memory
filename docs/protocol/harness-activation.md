@@ -25,6 +25,17 @@ Advanced commands are `tree-ring integrations status --verbose`,
 --harness <id>`. Certification records JSON and Markdown evidence; it is not
 required for initialization.
 
+The default `.tree-ring`, explicit `./.tree-ring`, and absolute paths to the
+same project-local store are equivalent for activation and deactivation.
+Different stores and symlinked bridge targets remain rejected.
+
+Keep an existing root `AGENTS.md` and `.tree-ring/AGENTS.md` separate. The
+project's instructions remain authoritative; Tree Ring's managed root block
+only references its local guidance. Create-only initialization preserves
+existing project instructions, and a harness without a managed activation
+record remains `needs-user-review` on subsequent status checks. Review and
+reconcile that bounded reference without replacing either instruction file.
+
 ## States and proof
 
 | State | Meaning |

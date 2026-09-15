@@ -127,6 +127,11 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                     || activation::adapters::adapter_capability(&detected.id)
                         != Some(harness.adapter_capability)
             });
+            // Detection describes a possible adapter plan, not an installed
+            // bridge. Init may have preserved an existing AGENTS.md and left
+            // this harness out of its manifest; status must retain that gap.
+            let missing_bridge = activation.is_none()
+                && detected.state == ActivationState::ConfiguredAwaitingProof;
             let receipt = manifest
                 .as_ref()
                 .and_then(|manifest| {
@@ -166,7 +171,7 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                         .map(|receipt| receipt.state)
                         .unwrap_or(detected.state)
                 }
-            } else if stale_adapter {
+            } else if stale_adapter || missing_bridge {
                 ActivationState::NeedsUserReview
             } else {
                 receipt
@@ -209,7 +214,9 @@ pub fn status(request: IntegrationStatusRequest) -> Result<IntegrationStatusActi
                     })
                 })
                 .flatten();
-            let next_step = if stale_adapter && detected.id != "agent-zero" {
+            let next_step = if missing_bridge && detected.id != "agent-zero" {
+                "No managed activation record exists for this harness. Run `tree-ring init`; if existing project instructions or bridge files need review, preserve them and reconcile only Tree Ring's bounded references and hooks.".to_string()
+            } else if stale_adapter && detected.id != "agent-zero" {
                 "The installed adapter definition is out of date. Review the managed hook files and activation manifest, then reconfigure them with this CLI; preserve the memory database.".to_string()
             } else {
                 next_step_for_state(state, &detected.next_step)

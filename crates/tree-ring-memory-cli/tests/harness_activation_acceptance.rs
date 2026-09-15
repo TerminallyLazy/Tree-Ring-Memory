@@ -293,6 +293,96 @@ fn shipped_fixtures_declare_only_project_local_versioned_activation_contracts() 
 }
 
 #[test]
+fn activation_commands_accept_equivalent_project_local_paths() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("Activation Project With Spaces");
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+            .current_dir(&project)
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", temp.path().join("fixture-home"))
+            .args(["--json"])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    assert_success("init", &run(&["init"]));
+    let manifest_before = fs::read(project.join(".tree-ring/activation.json")).unwrap();
+    let hooks_before = fs::read(project.join(".codex/hooks.json")).unwrap();
+    let absolute_root = project.join(".tree-ring");
+    for (root, source) in [
+        (".tree-ring", "."),
+        ("./.tree-ring", "."),
+        (".tree-ring/", "./"),
+        (".tree-ring", project.to_str().unwrap()),
+        (absolute_root.to_str().unwrap(), "."),
+        (absolute_root.to_str().unwrap(), project.to_str().unwrap()),
+    ] {
+        for command in ["activate", "link", "deactivate"] {
+            let output = run(&[
+                "--root",
+                root,
+                "integrations",
+                command,
+                "--harness",
+                "codex",
+                "--source-root",
+                source,
+            ]);
+            assert_success(&format!("{command}: root={root}, source={source}"), &output);
+            let report = output_json(command, &output);
+            assert_eq!(report["harness_id"], "codex");
+            assert_eq!(
+                report["state"],
+                if command == "deactivate" {
+                    "needs-user-review"
+                } else {
+                    "configured-awaiting-proof"
+                }
+            );
+            assert_eq!(
+                fs::read(project.join(".tree-ring/activation.json")).unwrap(),
+                manifest_before
+            );
+            assert_eq!(
+                fs::read(project.join(".codex/hooks.json")).unwrap(),
+                hooks_before
+            );
+        }
+    }
+}
+
+#[test]
+fn status_keeps_an_unconfigured_codex_bridge_in_review_after_init() {
+    let temp = tempdir().unwrap();
+    let project = temp.path().join("Existing Project");
+    fs::create_dir_all(project.join(".codex")).unwrap();
+    let instructions = "# Existing project instructions\nPreserve these rules.\n";
+    fs::write(project.join("AGENTS.md"), instructions).unwrap();
+    for args in [vec!["init"], vec!["integrations", "status", "--verbose"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_tree-ring"))
+            .current_dir(&project)
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", temp.path().join("fixture-home"))
+            .arg("--json")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_success("existing instructions", &output);
+        let report = output_json("existing instructions", &output);
+        let codex = record_by_id(&report["integrations"], "codex");
+        assert_eq!(codex["state"], "needs-user-review");
+        assert_eq!(
+            fs::read_to_string(project.join("AGENTS.md")).unwrap(),
+            instructions
+        );
+        assert!(!project.join(".codex/hooks.json").exists());
+    }
+}
+
+#[test]
 fn default_relative_root_initializes_from_the_project_root() {
     let temp = tempdir().unwrap();
     let project = temp.path().join("relative-default-root");

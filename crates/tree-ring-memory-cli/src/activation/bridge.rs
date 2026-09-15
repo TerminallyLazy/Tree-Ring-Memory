@@ -2191,7 +2191,15 @@ fn is_non_writing_blocked_plan(plan: &AdapterPlan) -> bool {
 }
 
 fn validate_project_shape(project: &ActivationProject) -> Result<(), String> {
-    if project.memory_root != project.project_root.join(".tree-ring") {
+    // Resolve relative spellings against the same cwd without following any
+    // symlinks. `.tree-ring`, `./.tree-ring`, and an absolute project-local
+    // root must agree; descriptor-relative no-follow checks still protect all
+    // filesystem access below. Do not canonicalize away that boundary.
+    let actual = std::path::absolute(&project.memory_root)
+        .map_err(|error| io_error(&project.memory_root, error))?;
+    let expected = std::path::absolute(project.project_root.join(".tree-ring"))
+        .map_err(|error| io_error(&project.project_root, error))?;
+    if actual != expected {
         return Err(
             "activation project memory root must be the project-local .tree-ring".to_string(),
         );
@@ -3045,6 +3053,17 @@ mod tests {
         thread,
     };
     use tempfile::TempDir;
+
+    #[test]
+    fn project_shape_rejects_other_stores_and_parent_traversal() {
+        for memory_root in ["elsewhere/.tree-ring", "memory", ".tree-ring/../memory"] {
+            let project = ActivationProject {
+                project_root: PathBuf::from("."),
+                memory_root: PathBuf::from(memory_root),
+            };
+            assert!(validate_project_shape(&project).is_err(), "{memory_root}");
+        }
+    }
 
     fn fixture() -> (TempDir, ActivationProject, ActivationManifest) {
         let temp = tempfile::tempdir().unwrap();
