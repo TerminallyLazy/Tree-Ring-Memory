@@ -4,6 +4,12 @@
 Read `.tree-ring/AGENTS.md`, `.tree-ring/SKILL.md`, and `.tree-ring/CLI.md` before substantive work. The project lifecycle hook runs receipt-backed recall at session boundaries and one strict automatic capture checkpoint before a session or subagent turn stops. Do not claim memory is active without a valid project-local recall receipt. Capture zero to three concise durable candidates; never store a transcript or invent memory.
 <!-- tree-ring:end codex -->
 
+Clean checkout: the marked memory preflight above applies when the generated
+`.tree-ring/AGENTS.md`, `SKILL.md`, and `CLI.md` exist. If they are absent, treat
+Tree Ring memory as inactive and continue with this tracked repository contract
+and its DOX hierarchy. Initialize local memory only when setup is authorized;
+missing generated files do not block ordinary repository work.
+
 # Tree Ring Memory repository
 
 Tree Ring is a Rust workspace for local, lifecycle-aware agent memory. Read
