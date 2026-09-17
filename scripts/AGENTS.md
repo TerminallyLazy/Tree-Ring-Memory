@@ -10,7 +10,7 @@ Package validator, release archive builder and certification script; coordinate 
 
 ## Local Contracts
 
-Release tag and binary version must agree. Published tarballs and plugin ZIPs require checksums and expected contents. Preserve platform constraints and installation scope.
+Release tag and binary version must agree. Published tarballs and plugin ZIPs require checksums and expected contents. Public plugin checks cover skill interface schema, omission of ignored front-matter metadata, unchanged instruction bodies, and directory listing limits. Preserve platform constraints and installation scope.
 
 ## Work Guidance
 

@@ -114,7 +114,7 @@ hooks for project-local installs; see the
 The current public-directory upload also includes native Codex lifecycle hooks;
 ordinary Chat hosts without the Codex hook runtime remain guidance-only.
 
-CLI 0.15.13 and the Codex 0.3.9 / Claude 0.3.7 plugins quietly skip lifecycle
+CLI 0.15.13 and the Codex 0.3.10 / Claude 0.3.7 plugins quietly skip lifecycle
 hooks in uninitialized projects and linked worktrees. Each checkout keeps its
 own memory root; inherited hooks never initialize it or reuse another
 checkout's store. Existing roots with broken activation still report errors.

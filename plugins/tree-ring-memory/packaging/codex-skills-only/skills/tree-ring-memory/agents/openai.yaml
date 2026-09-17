@@ -1,0 +1,7 @@
+{
+  "interface": {
+    "display_name": "Tree Ring Memory",
+    "short_description": "Recall and capture durable project memory",
+    "default_prompt": "Use $tree-ring-memory to recall durable project context before making changes."
+  }
+}
