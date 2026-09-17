@@ -14,13 +14,41 @@ PACKAGE_ROOT = Path("tree-ring-memory")
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 
 
-def write_file(archive: ZipFile, source: Path, destination: Path) -> None:
+def public_skill(content: str) -> str:
+    """Remove our canonical block-style metadata without changing instructions.
+
+    This handles the checked-in front matter, not arbitrary YAML. Interface
+    settings come from the public profile's agents/openai.yaml instead.
+    """
+    if not content.startswith("---\n"):
+        raise ValueError("skill must start with YAML front matter")
+    frontmatter, separator, body = content[4:].partition("\n---\n")
+    if not separator:
+        raise ValueError("skill front matter must end before the body")
+    lines = []
+    in_metadata = False
+    for line in frontmatter.splitlines():
+        if line.startswith("metadata:"):
+            if line != "metadata:":
+                raise ValueError("expected canonical block-style metadata")
+            in_metadata = True
+        elif in_metadata and (not line.strip() or line.startswith((" ", "\t"))):
+            continue
+        else:
+            in_metadata = False
+            lines.append(line)
+    return "---\n" + "\n".join(lines) + "\n---\n" + body
+
+
+def write_file(
+    archive: ZipFile, source: Path, destination: Path, *, data: bytes | None = None,
+) -> None:
     info = ZipInfo(str(PACKAGE_ROOT / destination), FIXED_TIMESTAMP)
     info.compress_type = ZIP_DEFLATED
     info.create_system = 3
     mode = 0o100755 if source.stat().st_mode & 0o111 else 0o100644
     info.external_attr = mode << 16
-    archive.writestr(info, source.read_bytes())
+    archive.writestr(info, source.read_bytes() if data is None else data)
 
 
 def build(destination: Path) -> None:
@@ -33,7 +61,14 @@ def build(destination: Path) -> None:
         )
         for path in sorted((PLUGIN / "skills").rglob("*")):
             if path.is_file():
-                write_file(archive, path, path.relative_to(PLUGIN))
+                relative = path.relative_to(PLUGIN)
+                if (PROFILE / relative).exists():
+                    raise ValueError(f"public skill profile collides with source: {relative}")
+                data = public_skill(path.read_text(encoding="utf-8")).encode("utf-8") if path.name == "SKILL.md" else None
+                write_file(archive, path, relative, data=data)
+        for path in sorted((PROFILE / "skills").rglob("*")):
+            if path.is_file():
+                write_file(archive, path, path.relative_to(PROFILE))
         for path in sorted((PLUGIN / "assets").rglob("*")):
             if path.is_file():
                 write_file(archive, path, path.relative_to(PLUGIN))

@@ -5,7 +5,7 @@ ChatGPT/Codex and Claude Code. It packages reviewed instructions plus thin
 lifecycle-hook registrations; the local Tree Ring Memory CLI remains the
 runtime and data owner.
 
-The Codex manifest is version `0.3.9`. The Claude Code manifest is version
+The Codex manifest is version `0.3.10`. The Claude Code manifest is version
 `0.3.7`. Both share the same reviewed wrapper skill. Manual guidance supports
 CLI `0.15.0` or newer; the lifecycle hooks require CLI `0.15.6` or newer for
 project-local runtime resolution and cross-session recall. DOX persistence
@@ -125,8 +125,22 @@ skills-only artifact explicitly instead of uploading the repository plugin:
 
 ```bash
 python3 plugins/tree-ring-memory/packaging/build-codex-skills-only.py \
-  tree-ring-memory-codex-skills-only.zip
+  tree-ring-memory-codex-skills-only-0.3.10.zip
 ```
+
+Upload `tree-ring-memory-codex-skills-only-0.3.10.zip` from the Codex plugin
+release to `platform.openai.com/plugins` using **Skills only**. The similarly
+named `tree-ring-memory-codex-0.3.10.zip` is the full repository package.
+
+The public profile omits the ignored `metadata` mapping from skill front matter
+and supplies supported interface settings in
+`skills/tree-ring-memory/agents/openai.yaml`. This file uses JSON syntax, which
+is valid YAML. The skill body, name, description, and license stay unchanged.
+Plugin listing text is separate: the public profile's `interface.shortDescription`
+fits the directory's 30-character limit. The upstream
+[submission error reference](https://developers.openai.com/plugins/deploy/submission-errors)
+classifies `skill_metadata_ignored` as a warning, not a blocking error; inspect
+any additional portal messages if submission remains blocked.
 
 The generated ZIP has one `tree-ring-memory/` package root. It includes the
 skill, legal notices, logo, composer icon, manifest, and executable native Codex
